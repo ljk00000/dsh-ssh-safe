@@ -120,6 +120,23 @@ ssh_connect { machine: "prod", trustHostKey: true }
 
 **注意**：这是防手滑的安全带，不是安全边界。shell 总有别的路径可达。
 
+
+### 可选：原生加速绑定（`ERR_PNPM_IGNORED_BUILDS`）
+
+`ssh2` 带两个**可选**原生模块：`cpu-features`（CPU 特性探测）和 `sshcrypto`（更快的加密）。
+不编译它们插件照样能用（纯 JS 回退），但 pnpm 会把「忽略构建脚本」当成错误，让安装以非零码退出。
+
+遇到这个报错时，在 profile 目录跑一次：
+
+```sh
+cd ~/.dsh/profiles/desktop
+pnpm approve-builds --all
+```
+
+注意必须用**与 DSH 相同的大版本** pnpm。DSH 内置的是 pnpm 11，
+如果你系统里的 `pnpm` 是 10，就要用 `npx pnpm@11 approve-builds --all`，
+否则 `node_modules` 的 store 标记会被改写，之后 `dsh plugin` 会报 `ERR_PNPM_UNEXPECTED_STORE`。
+
 ### 它不做什么
 
 - 不接管 `ctx.fs` / `ctx.shell`。你本地的 `read` / `write` / `bash` 完全不受影响
