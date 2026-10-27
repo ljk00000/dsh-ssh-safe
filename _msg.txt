@@ -1,0 +1,31 @@
+fix: invalid config was accepted silently; paths failed as network errors
+
+1. The three string enums were free-form. execGuard set to a value other than
+   'confirm' leaves the confirmation switch silently OFF while ssh_config
+   displays something that looks enabled. hostKeyPolicy and machineInventory had
+   the same problem. All three are validated unions now; a typo fails at load.
+
+2. Every numeric setting was read as 'cfg.x || fallback', which treats a
+   deliberate 0 as an absence. keepaliveIntervalMs: 0 and reconnectCooldownMs: 0
+   are documented as 'disabled' and did the opposite, while ssh_config reported
+   the number the runtime never used -- a config panel that lies. pick() keeps 0
+   and falls back only for undefined/null/NaN.
+
+3. Path validation ran after connecting, so '~/x' and 'rel/x' surfaced as
+   ECONNREFUSED and then as a 15s cooldown that hid the real complaint. Paths are
+   validated before the network now, so a caller mistake reads as a caller
+   mistake.
+
+4. checkCommand inspected shell wrappers but not pipelines, so a pipe into an
+   interpreter -- the commonest remote-code-execution shape -- passed through.
+   checkPipeline catches it; pipeToShell: allow opts out.
+
+5. tsconfig with checkJs existed but nothing ran it. Enabling it surfaced 30+
+   real type errors, all now fixed (narrow inferred object literals, Error.code,
+   untyped destructured options). npm run typecheck is in scripts and CI, so the
+   check is a gate rather than decoration.
+
+6. Added an opt-in integration test: DSH_SSH_TEST_TARGET=<alias> exercises a real
+   server; it skips in CI so the suite stays dependency-free.
+
+Tests: 134 passing, 4 skipped.

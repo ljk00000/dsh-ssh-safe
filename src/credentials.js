@@ -83,6 +83,10 @@ export function agentSocket(env = process.env) {
   return typeof sock === 'string' && sock.length > 0 ? sock : ''
 }
 
+/**
+ * @param {string} alias
+ * @param {{sessionPassword?: string, allowSessionPassword?: boolean, useAgent?: boolean}} [options]
+ */
 export function resolveAuth(alias, { sessionPassword, allowSessionPassword, useAgent } = {}) {
   const m = machineFromEnv(alias)
   if (m.password) return { kind: 'env-password', password: m.password, machine: m }

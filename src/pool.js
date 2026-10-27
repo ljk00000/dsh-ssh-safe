@@ -36,6 +36,36 @@ import { normalizeRemotePath } from './remote-path.js'
 import { closeClient } from './close.js'
 import { readRemoteFile, writeRemoteFile, listRemoteDir } from './sftp.js'
 
+/**
+ * One pooled machine slot.
+ *
+ * @typedef {object} PoolEntry
+ * @property {any} client        live ssh2 client, or null
+ * @property {Promise<any>|null} ready in-progress handshake
+ * @property {string} lastError   redacted message from the last failure
+ * @property {number} nextAttemptAt epoch ms before which retries are refused
+ * @property {number} lastUsedAt  epoch ms of the last use, for LRU ordering
+ * @property {string|null} [fingerprint] host key fingerprint, null when unknown
+ * @property {string|undefined} [credentialIdentity] digest of the credential used
+ */
+
+/**
+ * Read a numeric setting, treating 0 as a real value.
+ *
+ * `cfg.setting || fallback` silently replaces a deliberate 0 with the default,
+ * so every setting documented as "0 disables" actually did the opposite and
+ * ssh_config reported a number the runtime never used.
+ *
+ * @param {unknown} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+export function pick(value, fallback) {
+  if (value === null || value === undefined) return fallback
+  const n = Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
 /** Policies the host-key store understands. */
 const VALID_POLICIES = new Set(['strict', 'tofu', 'off'])
 
@@ -55,9 +85,9 @@ const VALID_POLICIES = new Set(['strict', 'tofu', 'off'])
  */
 export function effectivePolicy(globalPolicy, machinePolicy) {
   const machine = String(machinePolicy ?? '').trim().toLowerCase()
-  if (VALID_POLICIES.has(machine)) return machine
+  if (VALID_POLICIES.has(machine)) return /** @type {'strict'|'tofu'|'off'} */ (machine)
   const global = String(globalPolicy ?? '').trim().toLowerCase()
-  if (VALID_POLICIES.has(global)) return global
+  if (VALID_POLICIES.has(global)) return /** @type {'strict'|'tofu'|'off'} */ (global)
   return 'strict'
 }
 
@@ -81,14 +111,26 @@ export class SshPool {
      * so shutdown now refuses to close a busy connection until it drains.
      */
     this.inflight = new Map()
-    /** @type {Map<string, {client: any, ready: Promise<any>, lastError: string, nextAttemptAt: number}>} */
+    /** @type {Map<string, PoolEntry>} */
     this.entries = new Map()
   }
 
+  /**
+   * Get or create the pool slot for an alias.
+   *
+   * The slot is declared with a JSDoc typedef because checkJs otherwise infers
+   * a narrow object literal type and then rejects every field assigned later
+   * (fingerprint, credentialIdentity, lastUsedAt).
+   *
+   * @param {string} alias
+   * @returns {PoolEntry}
+   */
   entry(alias) {
     let e = this.entries.get(alias)
     if (!e) {
-      e = { client: null, ready: null, lastError: '', nextAttemptAt: 0, lastUsedAt: Date.now() }
+      /** @type {PoolEntry} */
+      const fresh = { client: null, ready: null, lastError: '', nextAttemptAt: 0, lastUsedAt: Date.now() }
+      e = fresh
       this.entries.set(alias, e)
     }
     e.lastUsedAt = Date.now()
@@ -186,6 +228,10 @@ export class SshPool {
     return machineFromEnv(alias)
   }
 
+  /**
+   * @param {string} alias
+   * @param {{sessionPassword?: string, trustHostKey?: boolean, force?: boolean}} [options]
+   */
   async connect(alias, { sessionPassword, trustHostKey, force = false } = {}) {
     const e = this.entry(alias)
 
@@ -256,7 +302,7 @@ export class SshPool {
       })
       .catch((err) => {
         e.lastError = redact(err && err.message ? err.message : String(err))
-        e.nextAttemptAt = Date.now() + (this.config.reconnectCooldownMs || 15000)
+        e.nextAttemptAt = Date.now() + pick(this.config.reconnectCooldownMs, 15000)
         throw err
       })
       .finally(() => { e.ready = null })
@@ -326,8 +372,8 @@ export class SshPool {
       host: m.host,
       port: m.port || 22,
       username: m.username,
-      readyTimeout: this.config.connectTimeoutMs || 15000,
-      keepaliveInterval: this.config.keepaliveIntervalMs || 20000,
+      readyTimeout: pick(this.config.connectTimeoutMs, 15000),
+      keepaliveInterval: pick(this.config.keepaliveIntervalMs, 20000),
       keepaliveCountMax: 3,
     }
 
@@ -399,6 +445,11 @@ export class SshPool {
     })
   }
 
+  /**
+   * @param {string} alias
+   * @param {string} command
+   * @param {{timeoutMs?: number, sessionPassword?: string}} [inline]
+   */
   async exec(alias, command, { timeoutMs, sessionPassword } = {}) {
     const client = await this.connect(alias, { sessionPassword })
     this.beginOp(alias)
@@ -410,8 +461,8 @@ export class SshPool {
   }
 
   async #execOn(alias, client, command, timeoutMs) {
-    const limit = timeoutMs || this.config.commandTimeoutMs || 20000
-    const cap = this.config.maxOutputChars || 200000
+    const limit = pick(timeoutMs || undefined, pick(this.config.commandTimeoutMs, 20000))
+    const cap = pick(this.config.maxOutputChars, 200000)
 
     return await new Promise((resolve, reject) => {
       const out = { text: '', truncated: false }
@@ -494,6 +545,7 @@ export class SshPool {
     })
   }
 
+  /** @param {string} alias @param {string} remotePath @param {{maxBytes?: number, timeoutMs?: number, sessionPassword?: string}} [opts] */
   async readFile(alias, remotePath, opts = {}) {
     this.beginOp(alias)
     try {
@@ -503,19 +555,29 @@ export class SshPool {
     }
   }
 
+  /**
+   * @param {string} alias
+   * @param {string} remotePath
+   * @param {{maxBytes?: number, sessionPassword?: string, timeoutMs?: number}} [inline]
+   */
   async #readFileOn(alias, remotePath, { maxBytes, sessionPassword, timeoutMs } = {}) {
+    // Validate before connecting: an invalid path is the caller's mistake, and
+    // surfacing it as ECONNREFUSED (or as a cooldown) sends the user after a
+    // server that is perfectly healthy.
+    normalizeRemotePath(remotePath)
     // maxBytes can only tighten the configured ceiling: a tool argument must not
     // be able to pull an arbitrary amount of the remote file into memory.
-    const configured = this.config.maxFileBytes || 1048576
+    const configured = pick(this.config.maxFileBytes, 1048576)
     const requested = Number(maxBytes) || 0
     const cap = requested > 0 ? Math.min(requested, configured) : configured
     const client = await this.connect(alias, { sessionPassword })
     return await readRemoteFile(client, remotePath, {
       maxBytes: cap,
-      timeoutMs: timeoutMs || this.config.sftpTimeoutMs || 30000,
+      timeoutMs: pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)),
     })
   }
 
+  /** @param {string} alias @param {string} remotePath @param {{timeoutMs?: number, sessionPassword?: string}} [opts] */
   async writeFile(alias, remotePath, content, opts = {}) {
     this.beginOp(alias)
     try {
@@ -525,13 +587,22 @@ export class SshPool {
     }
   }
 
+  /**
+   * @param {string} alias
+   * @param {string} remotePath
+   * @param {string|Buffer} content
+   * @param {{sessionPassword?: string, timeoutMs?: number}} [inline]
+   */
   async #writeFileOn(alias, remotePath, content, { sessionPassword, timeoutMs } = {}) {
+    // See readFile: reject a bad path before touching the network.
+    normalizeRemotePath(remotePath)
     const client = await this.connect(alias, { sessionPassword })
     return await writeRemoteFile(client, remotePath, content, {
-      timeoutMs: timeoutMs || this.config.sftpTimeoutMs || 30000,
+      timeoutMs: pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)),
     })
   }
 
+  /** @param {string} alias @param {string} remotePath @param {{timeoutMs?: number, sessionPassword?: string}} [opts] */
   async list(alias, remotePath, opts = {}) {
     this.beginOp(alias)
     try {
@@ -541,12 +612,24 @@ export class SshPool {
     }
   }
 
+  /**
+   * @param {string} alias
+   * @param {string} remotePath
+   * @param {{sessionPassword?: string, timeoutMs?: number}} [inline]
+   */
   async #listOn(alias, remotePath, { sessionPassword, timeoutMs } = {}) {
+    // list allows a relative path, so it validates with allowRelative rather
+    // than insisting on an absolute one.
+    normalizeRemotePath(remotePath || '.', { allowRelative: true })
     const client = await this.connect(alias, { sessionPassword })
     return await listRemoteDir(client, remotePath, {
-      timeoutMs: timeoutMs || this.config.sftpTimeoutMs || 30000,
+      timeoutMs: pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)),
     })
   }
+  /**
+   * @param {string} alias
+   * @param {{force?: boolean}} [inline]
+   */
   async closeOne(alias, { force = false } = {}) {
     const e = this.entries.get(alias)
     if (!e) return { closed: false, confirmed: false }
@@ -560,7 +643,7 @@ export class SshPool {
     e.credentialIdentity = undefined
     e.nextAttemptAt = 0
     if (!client) return { closed: false, confirmed: false }
-    const confirmed = await closeClient(client, this.config.closeTimeoutMs || 1500)
+    const confirmed = await closeClient(client, pick(this.config.closeTimeoutMs, 1500))
     return { closed: true, confirmed }
   }
 
@@ -574,6 +657,7 @@ export class SshPool {
    * @param {{force?: boolean, drainMs?: number}} [options]
    * @returns {Promise<{closed: string[], busy: string[]}>}
    */
+  /** @param {{force?: boolean, drainMs?: number}} [inline] */
   async closeAll({ force = false, drainMs = 0 } = {}) {
     const deadline = drainMs > 0 ? Date.now() + drainMs : 0
 
@@ -611,7 +695,7 @@ export class SshPool {
       if (!e.client && !this.isBusy(alias)) this.entries.delete(alias)
     }
 
-    await Promise.all(clients.map((client) => closeClient(client, this.config.closeTimeoutMs || 1500)))
+    await Promise.all(clients.map((client) => closeClient(client, pick(this.config.closeTimeoutMs, 1500))))
     return { closed, busy }
   }
 }

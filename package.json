@@ -43,8 +43,8 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-tools": ">=0.1.7-rc.1 <0.3.0-0",
     "@deepseek-ai/dsh-system-prompt": ">=0.1.7-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-tools": ">=0.1.7-rc.1 <0.3.0-0",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "peerDependenciesMeta": {
@@ -56,6 +56,12 @@
     "ssh2": "^1.16.0"
   },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test \"test/*.test.js\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^22.0.0"
   }
 }

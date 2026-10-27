@@ -18,12 +18,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+      - name: Install dev dependencies
+        run: npm install --no-audit --no-fund
+
+      # checkJs is only useful if something runs it. tsconfig.json exists and
+      # this step is what makes it a gate instead of decoration.
+      - name: Typecheck (checkJs)
+        run: npm run typecheck
+
       # The suite is deliberately dependency-free: no ssh2 install is needed
       # because every module that would touch it is either lazy-loaded or
       # exercised through a fake client.
       - name: Run tests
-        run: node --test "test/*.test.js"
-      - name: Syntax check
-        run: |
-          for f in src/*.js; do node --check "$f"; done
-        shell: bash
+        run: npm test
+

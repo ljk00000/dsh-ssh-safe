@@ -34,7 +34,7 @@ export function summarize(command, maxLength = 200) {
 
 export class AuditLog {
   /**
-   * @param {string} directiory directory the log file lives in
+   * @param {string} directory directory the log file lives in
    * @param {{enabled?: boolean, maxBytes?: number}} [options]
    */
   constructor(directory, options = {}) {

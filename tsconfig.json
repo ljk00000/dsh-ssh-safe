@@ -7,13 +7,17 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": false,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "src/**/*.js"
   ],
   "exclude": [
     "node_modules",
-    "test"
+    "test",
+    "lib"
   ]
 }

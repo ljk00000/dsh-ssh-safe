@@ -18,7 +18,7 @@ import z from '@deepseek-ai/schemastery'
 import { readFileSync } from 'node:fs'
 import net from 'node:net'
 import { homedir } from 'node:os'
-import { SshPool, expandHome } from './pool.js'
+import { SshPool, expandHome, pick } from './pool.js'
 import { expectedEnv, machineFromEnv, redact, resolveAuth } from './credentials.js'
 import { storePath } from './hostkey.js'
 import { checkCommand } from './guard.js'
@@ -46,7 +46,7 @@ export const Config = z.object({
    *           so a shared or exported transcript does not leak the network
    *           topology or where private keys live
    */
-  machineInventory: z.string().default('full'),
+  machineInventory: z.union(['full', 'alias']).default('full'),
 
   /**
    * Append an NDJSON record for every operation to
@@ -77,14 +77,14 @@ export const Config = z.object({
    * confirm — ssh_exec requires confirm: true, so a model cannot run a
    *           command entirely on its own initiative
    */
-  execGuard: z.string().default('allow'),
+  execGuard: z.union(['allow', 'confirm']).default('allow'),
 
   /**
    * strict — only hosts already recorded may connect (default)
    * tofu   — first contact records the fingerprint; a CHANGE is still fatal
    * off    — no verification (MITM-unsafe; reported in every result)
    */
-  hostKeyPolicy: z.string().default('strict'),
+  hostKeyPolicy: z.union(['strict', 'tofu', 'off']).default('strict'),
 
   commandTimeoutMs: z.number().step(1).min(1000).default(30000),
 
@@ -116,6 +116,15 @@ export const Config = z.object({
    * A safety rail against catastrophic typos, NOT a security boundary — a
    * shell can always be reached through other commands.
    */
+  /**
+   * How to treat a pipeline into an interpreter (`curl ... | bash`).
+   *
+   *   refuse — treat it as blocked (default): pattern matching cannot see what
+   *            the left side produced, so it cannot be judged
+   *   allow  — let it through; only denyPatterns apply
+   */
+  pipeToShell: z.union(['refuse', 'allow']).default('refuse'),
+
   denyPatterns: z.array(z.string()).default([
     'rm\\s+-rf\\s+/(?:\\s|$)',
     '\\bmkfs\\.',
@@ -165,7 +174,9 @@ export async function apply(ctx, config) {
     if (cfg.execGuard === 'confirm' && confirmed !== true) {
       throw new Error('execGuard is "confirm": pass confirm: true to run this command.')
     }
-    const verdict = checkCommand(command, cfg.denyPatterns)
+    const verdict = cfg.pipeToShell === 'allow'
+      ? checkCommand(command, cfg.denyPatterns, { allowPipeline: true })
+      : checkCommand(command, cfg.denyPatterns)
     if (verdict.blocked) {
       audit.write({
         kind: 'refused',
@@ -192,7 +203,7 @@ export async function apply(ctx, config) {
       // Distinguish "no store yet" from "the store exists but is unreadable".
       // Silently reporting "not trusted" for a permission error would hide a
       // real misconfiguration.
-      const code = err && err.code
+      const code = err && /** @type {{code?: string}} */ (err).code
       if (code === 'ENOENT') return 'not trusted yet (no fingerprint recorded)'
       return 'known-hosts store unreadable (' + (code || 'parse error') + '): ' + file
     }
@@ -639,10 +650,13 @@ export async function apply(ctx, config) {
       const tcp = await new Promise((resolve) => {
         const socket = net.connect({ host: m.host, port })
         const done = (ok, detail) => { try { socket.destroy() } catch {} ; resolve({ ok, detail }) }
-        socket.setTimeout(cfg.connectTimeoutMs || 15000)
+        socket.setTimeout(pick(cfg.connectTimeoutMs, 15000))
         socket.once('connect', () => done(true, 'port ' + port + ' accepts connections'))
         socket.once('timeout', () => done(false, 'no answer on port ' + port + ' within the timeout'))
-        socket.once('error', (err) => done(false, (err && err.code ? err.code : 'connect failed')))
+        socket.once('error', (err) => {
+          const code = err && /** @type {{code?: string}} */ (err).code
+          done(false, code || 'connect failed')
+        })
       })
       say('tcp', tcp.ok ? 'ok' : 'FAIL', tcp.detail)
       if (!tcp.ok) {
