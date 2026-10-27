@@ -31,6 +31,7 @@ import { homedir } from 'node:os'
 import { resolveAuth, redact, machineFromEnv, envNames } from './credentials.js'
 import { checkHostKey } from './hostkey.js'
 import { appendCapped, Utf8Collector } from './buffer.js'
+import { normalizeRemotePath } from './remote-path.js'
 
 /** Expand a leading ~ so key paths written by hand work. */
 export function expandHome(p) {
@@ -237,61 +238,113 @@ export class SshPool {
     })
   }
 
-  async readFile(alias, remotePath, { maxBytes, sessionPassword } = {}) {
+  async readFile(alias, remotePath, { maxBytes, sessionPassword, timeoutMs } = {}) {
+    const target = normalizeRemotePath(remotePath)
     const cap = maxBytes || this.config.maxFileBytes || 1048576
+    const limit = timeoutMs || this.config.sftpTimeoutMs || 30000
     const client = await this.connect(alias, { sessionPassword })
     return await new Promise((resolve, reject) => {
+      const collector = new Utf8Collector(cap)
+      let settled = false
+      let timer = null
+      let rs = null
+      const settle = (result, error) => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        if (rs) {
+          try { rs.removeAllListeners('data'); rs.removeAllListeners('error') } catch {}
+          try { rs.destroy() } catch {}
+        }
+        if (error) reject(error)
+        else resolve(result)
+      }
+
+      timer = setTimeout(() => {
+        settle(null, new Error('reading ' + target + ' did not complete within ' + limit + 'ms'))
+      }, limit)
+
       client.sftp((error, sftp) => {
-        if (error) return reject(new Error(redact(error.message)))
-        const collector = new Utf8Collector(cap)
-        let settled = false
-        const rs = sftp.createReadStream(remotePath)
+        if (error) return settle(null, new Error(redact(error.message)))
+        rs = sftp.createReadStream(target)
         rs.on('data', (chunk) => {
           collector.push(chunk)
-          // Stop pulling once the cap is reached; the rest cannot be kept.
-          if (collector.truncated) { try { rs.destroy() } catch {} }
+          if (collector.truncated) settle({ content: collector.toString(), truncated: true, bytes: collector.bytes })
         })
-        rs.on('error', (e) => {
-          if (settled) return
-          settled = true
-          reject(new Error(redact(e.message)))
-        })
-        rs.on('end', () => {
-          if (settled) return
-          settled = true
-          resolve({ content: collector.toString(), truncated: collector.truncated, bytes: collector.bytes })
-        })
-        rs.on('close', () => {
-          // destroy() after a cap hit closes the stream without 'end'.
-          if (settled) return
-          settled = true
-          resolve({ content: collector.toString(), truncated: collector.truncated, bytes: collector.bytes })
-        })
+        rs.on('error', (e) => settle(null, new Error(redact(e.message))))
+        rs.on('end', () => settle({ content: collector.toString(), truncated: collector.truncated, bytes: collector.bytes }))
+        rs.on('close', () => settle({ content: collector.toString(), truncated: collector.truncated, bytes: collector.bytes }))
       })
     })
   }
 
-  async writeFile(alias, remotePath, content, { sessionPassword } = {}) {
+  async writeFile(alias, remotePath, content, { sessionPassword, timeoutMs } = {}) {
+    const target = normalizeRemotePath(remotePath)
     const client = await this.connect(alias, { sessionPassword })
+    const limit = timeoutMs || this.config.sftpTimeoutMs || 30000
+    const payload = Buffer.isBuffer(content) ? content : Buffer.from(String(content ?? ''), 'utf8')
+
     return await new Promise((resolve, reject) => {
+      let settled = false
+      let timer = null
+      let ws = null
+      const settle = (result, error) => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        if (ws) {
+          try { ws.removeAllListeners('error'); ws.removeAllListeners('close'); ws.removeAllListeners('finish') } catch {}
+          try { ws.destroy() } catch {}
+        }
+        if (error) reject(error)
+        else resolve(result)
+      }
+
+      // ssh2's write stream can fail without emitting 'error' or 'close' (a
+      // server that drops the channel mid-transfer is one case), which used to
+      // hang the tool forever. A deadline is the only reliable backstop.
+      timer = setTimeout(() => {
+        settle(null, new Error(
+          'writing ' + target + ' did not complete within ' + limit + 'ms' +
+          ' — the remote channel may have dropped'
+        ))
+      }, limit)
+
       client.sftp((err, sftp) => {
-        if (err) return reject(new Error(redact(err.message)))
-        const ws = sftp.createWriteStream(remotePath)
-        ws.on('error', (e) => reject(new Error(redact(e.message))))
-        ws.on('close', () => resolve({ bytes: Buffer.byteLength(content) }))
-        ws.end(content)
+        if (err) return settle(null, new Error(redact(err.message)))
+        ws = sftp.createWriteStream(target)
+        ws.on('error', (e) => settle(null, new Error(redact(e.message))))
+        ws.on('close', () => settle({ bytes: payload.length, path: target }))
+        // 'finish' fires when all data was handed to SFTP; 'close' can lag.
+        ws.on('finish', () => settle({ bytes: payload.length, path: target }))
+        ws.end(payload)
       })
     })
   }
 
-  async list(alias, remotePath, { sessionPassword } = {}) {
+  async list(alias, remotePath, { sessionPassword, timeoutMs } = {}) {
+    const target = normalizeRemotePath(remotePath || '.', { allowRelative: true })
+    const limit = timeoutMs || this.config.sftpTimeoutMs || 30000
     const client = await this.connect(alias, { sessionPassword })
     return await new Promise((resolve, reject) => {
+      let settled = false
+      const timer = setTimeout(() => {
+        if (settled) return
+        settled = true
+        reject(new Error('listing ' + target + ' did not complete within ' + limit + 'ms'))
+      }, limit)
+      const settle = (result, error) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        if (error) reject(error)
+        else resolve(result)
+      }
       client.sftp((err, sftp) => {
-        if (err) return reject(new Error(redact(err.message)))
-        sftp.readdir(remotePath, (e, items) => {
-          if (e) return reject(new Error(redact(e.message)))
-          resolve(items.map((it) => ({
+        if (err) return settle(null, new Error(redact(err.message)))
+        sftp.readdir(target, (e, items) => {
+          if (e) return settle(null, new Error(redact(e.message)))
+          settle(items.map((it) => ({
             name: it.filename,
             size: it.attrs.size,
             dir: (it.attrs.mode & 0o040000) !== 0,
@@ -302,11 +355,51 @@ export class SshPool {
     })
   }
 
-  closeAll() {
+  /**
+   * Close every pooled connection.
+   *
+   * ssh2's end() is asynchronous; the entries are dropped synchronously so the
+   * next call reconnects, and the sockets are given a bounded grace period to
+   * close rather than leaking when the process keeps running.
+   */
+  /** Close one alias' connection, keeping the pool entry usable. */
+  async closeOne(alias) {
+    const e = this.entries.get(alias)
+    if (!e) return false
+    const client = e.client
+    e.client = null
+    e.ready = null
+    e.nextAttemptAt = 0
+    if (!client) return false
+    await new Promise((resolve) => {
+      let done = false
+      const finish = () => { if (!done) { done = true; resolve() } }
+      try { client.once('close', finish); client.end() } catch { finish() }
+      setTimeout(finish, 1500).unref?.()
+    })
+    return true
+  }
+
+  async closeAll() {
+    const clients = []
     for (const [, e] of this.entries) {
-      try { e.client?.end() } catch {}
+      if (e.client) clients.push(e.client)
       e.client = null
+      e.ready = null
+      e.nextAttemptAt = 0
     }
     this.entries.clear()
+    await Promise.all(clients.map((client) => new Promise((resolve) => {
+      let done = false
+      const finish = () => { if (!done) { done = true; resolve() } }
+      try {
+        client.once('close', finish)
+        client.end()
+      } catch {
+        finish()
+      }
+      // A hung socket must not block shutdown forever.
+      setTimeout(finish, 1500).unref?.()
+    })))
   }
 }

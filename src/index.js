@@ -50,6 +50,12 @@ export const Config = z.object({
   hostKeyPolicy: z.string().default('strict'),
 
   commandTimeoutMs: z.number().step(1).min(1000).default(30000),
+
+  /**
+   * Deadline for a single SFTP read/write/list. ssh2 can stall without emitting
+   * an error, so this is the backstop that keeps a tool call from hanging.
+   */
+  sftpTimeoutMs: z.number().step(1).min(1000).default(30000),
   connectTimeoutMs: z.number().step(1).min(1000).default(15000),
   keepaliveIntervalMs: z.number().step(1).min(0).default(20000),
   maxOutputChars: z.number().step(1).min(1024).default(200000),
@@ -275,7 +281,7 @@ export async function apply(ctx, config) {
         throw new Error('Refusing to write ' + bytes + ' bytes (maxFileBytes = ' + cfg.maxFileBytes + ').')
       }
       const r = await pool.writeFile(alias, remotePath, content)
-      return { text: 'Wrote ' + r.bytes + ' bytes to ' + remotePath }
+      return { text: 'Wrote ' + r.bytes + ' bytes to ' + r.path }
     },
   })
 
@@ -309,19 +315,16 @@ export async function apply(ctx, config) {
     async execute(args) {
       const alias = String(args.machine || '').trim()
       if (alias) {
-        const e = pool.entry(alias)
-        try { e.client?.end() } catch {}
-        e.client = null
-        e.nextAttemptAt = 0
-        return { text: 'Closed ' + alias }
+        const had = await pool.closeOne(alias)
+        return { text: had ? 'Closed ' + alias : 'No live connection for ' + alias }
       }
-      pool.closeAll()
+      await pool.closeAll()
       return { text: 'Closed all SSH connections' }
     },
   })
 
   // Release sockets when the plugin unloads.
   if (typeof ctx.effect === 'function') {
-    ctx.effect(() => () => pool.closeAll(), 'dsh-ssh-safe.close')
+    ctx.effect(() => () => { pool.closeAll().catch(() => {}) }, 'dsh-ssh-safe.close')
   }
 }
