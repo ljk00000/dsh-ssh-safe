@@ -68,6 +68,23 @@ DSH_SSH_PROD_KNOWN_HOSTS=~/.ssh/known_hosts.json
 
 设置完**重启 DSH**——环境变量在进程启动时读取，不会热加载。
 
+### 我该用哪个工具
+
+| 情况 | 用这个 |
+| --- | --- |
+| 不知道有哪些机器 | `ssh_machines` |
+| 连不上，不知道为什么 | **`ssh_doctor`**（分级诊断，先说清卡在哪一步） |
+| 只是想建立连接 | `ssh_connect` |
+| 跑命令 | `ssh_exec` |
+| 改配置文件 | `ssh_read` 看清现状 → `ssh_write` 改 |
+| 看目录里有什么 | `ssh_list` |
+| 怀疑有异常操作，想复盘 | **`ssh_audit`**（需要先开 `auditLog: true`） |
+| 某个设置不生效 | **`ssh_config`**（显示运行时实际生效的配置） |
+| 手动断开 | `ssh_close` |
+
+排障顺序永远是 **`ssh_machines` → `ssh_doctor` → 具体操作**。​`ssh_doctor` 把失败分成
+配置 / 凭据 / TCP / 主机密钥 / 认证五级，比一句「认证失败」有用得多。​
+
 ### 工具
 
 | 工具 | 作用 |
@@ -78,7 +95,10 @@ DSH_SSH_PROD_KNOWN_HOSTS=~/.ssh/known_hosts.json
 | `ssh_read` | 读远端文件（UTF-8，按字节上限截断） |
 | `ssh_write` | 写远端文件（覆盖） |
 | `ssh_list` | 列远端目录 |
-| `ssh_close` | 关闭连接 |
+| `ssh_close` | 关闭连接（有命令在跑会拒绝，除非 `force: true`） |
+| `ssh_doctor` | 分级诊断：配置 / 凭据 / TCP / 主机密钥 / 认证 |
+| `ssh_audit` | 查看操作记录（需 `auditLog: true`） |
+| `ssh_config` | 查看运行时实际生效的配置 |
 
 ### 主机密钥校验
 
@@ -182,6 +202,28 @@ pnpm approve-builds --all
 注意必须用**与 DSH 相同的大版本** pnpm。DSH 内置的是 pnpm 11，
 如果你系统里的 `pnpm` 是 10，就要用 `npx pnpm@11 approve-builds --all`，
 否则 `node_modules` 的 store 标记会被改写，之后 `dsh plugin` 会报 `ERR_PNPM_UNEXPECTED_STORE`。
+
+
+### 配置默认值一览
+
+| 配置项 | 默认 | 作用 |
+| --- | --- | --- |
+| `hostKeyPolicy` | `strict` | 只连已记录指纹的主机 |
+| `execGuard` | `allow` | `confirm` 时 `ssh_exec` 必须带 `confirm: true` |
+| `allowSessionPassword` | `false` | 是否允许在会话里传密码 |
+| `machineInventory` | `full` | `alias` 时隐藏 host/port/私钥路径 |
+| `auditLog` | `false` | 是否记录操作到 NDJSON |
+| `maxConnections` | `8` | 常驻连接上限，LRU 淘汰，`0` 不限制 |
+| `commandTimeoutMs` | `30000` | 单条命令超时 |
+| `sftpTimeoutMs` | `30000` | 单次传输超时 |
+| `connectTimeoutMs` | `15000` | 建立连接超时 |
+| `closeTimeoutMs` | `1500` | 等待对端确认关闭 |
+| `keepaliveIntervalMs` | `20000` | SSH keepalive，`0` 关闭 |
+| `maxOutputChars` | `200000` | stdout + stderr 合计上限 |
+| `maxFileBytes` | `1048576` | 单次传输字节上限 |
+| `reconnectCooldownMs` | `15000` | 失败后冷却，期间可用 `force: true` 绕过 |
+| `healthCheckIdleMs` | `300000` | 空闲多久后复用前先探活，`0` 关闭 |
+| `denyPatterns` | 5 条 | 危险命令拦截（安全带，不是边界） |
 
 ### 它不做什么
 

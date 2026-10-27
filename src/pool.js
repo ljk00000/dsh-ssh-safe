@@ -124,30 +124,64 @@ export class SshPool {
    * @param {string} [protect] an alias that must not be evicted (the one just used)
    * @returns {Promise<string[]>} aliases that were closed
    */
+  /**
+   * Close the least recently used connections until at most `keep` live ones
+   * remain.
+   *
+   * Eviction is a ceiling, not a preference: when the limit is exceeded the
+   * oldest connection is closed even if an operation is still using it, because
+   * the alternative is an unbounded number of sockets. That is why this passes
+   * force to closeOne -- and why it must check what closeOne actually did.
+   *
+   * The previous version ignored the result: closeOne returned
+   * {closed:false, busy:true}, eviction still reported the alias as closed, and
+   * the ceiling was silently exceeded.
+   *
+   * @param {number} keep how many live connections to retain
+   * @param {string} [protect] an alias that must not be evicted (the one just used)
+   * @returns {Promise<string[]>} aliases that were actually closed
+   */
   async evictIdle(keep, protect) {
     const limit = Number(keep)
     if (!Number.isFinite(limit) || limit <= 0) return []
 
-    const live = [...this.entries.entries()].filter(([alias, e]) => e.client && alias !== protect)
-    const protectedLive = [...this.entries.entries()].filter(([alias, e]) => e.client && alias === protect)
-    // Count the protected connection against the ceiling.
-    if (live.length + protectedLive.length <= limit) return []
-    const allowedVictims = live.length
+    // Never evict the connection the caller is about to use.
+    const candidates = [...this.entries.entries()]
+      .filter(([alias, e]) => e.client && alias !== protect)
+    if (candidates.length === 0) return []
 
-    // Oldest first; keep the most recently used.
-    live.sort((a, b) => (a[1].lastUsedAt || 0) - (b[1].lastUsedAt || 0))
-    const excess = live.length + protectedLive.length - limit
+    const liveTotal = [...this.entries.values()].filter((e) => e.client).length
+    const excess = liveTotal - limit
     if (excess <= 0) return []
-    const victims = live.slice(0, Math.min(excess, allowedVictims))
+
+    // Oldest first, so the most recently used survive.
+    candidates.sort((a, b) => (a[1].lastUsedAt || 0) - (b[1].lastUsedAt || 0))
+
     const closed = []
-    for (const [alias] of victims) {
-      await this.closeOne(alias)
-      closed.push(alias)
+    for (const [alias] of candidates) {
+      if (closed.length >= excess) break
+      const result = await this.closeOne(alias, { force: true })
+      if (result.closed) closed.push(alias)
     }
     return closed
   }
 
-  /** Machine definition merged from env (+ explicit host override for one-offs). */
+  /**
+   * Connection count and ceiling, for diagnostics.
+   * @returns {{live: number, limit: number, aliases: string[]}}
+   */
+  connectionStats() {
+    const aliases = [...this.entries.entries()]
+      .filter(([, e]) => e.client)
+      .map(([alias]) => alias)
+    const limit = Number(this.config.maxConnections)
+    return {
+      live: aliases.length,
+      limit: Number.isFinite(limit) ? limit : 0,
+      aliases,
+    }
+  }
+
   describe(alias) {
     return machineFromEnv(alias)
   }

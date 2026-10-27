@@ -61,9 +61,13 @@ export const Config = z.object({
   /**
    * Probe a pooled connection that has been idle this long before reusing it.
    * A firewalled connection otherwise accepts writes that go nowhere and only
-   * surface as a command timeout. 0 disables the probe.
+   * surface as a command timeout.
+   *
+   * Defaults to 5 minutes: the probe costs a round trip, so a short interval
+   * would make every command after a brief pause slower. NAT idle timeouts on
+   * the common cloud providers are far longer than this. 0 disables the probe.
    */
-  healthCheckIdleMs: z.number().step(1).min(0).default(30000),
+  healthCheckIdleMs: z.number().step(1).min(0).default(300000),
 
   /** How long the liveness probe may take. */
   healthCheckTimeoutMs: z.number().step(1).min(100).default(3000),
@@ -268,20 +272,38 @@ export async function apply(ctx, config) {
     output: textOut,
     async execute(args) {
       const alias = machineFor(args)
-      await pool.connect(alias, {
-        sessionPassword: args.password,
-        trustHostKey: args.trustHostKey === true,
-        force: args.force === true,
-      })
-      // The ceiling is enforced inside pool.connect() so that every tool path
-      // (exec, read, write, list) is covered, not just this one.
-      const uname = await pool.exec(alias, 'uname -a 2>/dev/null || ver', { timeoutMs: 8000 })
+      const startedAt = Date.now()
+      try {
+        await pool.connect(alias, {
+          sessionPassword: args.password,
+          trustHostKey: args.trustHostKey === true,
+          force: args.force === true,
+        })
+      } catch (err) {
+        audit.write({
+          kind: 'connect',
+          machine: alias,
+          outcome: 'error',
+          error: redact(err && err.message ? err.message : String(err)).slice(0, 200),
+          ms: Date.now() - startedAt,
+        })
+        throw err
+      }
+      audit.write({ kind: 'connect', machine: alias, outcome: 'ok', ms: Date.now() - startedAt })
+
       const m = machineFromEnv(alias)
+      const entry = pool.entry(alias)
+      const stats = pool.connectionStats()
+      // Deliberately no remote command here. Verifying the channel is what
+      // ssh_doctor is for; running 'uname' as a side effect of connecting put an
+      // extra command in the audit trail and an extra entry in the in-flight
+      // counter for something the caller never asked for.
       return { text:
         'Connected: ' + (m.username || '?') + '@' + (m.host || '?') + ':' + (m.port || 22) +
-        '\nHost key: ' + (pool.entry(alias).fingerprint || 'NOT VERIFIED (policy: ' + cfg.hostKeyPolicy + ')') +
-        '\nRemote: ' + (redact(String(uname.stdout || '').trim()) || '(no output)') +
-        (cfg.hostKeyPolicy === 'off' ? '\n\nWARNING: hostKeyPolicy is "off" — this connection is not protected against a man-in-the-middle.' : '') }
+        '\nHost key: ' + (entry.fingerprint || 'NOT VERIFIED (policy: ' + cfg.hostKeyPolicy + ')') +
+        '\nPool: ' + stats.live + ' live' + (stats.limit > 0 ? ' / ' + stats.limit + ' max' : ' (no limit)') +
+        (cfg.hostKeyPolicy === 'off' ? '\n\nWARNING: hostKeyPolicy is "off" — this connection is not protected against a man-in-the-middle.' : '') +
+        '\n(Tip: ssh_doctor verifies the command channel and authentication end to end.)' }
     },
   })
 
@@ -378,10 +400,26 @@ export async function apply(ctx, config) {
       const alias = machineFor(args)
       const remotePath = String(args.path || '').trim()
       if (!remotePath) throw new Error('path is required')
-      const r = await pool.readFile(alias, remotePath, {
-        maxBytes: args.maxBytes ? Number(args.maxBytes) : undefined,
-        timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined,
-        sessionPassword: args.password,
+      const startedAt = Date.now()
+      let r
+      try {
+        r = await pool.readFile(alias, remotePath, {
+          maxBytes: args.maxBytes ? Number(args.maxBytes) : undefined,
+          timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined,
+          sessionPassword: args.password,
+        })
+      } catch (err) {
+        audit.write({
+          kind: 'read', machine: alias, path: remotePath, outcome: 'error',
+          error: redact(err && err.message ? err.message : String(err)).slice(0, 200),
+          ms: Date.now() - startedAt,
+        })
+        throw err
+      }
+      audit.write({
+        kind: 'read', machine: alias, path: r.path, outcome: 'ok',
+        bytes: r.bytes, truncated: r.truncated, redacted: args.raw !== true,
+        ms: Date.now() - startedAt,
       })
       // A file read is the most likely place for an .env or a config with a
       // password in it to reach the conversation transcript, so the default is
@@ -417,9 +455,24 @@ export async function apply(ctx, config) {
       if (bytes > cfg.maxFileBytes) {
         throw new Error('Refusing to write ' + bytes + ' bytes (maxFileBytes = ' + cfg.maxFileBytes + ').')
       }
-      const r = await pool.writeFile(alias, remotePath, content, {
-        timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined,
-        sessionPassword: args.password,
+      const startedAt = Date.now()
+      let r
+      try {
+        r = await pool.writeFile(alias, remotePath, content, {
+          timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined,
+          sessionPassword: args.password,
+        })
+      } catch (err) {
+        audit.write({
+          kind: 'write', machine: alias, path: remotePath, outcome: 'error',
+          error: redact(err && err.message ? err.message : String(err)).slice(0, 200),
+          ms: Date.now() - startedAt,
+        })
+        throw err
+      }
+      audit.write({
+        kind: 'write', machine: alias, path: r.path, outcome: 'ok', bytes: r.bytes,
+        ms: Date.now() - startedAt,
       })
       return { text: 'Wrote ' + r.bytes + ' bytes to ' + r.path }
     },
@@ -439,9 +492,24 @@ export async function apply(ctx, config) {
     async execute(args) {
       const alias = machineFor(args)
       const remotePath = String(args.path || '.').trim() || '.'
-      const listing = await pool.list(alias, remotePath, {
-        timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined,
-        sessionPassword: args.password,
+      const startedAt = Date.now()
+      let listing
+      try {
+        listing = await pool.list(alias, remotePath, {
+          timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined,
+          sessionPassword: args.password,
+        })
+      } catch (err) {
+        audit.write({
+          kind: 'list', machine: alias, path: remotePath, outcome: 'error',
+          error: redact(err && err.message ? err.message : String(err)).slice(0, 200),
+          ms: Date.now() - startedAt,
+        })
+        throw err
+      }
+      audit.write({
+        kind: 'list', machine: alias, path: listing.path, outcome: 'ok',
+        entries: listing.items.length, ms: Date.now() - startedAt,
       })
       const items = listing.items
       if (!items.length) return { text: '(empty directory: ' + listing.path + ')' }
@@ -482,6 +550,51 @@ export async function apply(ctx, config) {
           '  ' + (r.command || r.pattern || '')
       })
       return { text: rows.join('\n') }
+    },
+  })
+
+  // ── ssh_config ────────────────────────────────────────────────────────
+  ctx.tools.defineTool({
+    name: 'ssh_config',
+    description:
+      'Show the plugin configuration actually in effect, plus live pool state. Useful when a ' +
+      'setting is not behaving as expected: this reports what the running instance uses, not ' +
+      'what a file says. Secrets are never included.',
+    parameters: {},
+    output: textOut,
+    async execute() {
+      const stats = pool.connectionStats()
+      const rows = [
+        ['hostKeyPolicy', cfg.hostKeyPolicy, 'strict | tofu | off'],
+        ['execGuard', cfg.execGuard, 'allow | confirm'],
+        ['allowSessionPassword', cfg.allowSessionPassword, 'password through a tool argument'],
+        ['machineInventory', cfg.machineInventory, 'full | alias'],
+        ['auditLog', cfg.auditLog, 'NDJSON record of operations'],
+        ['defaultMachine', cfg.defaultMachine || '(none)', ''],
+        ['commandTimeoutMs', cfg.commandTimeoutMs, 'per ssh_exec command'],
+        ['sftpTimeoutMs', cfg.sftpTimeoutMs, 'per transfer'],
+        ['connectTimeoutMs', cfg.connectTimeoutMs, ''],
+        ['closeTimeoutMs', cfg.closeTimeoutMs, 'wait for the peer to confirm a close'],
+        ['keepaliveIntervalMs', cfg.keepaliveIntervalMs, '0 disables'],
+        ['maxOutputChars', cfg.maxOutputChars, 'stdout + stderr together'],
+        ['maxFileBytes', cfg.maxFileBytes, 'hard ceiling per transfer'],
+        ['maxConnections', cfg.maxConnections, '0 = unlimited'],
+        ['reconnectCooldownMs', cfg.reconnectCooldownMs, 'after a failure'],
+        ['healthCheckIdleMs', cfg.healthCheckIdleMs, '0 disables the probe'],
+        ['denyPatterns', (cfg.denyPatterns || []).length + ' pattern(s)', 'safety rail, not a boundary'],
+      ]
+      const lines = ['Configuration in effect:']
+      for (const [key, value, note] of rows) {
+        lines.push('  ' + String(key).padEnd(24) + JSON.stringify(value) + (note ? '   # ' + note : ''))
+      }
+      lines.push('', 'Live connections: ' + stats.live +
+        (stats.limit > 0 ? ' / ' + stats.limit + ' max' : ' (no limit)') +
+        (stats.aliases.length ? '  [' + stats.aliases.join(', ') + ']' : ''))
+      if (cfg.auditLog === true) {
+        lines.push('Audit log: ' + dshHome + (process.platform === 'win32' ? '\\' : '/') + 'dsh-ssh-safe' +
+          (process.platform === 'win32' ? '\\' : '/') + 'audit.ndjson')
+      }
+      return { text: lines.join('\n') }
     },
   })
 
@@ -537,7 +650,12 @@ export async function apply(ctx, config) {
         return { text: lines.join('\n') }
       }
 
-      // 3. host key + 4. authentication, via a real connect attempt
+      // 3. host key + 4. authentication, via a real connect attempt.
+      //
+      // Diagnosis must not change what it diagnoses. If this run has to open a
+      // connection, it closes it again afterwards and restores the failure state,
+      // so calling ssh_doctor never leaves a socket behind or clears a cooldown.
+      const wasConnected = Boolean(pool.entries.get(alias)?.client)
       try {
         await pool.connect(alias, { force: true })
         const e = pool.entry(alias)
@@ -559,6 +677,11 @@ export async function apply(ctx, config) {
             '  and that the key is not passphrase-protected without a passphrase supplied.')
         } else {
           say('connect', 'FAIL', message)
+        }
+      } finally {
+        // Restore the pre-diagnosis state.
+        if (!wasConnected) {
+          await pool.closeOne(alias, { force: true })
         }
       }
 
