@@ -55,13 +55,6 @@
   "dependencies": {
     "ssh2": "^1.16.0"
   },
-  "bundleDependencies": [
-    "ssh2",
-    "asn1",
-    "bcrypt-pbkdf",
-    "tweetnacl",
-    "safer-buffer"
-  ],
   "scripts": {
     "test": "node --test test/"
   }

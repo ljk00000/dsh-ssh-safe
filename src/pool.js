@@ -9,10 +9,26 @@
 //   - no unbounded output (maxOutputChars truncates, with a visible marker)
 //   - no secret ever appears in an error string (see credentials.redact)
 
-import { Client } from 'ssh2'
+// ssh2 is imported lazily: credential and host-key logic must be testable (and
+// the plugin must be loadable enough to report a clear error) even when the
+// native dependency is missing from a half-installed tree.
+let Client = null
+async function loadClient() {
+  if (Client) return Client
+  try {
+    const mod = await import('ssh2')
+    Client = mod.Client
+    return Client
+  } catch (err) {
+    throw new Error(
+      'The ssh2 package is not installed. Reinstall the plugin (dsh plugin add dsh-ssh-safe) ' +
+      'so its bundled dependencies are present. ' + (err && err.message ? err.message : '')
+    )
+  }
+}
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { resolveAuth, redact, machineFromEnv } from './credentials.js'
+import { resolveAuth, redact, machineFromEnv, envNames } from './credentials.js'
 import { checkHostKey } from './hostkey.js'
 
 /** Expand a leading ~ so key paths written by hand work. */
@@ -70,30 +86,31 @@ export class SshPool {
     return e.ready
   }
 
-  #open(alias, e, { sessionPassword, trustHostKey }) {
+  async #open(alias, e, { sessionPassword, trustHostKey }) {
     const auth = resolveAuth(alias, {
       sessionPassword,
       allowSessionPassword: this.config.allowSessionPassword === true,
     })
     const m = auth.machine
     if (!m.host || !m.username) {
+      const names = envNames(alias)
       const need = []
-      if (!m.host) need.push('DSH_SSH_' + alias.toUpperCase() + '_HOST')
-      if (!m.username) need.push('DSH_SSH_' + alias.toUpperCase() + '_USER')
-      return Promise.reject(new Error(
+      if (!m.host) need.push(names.host)
+      if (!m.username) need.push(names.user)
+      throw new Error(
         'Machine "' + alias + '" is not configured: missing ' + need.join(', ') +
         '. Set the environment variable(s) and restart DeepSeek Harness, or pass host/username ' +
         'explicitly to ssh_connect. Nothing was read from disk.'
-      ))
+      )
     }
     if (auth.kind === 'none') {
-      return Promise.reject(new Error(
-        'Machine "' + alias + '" has no credentials. Set DSH_SSH_' + alias.toUpperCase() +
-        '_PASSWORD or DSH_SSH_' + alias.toUpperCase() + '_KEY_PATH.' +
+      throw new Error(
+        'Machine "' + alias + '" has no credentials. Set ' + envNames(alias).password +
+        ' or ' + envNames(alias).keyPath + '.' +
         (this.config.allowSessionPassword
           ? ' Or pass password to ssh_connect (this profile allows it).'
           : ' Passing a password in conversation is disabled for this profile.')
-      ))
+      )
     }
 
     const connectConfig = {
@@ -112,8 +129,10 @@ export class SshPool {
       if (auth.passphrase) connectConfig.passphrase = auth.passphrase
     }
 
+    const ClientClass = await loadClient()
+
     return new Promise((resolve, reject) => {
-      const client = new Client()
+      const client = new ClientClass()
       let settled = false
       const fail = (err) => {
         if (settled) return
