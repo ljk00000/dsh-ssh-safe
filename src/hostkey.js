@@ -8,7 +8,7 @@
 // where the platform supports it. It contains host, port and fingerprint only —
 // never a username, password, or key.
 
-import { createHash } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync } from 'node:fs'
 import path from 'node:path'
 
@@ -61,6 +61,21 @@ export function keyId(host, port) {
   return host + ':' + port
 }
 
+/**
+ * Compare two fingerprints without leaking their common prefix through timing.
+ *
+ * A JS string === short-circuits on the first differing byte. The value being
+ * compared is a public fingerprint, so the practical risk is negligible -- but
+ * a plugin whose selling point is host verification should not be the one place
+ * in the codebase that compares security material with ===.
+ */
+export function fingerprintsEqual(a, b) {
+  const left = Buffer.from(String(a ?? ''), 'utf8')
+  const right = Buffer.from(String(b ?? ''), 'utf8')
+  if (left.length !== right.length) return false
+  return timingSafeEqual(left, right)
+}
+
 /** SHA256 fingerprint of the server's public key, ssh-style. */
 export function fingerprint(keyBlob) {
   const b = Buffer.isBuffer(keyBlob) ? keyBlob : Buffer.from(String(keyBlob))
@@ -81,10 +96,10 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
   if (policy === 'off') {
     return { ok: true, reason: 'host key verification disabled by policy', fp, firstSeen: !recorded }
   }
-  if (recorded && recorded.fingerprint === fp) {
+  if (recorded && fingerprintsEqual(recorded.fingerprint, fp)) {
     return { ok: true, reason: 'host key matches the recorded fingerprint', fp, firstSeen: false }
   }
-  if (recorded && recorded.fingerprint !== fp) {
+  if (recorded && !fingerprintsEqual(recorded.fingerprint, fp)) {
     // A changed key is the classic man-in-the-middle signal. Never auto-heal.
     return {
       ok: false,

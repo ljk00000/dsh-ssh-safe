@@ -71,12 +71,29 @@ export function expectedEnv(alias) {
  * Assemble the auth object for ssh2 connect().
  * sessionPassword is used only when explicitly permitted by config.
  */
-export function resolveAuth(alias, { sessionPassword, allowSessionPassword }) {
+/**
+ * Whether an SSH agent is reachable.
+ *
+ * An agent is the safest credential source: the private key stays in the agent
+ * and this plugin only ever holds a signature. It is checked after an explicit
+ * password/key but before falling back to a session password.
+ */
+export function agentSocket(env = process.env) {
+  const sock = env.SSH_AUTH_SOCK
+  return typeof sock === 'string' && sock.length > 0 ? sock : ''
+}
+
+export function resolveAuth(alias, { sessionPassword, allowSessionPassword, useAgent } = {}) {
   const m = machineFromEnv(alias)
   if (m.password) return { kind: 'env-password', password: m.password, machine: m }
   if (m.keyPath) return { kind: 'env-key', keyPath: m.keyPath, passphrase: m.keyPassphrase, machine: m }
   if (allowSessionPassword && typeof sessionPassword === 'string' && sessionPassword.length > 0) {
     return { kind: 'session-password', password: sessionPassword, machine: m }
+  }
+  // Agent last: it needs no secret from us at all.
+  if (useAgent !== false) {
+    const sock = agentSocket()
+    if (sock) return { kind: 'agent', agent: sock, machine: m }
   }
   return { kind: 'none', machine: m }
 }

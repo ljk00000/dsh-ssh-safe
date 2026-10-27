@@ -16,11 +16,13 @@
 
 import z from '@deepseek-ai/schemastery'
 import { readFileSync } from 'node:fs'
+import net from 'node:net'
 import { homedir } from 'node:os'
 import { SshPool, expandHome } from './pool.js'
-import { expectedEnv, machineFromEnv, redact } from './credentials.js'
+import { expectedEnv, machineFromEnv, redact, resolveAuth } from './credentials.js'
 import { storePath } from './hostkey.js'
 import { checkCommand } from './guard.js'
+import { AuditLog, summarize } from './audit.js'
 
 export const name = 'dsh-ssh-safe'
 export const inject = ['tools']
@@ -45,6 +47,26 @@ export const Config = z.object({
    *           topology or where private keys live
    */
   machineInventory: z.string().default('full'),
+
+  /**
+   * Append an NDJSON record for every operation to
+   * <DSH_HOME>/dsh-ssh-safe/audit.ndjson.
+   *
+   * Records the alias, operation, a one-line command summary, exit code and
+   * outcome — never command output, file contents, or credentials.
+   * Off by default so the plugin does not write files unasked.
+   */
+  auditLog: z.boolean().default(false),
+
+  /**
+   * Probe a pooled connection that has been idle this long before reusing it.
+   * A firewalled connection otherwise accepts writes that go nowhere and only
+   * surface as a command timeout. 0 disables the probe.
+   */
+  healthCheckIdleMs: z.number().step(1).min(0).default(30000),
+
+  /** How long the liveness probe may take. */
+  healthCheckTimeoutMs: z.number().step(1).min(100).default(3000),
 
   /**
    * allow   — ssh_exec runs immediately (default)
@@ -109,6 +131,11 @@ export async function apply(ctx, config) {
   const cfg = { ...Config(), ...(config || {}) }
   const dshHome = resolveDshHome()
   const pool = new SshPool(cfg, { dshHome })
+  // Auditing is off by default: writing files someone did not ask for is its
+  // own surprise. Turning it on is a one-line config change.
+  const audit = new AuditLog(dshHome + (process.platform === 'win32' ? '\\' : '/') + 'dsh-ssh-safe', {
+    enabled: cfg.auditLog === true,
+  })
 
   const textOut = {
     schema: { type: 'object', additionalProperties: false, properties: { text: { type: 'string', required: true } } },
@@ -136,6 +163,12 @@ export async function apply(ctx, config) {
     }
     const verdict = checkCommand(command, cfg.denyPatterns)
     if (verdict.blocked) {
+      audit.write({
+        kind: 'refused',
+        command: summarize(command),
+        pattern: verdict.pattern,
+        reason: verdict.reason,
+      })
       const where = verdict.reason === 'matches deny pattern' ? '' : ' (' + verdict.reason + ')'
       throw new Error(
         'Command refused' + where + ': ' + verdict.pattern +
@@ -272,7 +305,30 @@ export async function apply(ctx, config) {
       if (!command) throw new Error('command is required')
       guard(command, args.confirm)
       const budget = args.timeoutMs ? Number(args.timeoutMs) : undefined
-      const r = await pool.exec(alias, command, { timeoutMs: budget, sessionPassword: args.password })
+      const startedAt = Date.now()
+      let r
+      try {
+        r = await pool.exec(alias, command, { timeoutMs: budget, sessionPassword: args.password })
+      } catch (err) {
+        audit.write({
+          kind: 'exec',
+          machine: alias,
+          command: summarize(command),
+          outcome: 'error',
+          error: redact(err && err.message ? err.message : String(err)).slice(0, 200),
+          ms: Date.now() - startedAt,
+        })
+        throw err
+      }
+      audit.write({
+        kind: 'exec',
+        machine: alias,
+        command: summarize(command),
+        outcome: r.timedOut ? 'timeout' : (r.code === 0 ? 'ok' : 'exit'),
+        exitCode: r.code,
+        truncated: r.truncated,
+        ms: Date.now() - startedAt,
+      })
       // Render the two streams in the order they actually arrived. The old
       // all-stdout-then-all-stderr layout made compiler errors and progress
       // output hard to follow, because their position relative to stdout was
@@ -396,28 +452,163 @@ export async function apply(ctx, config) {
     },
   })
 
+
+  // ── ssh_audit ─────────────────────────────────────────────────────────
+  ctx.tools.defineTool({
+    name: 'ssh_audit',
+    description:
+      'Show the most recent SSH operations this plugin performed: alias, operation, a one-line ' +
+      'command summary, exit code and outcome. Never includes command output, file contents or ' +
+      'credentials. Requires auditLog: true in the plugin config.',
+    parameters: {
+      limit: { type: 'integer', description: 'How many records to show (default 20, max 200).' },
+    },
+    output: textOut,
+    async execute(args) {
+      if (cfg.auditLog !== true) {
+        return { text:
+          'Audit logging is off. Set auditLog: true in the plugin config to record operations.\n' +
+          'Records include the command summary, exit code and outcome — never output or secrets.' }
+      }
+      const limit = Math.min(Math.max(Number(args.limit) || 20, 1), 200)
+      const records = audit.recent(limit)
+      if (records.length === 0) return { text: 'No operations recorded yet.' }
+      const rows = records.map((r) => {
+        if (r.malformed) return '[unreadable record] ' + r.line
+        const when = String(r.at || '').replace('T', ' ').slice(0, 19)
+        const code = r.exitCode === null || r.exitCode === undefined ? '' : ' exit=' + r.exitCode
+        const machine = r.machine ? ' ' + r.machine : ''
+        return when + machine + ' ' + (r.kind || '?') + ' ' + (r.outcome || '') + code +
+          '  ' + (r.command || r.pattern || '')
+      })
+      return { text: rows.join('\n') }
+    },
+  })
+
+  // ── ssh_doctor ────────────────────────────────────────────────────────
+  ctx.tools.defineTool({
+    name: 'ssh_doctor',
+    description:
+      'Diagnose one machine stage by stage: configuration, TCP reachability, host key, then ' +
+      'authentication. Each stage reports pass, fail or skip, so a bare ' +
+      '"All configured authentication methods failed" becomes actionable. Never prints a ' +
+      'password, passphrase or key body.',
+    parameters: {
+      machine: { type: 'string', description: 'Machine alias. Defaults to defaultMachine.' },
+    },
+    output: textOut,
+    async execute(args) {
+      const alias = machineFor(args)
+      const m = machineFromEnv(alias)
+      const need = expectedEnv(alias)
+      const lines = []
+      const say = (stage, verdict, detail) => lines.push('[' + verdict + '] ' + stage + (detail ? ': ' + detail : ''))
+
+      // 1. configuration
+      const missing = []
+      if (!m.host) missing.push(need.required[0])
+      if (!m.username) missing.push(need.required[1])
+      const auth = resolveAuth(alias, { allowSessionPassword: cfg.allowSessionPassword })
+      if (missing.length) say('configuration', 'FAIL', 'missing ' + missing.join(', '))
+      else say('configuration', 'ok', m.username + '@' + m.host + ':' + m.port)
+      say('credentials', auth.kind === 'none' ? 'FAIL' : 'ok',
+        auth.kind === 'none'
+          ? 'no password, key or agent available — set ' + need.auth[0]
+          : auth.kind)
+
+      if (missing.length || auth.kind === 'none') {
+        lines.push('', 'Stopped: fix the above before testing the network.')
+        return { text: lines.join('\n') }
+      }
+
+      // 2. TCP reachability
+      const port = m.port || 22
+      const tcp = await new Promise((resolve) => {
+        const socket = net.connect({ host: m.host, port })
+        const done = (ok, detail) => { try { socket.destroy() } catch {} ; resolve({ ok, detail }) }
+        socket.setTimeout(cfg.connectTimeoutMs || 15000)
+        socket.once('connect', () => done(true, 'port ' + port + ' accepts connections'))
+        socket.once('timeout', () => done(false, 'no answer on port ' + port + ' within the timeout'))
+        socket.once('error', (err) => done(false, (err && err.code ? err.code : 'connect failed')))
+      })
+      say('tcp', tcp.ok ? 'ok' : 'FAIL', tcp.detail)
+      if (!tcp.ok) {
+        lines.push('', 'Stopped: the host is unreachable, so authentication cannot be tested.')
+        return { text: lines.join('\n') }
+      }
+
+      // 3. host key + 4. authentication, via a real connect attempt
+      try {
+        await pool.connect(alias, { force: true })
+        const e = pool.entry(alias)
+        say('host key', 'ok', e.fingerprint || 'verified')
+        const probe = await pool.exec(alias, 'echo doctor-ok', { timeoutMs: 8000 })
+        const replied = String(probe.stdout || '').includes('doctor-ok')
+        say('authentication', replied ? 'ok' : 'FAIL', replied ? 'command channel works' : 'connected but no output')
+        if (!replied) say('shell', 'warn', 'the session opened but produced no stdout; the remote shell may be restricted')
+      } catch (err) {
+        const message = redact(err && err.message ? err.message : String(err))
+        if (/host key|fingerprint|HOST KEY CHANGED|Unknown host/i.test(message)) {
+          say('host key', 'FAIL', message)
+          say('authentication', 'skip', 'host key was rejected first')
+        } else if (/authentication|permission denied|publickey|password/i.test(message)) {
+          say('host key', 'ok', 'accepted')
+          say('authentication', 'FAIL', message)
+          lines.push('', 'The server refused the credential. Check that the public key is in',
+            '  ~/.ssh/authorized_keys on the remote host, that the account is allowed to log in,',
+            '  and that the key is not passphrase-protected without a passphrase supplied.')
+        } else {
+          say('connect', 'FAIL', message)
+        }
+      }
+
+      return { text: lines.join('\n') }
+    },
+  })
+
   // ── ssh_close ─────────────────────────────────────────────────────────
   ctx.tools.defineTool({
     name: 'ssh_close',
-    description: 'Close pooled SSH connections. The next call reconnects.',
-    parameters: { machine: { type: 'string', description: 'Alias to close; empty closes all.' } },
+    description:
+      'Close pooled SSH connections. The next call reconnects. A connection with a command still ' +
+      'running is left open and reported as busy unless force: true is passed, because severing ' +
+      'a running command can corrupt whatever it was doing.',
+    parameters: {
+      machine: { type: 'string', description: 'Alias to close; empty closes all.' },
+      force: { type: 'boolean', description: 'Close even if a command is still running on that connection.' },
+    },
     output: textOut,
     async execute(args) {
       const alias = normalizeAlias(args.machine || '')
+      const force = args.force === true
       if (alias) {
-        const result = await pool.closeOne(alias)
+        const result = await pool.closeOne(alias, { force })
+        if (result.busy) {
+          return { text:
+            'Not closing ' + alias + ': a command is still running on it. ' +
+            'Wait for it to finish, or pass force: true to cut it off.' }
+        }
         if (!result.closed) return { text: 'No live connection for ' + alias }
         return { text: result.confirmed
           ? 'Closed ' + alias
           : 'Requested close for ' + alias + ' but the peer did not confirm; the entry was reset so the next call reconnects.' }
       }
-      await pool.closeAll()
-      return { text: 'Closed all SSH connections' }
+      const result = await pool.closeAll({ force })
+      const parts = []
+      if (result.closed.length) parts.push('Closed: ' + result.closed.join(', '))
+      if (result.busy.length) {
+        parts.push('Left open (command running): ' + result.busy.join(', ') +
+          ' — pass force: true to cut them off')
+      }
+      if (parts.length === 0) parts.push('No live connections')
+      return { text: parts.join('\n') }
     },
   })
 
   // Release sockets when the plugin unloads.
   if (typeof ctx.effect === 'function') {
-    ctx.effect(() => () => { pool.closeAll().catch(() => {}) }, 'dsh-ssh-safe.close')
+    // On unload there is no later call to retry, so shutdown must not defer to
+    // busy connections: force is correct here, unlike the interactive default.
+    ctx.effect(() => () => { pool.closeAll({ force: true }).catch(() => {}) }, 'dsh-ssh-safe.close')
   }
 }

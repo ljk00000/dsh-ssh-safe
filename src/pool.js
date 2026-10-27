@@ -34,6 +34,7 @@ import { checkHostKey } from './hostkey.js'
 import { Utf8Collector, OutputBudget } from './buffer.js'
 import { normalizeRemotePath } from './remote-path.js'
 import { closeClient } from './close.js'
+import { readRemoteFile, writeRemoteFile, listRemoteDir } from './sftp.js'
 
 /** Policies the host-key store understands. */
 const VALID_POLICIES = new Set(['strict', 'tofu', 'off'])
@@ -71,6 +72,15 @@ export class SshPool {
   constructor(config, deps) {
     this.config = config
     this.deps = deps
+    /**
+     * Per-alias count of operations currently using the connection.
+     *
+     * closeAll() used to end every client unconditionally, so a shutdown -- or
+     * a plugin unload -- severed a running command mid-flight. An apt upgrade
+     * or a database import cut in half is worse than waiting a few seconds,
+     * so shutdown now refuses to close a busy connection until it drains.
+     */
+    this.inflight = new Map()
     /** @type {Map<string, {client: any, ready: Promise<any>, lastError: string, nextAttemptAt: number}>} */
     this.entries = new Map()
   }
@@ -83,6 +93,23 @@ export class SshPool {
     }
     e.lastUsedAt = Date.now()
     return e
+  }
+
+  /** Mark an operation as using this alias' connection. */
+  beginOp(alias) {
+    this.inflight.set(alias, (this.inflight.get(alias) || 0) + 1)
+  }
+
+  /** Mark an operation as finished. */
+  endOp(alias) {
+    const n = (this.inflight.get(alias) || 0) - 1
+    if (n > 0) this.inflight.set(alias, n)
+    else this.inflight.delete(alias)
+  }
+
+  /** Is anything running on this alias? */
+  isBusy(alias) {
+    return (this.inflight.get(alias) || 0) > 0
   }
 
   /**
@@ -143,7 +170,25 @@ export class SshPool {
       await this.closeOne(alias)
     }
 
-    if (e.client) return e.client
+    if (e.client) {
+      // A connection can be dead without anyone noticing: a NAT idle timeout
+      // or a firewall drop leaves the socket open locally while the peer is
+      // gone. Probing once per idle period avoids writing into a void and
+      // waiting for the command timeout to say so.
+      const idleMs = Date.now() - (e.lastUsedAt || 0)
+      const probeAfter = Number(this.config.healthCheckIdleMs) || 0
+      if (probeAfter > 0 && idleMs > probeAfter) {
+        const alive = await this.#probe(alias, e.client)
+        if (!alive) {
+          await this.closeOne(alias, { force: true })
+          e.lastError = 'previous connection was dead; reconnecting'
+        } else {
+          return e.client
+        }
+      } else {
+        return e.client
+      }
+    }
 
     if (!force && Date.now() < e.nextAttemptAt) {
       const waitMs = Math.max(0, e.nextAttemptAt - Date.now())
@@ -185,6 +230,36 @@ export class SshPool {
     return e.ready
   }
 
+  /**
+   * Cheap liveness probe for a pooled connection.
+   *
+   * ssh2 exposes no ping, so the channel is checked by asking whether it is
+   * still writable and by racing a no-op exec against a short deadline. A
+   * failure here means 'reconnect', not 'report an error'.
+   *
+   * @returns {Promise<boolean>}
+   */
+  async #probe(alias, client) {
+    try {
+      const deadline = Number(this.config.healthCheckTimeoutMs) || 3000
+      const result = await Promise.race([
+        new Promise((resolve) => {
+          try {
+            client.exec('true', (err, stream) => {
+              if (err) return resolve(false)
+              try { stream.destroy() } catch {}
+              resolve(true)
+            })
+          } catch { resolve(false) }
+        }),
+        new Promise((resolve) => setTimeout(() => resolve(false), deadline)),
+      ])
+      return result === true
+    } catch {
+      return false
+    }
+  }
+
   async #open(alias, e, { sessionPassword, trustHostKey }) {
     const auth = resolveAuth(alias, {
       sessionPassword,
@@ -205,9 +280,10 @@ export class SshPool {
     if (auth.kind === 'none') {
       throw new Error(
         'Machine "' + alias + '" has no credentials. Set ' + envNames(alias).password +
-        ' or ' + envNames(alias).keyPath + '.' +
+        ' or ' + envNames(alias).keyPath + '. Also checked: SSH_AUTH_SOCK for an agent,' +
+        ' which none was found at.' +
         (this.config.allowSessionPassword
-          ? ' Or pass password to ssh_connect (this profile allows it).'
+          ? ' Or pass password (this profile allows it).'
           : ' Passing a password in conversation is disabled for this profile.')
       )
     }
@@ -221,11 +297,14 @@ export class SshPool {
       keepaliveCountMax: 3,
     }
 
-    if (auth.kind === 'session-password' || (auth.kind === 'env-password')) {
+    if (auth.kind === 'session-password' || auth.kind === 'env-password') {
       connectConfig.password = auth.password
     } else if (auth.kind === 'env-key') {
       connectConfig.privateKey = readFileSync(expandHome(auth.keyPath))
       if (auth.passphrase) connectConfig.passphrase = auth.passphrase
+    } else if (auth.kind === 'agent') {
+      // The agent holds the key; ssh2 asks it to sign and we never see it.
+      connectConfig.agent = auth.agent
     }
 
     const ClientClass = await loadClient()
@@ -288,6 +367,15 @@ export class SshPool {
 
   async exec(alias, command, { timeoutMs, sessionPassword } = {}) {
     const client = await this.connect(alias, { sessionPassword })
+    this.beginOp(alias)
+    try {
+      return await this.#execOn(alias, client, command, timeoutMs)
+    } finally {
+      this.endOp(alias)
+    }
+  }
+
+  async #execOn(alias, client, command, timeoutMs) {
     const limit = timeoutMs || this.config.commandTimeoutMs || 20000
     const cap = this.config.maxOutputChars || 200000
 
@@ -372,139 +460,65 @@ export class SshPool {
     })
   }
 
-  async readFile(alias, remotePath, { maxBytes, sessionPassword, timeoutMs } = {}) {
-    const target = normalizeRemotePath(remotePath)
-    // maxBytes can only tighten the configured ceiling, never raise it: a tool
-    // argument must not be able to pull an arbitrary amount of the remote file
-    // into memory.
+  async readFile(alias, remotePath, opts = {}) {
+    this.beginOp(alias)
+    try {
+      return await this.#readFileOn(alias, remotePath, opts)
+    } finally {
+      this.endOp(alias)
+    }
+  }
+
+  async #readFileOn(alias, remotePath, { maxBytes, sessionPassword, timeoutMs } = {}) {
+    // maxBytes can only tighten the configured ceiling: a tool argument must not
+    // be able to pull an arbitrary amount of the remote file into memory.
     const configured = this.config.maxFileBytes || 1048576
     const requested = Number(maxBytes) || 0
     const cap = requested > 0 ? Math.min(requested, configured) : configured
-    const limit = timeoutMs || this.config.sftpTimeoutMs || 30000
     const client = await this.connect(alias, { sessionPassword })
-    return await new Promise((resolve, reject) => {
-      const collector = new Utf8Collector(cap)
-      let settled = false
-      let timer = null
-      let rs = null
-      const settle = (result, error) => {
-        if (settled) return
-        settled = true
-        if (timer) clearTimeout(timer)
-        if (rs) {
-          try { rs.removeAllListeners('data'); rs.removeAllListeners('error') } catch {}
-          try { rs.destroy() } catch {}
-        }
-        if (error) reject(error)
-        else resolve(result)
-      }
-
-      timer = setTimeout(() => {
-        settle(null, new Error('reading ' + target + ' did not complete within ' + limit + 'ms'))
-      }, limit)
-
-      client.sftp((error, sftp) => {
-        if (error) return settle(null, new Error(redact(error.message)))
-        rs = sftp.createReadStream(target)
-        rs.on('data', (chunk) => {
-          collector.push(chunk)
-          if (collector.truncated) settle({ content: collector.toString(), truncated: true, bytes: collector.bytes })
-        })
-        rs.on('error', (e) => settle(null, new Error(redact(e.message))))
-        rs.on('end', () => settle({ content: collector.toString(), truncated: collector.truncated, bytes: collector.bytes }))
-        rs.on('close', () => settle({ content: collector.toString(), truncated: collector.truncated, bytes: collector.bytes }))
-      })
+    return await readRemoteFile(client, remotePath, {
+      maxBytes: cap,
+      timeoutMs: timeoutMs || this.config.sftpTimeoutMs || 30000,
     })
   }
 
-  async writeFile(alias, remotePath, content, { sessionPassword, timeoutMs } = {}) {
-    const target = normalizeRemotePath(remotePath)
+  async writeFile(alias, remotePath, content, opts = {}) {
+    this.beginOp(alias)
+    try {
+      return await this.#writeFileOn(alias, remotePath, content, opts)
+    } finally {
+      this.endOp(alias)
+    }
+  }
+
+  async #writeFileOn(alias, remotePath, content, { sessionPassword, timeoutMs } = {}) {
     const client = await this.connect(alias, { sessionPassword })
-    const limit = timeoutMs || this.config.sftpTimeoutMs || 30000
-    const payload = Buffer.isBuffer(content) ? content : Buffer.from(String(content ?? ''), 'utf8')
-
-    return await new Promise((resolve, reject) => {
-      let settled = false
-      let timer = null
-      let ws = null
-      const settle = (result, error) => {
-        if (settled) return
-        settled = true
-        if (timer) clearTimeout(timer)
-        if (ws) {
-          try { ws.removeAllListeners('error'); ws.removeAllListeners('close'); ws.removeAllListeners('finish') } catch {}
-          try { ws.destroy() } catch {}
-        }
-        if (error) reject(error)
-        else resolve(result)
-      }
-
-      // ssh2's write stream can fail without emitting 'error' or 'close' (a
-      // server that drops the channel mid-transfer is one case), which used to
-      // hang the tool forever. A deadline is the only reliable backstop.
-      timer = setTimeout(() => {
-        settle(null, new Error(
-          'writing ' + target + ' did not complete within ' + limit + 'ms' +
-          ' — the remote channel may have dropped'
-        ))
-      }, limit)
-
-      client.sftp((err, sftp) => {
-        if (err) return settle(null, new Error(redact(err.message)))
-        ws = sftp.createWriteStream(target)
-        ws.on('error', (e) => settle(null, new Error(redact(e.message))))
-        ws.on('close', () => settle({ bytes: payload.length, path: target }))
-        // 'finish' fires when all data was handed to SFTP; 'close' can lag.
-        ws.on('finish', () => settle({ bytes: payload.length, path: target }))
-        ws.end(payload)
-      })
+    return await writeRemoteFile(client, remotePath, content, {
+      timeoutMs: timeoutMs || this.config.sftpTimeoutMs || 30000,
     })
   }
 
-  async list(alias, remotePath, { sessionPassword, timeoutMs } = {}) {
-    const target = normalizeRemotePath(remotePath || '.', { allowRelative: true })
-    const limit = timeoutMs || this.config.sftpTimeoutMs || 30000
-    const client = await this.connect(alias, { sessionPassword })
-    return await new Promise((resolve, reject) => {
-      let settled = false
-      const timer = setTimeout(() => {
-        if (settled) return
-        settled = true
-        reject(new Error('listing ' + target + ' did not complete within ' + limit + 'ms'))
-      }, limit)
-      const settle = (result, error) => {
-        if (settled) return
-        settled = true
-        clearTimeout(timer)
-        if (error) reject(error)
-        else resolve(result)
-      }
-      client.sftp((err, sftp) => {
-        if (err) return settle(null, new Error(redact(err.message)))
-        sftp.readdir(target, (e, items) => {
-          if (e) return settle(null, new Error(redact(e.message)))
-          settle({ path: target, items: items.map((it) => ({
-            name: it.filename,
-            size: it.attrs.size,
-            dir: (it.attrs.mode & 0o040000) !== 0,
-            mtime: it.attrs.mtime ? new Date(it.attrs.mtime * 1000).toISOString() : null,
-          })) })
-        })
-      })
-    })
+  async list(alias, remotePath, opts = {}) {
+    this.beginOp(alias)
+    try {
+      return await this.#listOn(alias, remotePath, opts)
+    } finally {
+      this.endOp(alias)
+    }
   }
 
-  /**
-   * Close every pooled connection.
-   *
-   * ssh2's end() is asynchronous; the entries are dropped synchronously so the
-   * next call reconnects, and the sockets are given a bounded grace period to
-   * close rather than leaking when the process keeps running.
-   */
-  /** Close one alias' connection, keeping the pool entry usable. */
-  async closeOne(alias) {
+  async #listOn(alias, remotePath, { sessionPassword, timeoutMs } = {}) {
+    const client = await this.connect(alias, { sessionPassword })
+    return await listRemoteDir(client, remotePath, {
+      timeoutMs: timeoutMs || this.config.sftpTimeoutMs || 30000,
+    })
+  }
+  async closeOne(alias, { force = false } = {}) {
     const e = this.entries.get(alias)
     if (!e) return { closed: false, confirmed: false }
+    if (!force && this.isBusy(alias)) {
+      return { closed: false, confirmed: false, busy: true }
+    }
     const client = e.client
     e.client = null
     e.ready = null
@@ -516,17 +530,54 @@ export class SshPool {
     return { closed: true, confirmed }
   }
 
-  async closeAll() {
+  /**
+   * Close every connection, but do not sever work in progress.
+   *
+   * Busy aliases are skipped and reported back, so the caller can decide
+   * whether to wait or to force. Shutdown that silently kills a running apt
+   * upgrade is worse than shutdown that says 'two connections are still busy'.
+   *
+   * @param {{force?: boolean, drainMs?: number}} [options]
+   * @returns {Promise<{closed: string[], busy: string[]}>}
+   */
+  async closeAll({ force = false, drainMs = 0 } = {}) {
+    const deadline = drainMs > 0 ? Date.now() + drainMs : 0
+
+    // Give in-flight work a bounded window to finish before deciding.
+    if (deadline) {
+      while (Date.now() < deadline) {
+        const busyNow = [...this.entries.keys()].filter((a) => this.isBusy(a))
+        if (busyNow.length === 0) break
+        await new Promise((r) => setTimeout(r, 50))
+      }
+    }
+
+    const closed = []
+    const busy = []
     const clients = []
-    for (const [, e] of this.entries) {
+
+    for (const [alias, e] of this.entries) {
+      if (!force && this.isBusy(alias)) {
+        busy.push(alias)
+        continue
+      }
       if (e.client) clients.push(e.client)
+      if (e.client) closed.push(alias)
       e.client = null
       e.ready = null
       e.fingerprint = null
       e.credentialIdentity = undefined
       e.nextAttemptAt = 0
     }
-    this.entries.clear()
+
+    // An entry exists only to hold a connection. Busy aliases keep theirs (the
+    // connection is still open); every other entry is dropped so nothing
+    // phantom is left behind.
+    for (const [alias, e] of [...this.entries]) {
+      if (!e.client && !this.isBusy(alias)) this.entries.delete(alias)
+    }
+
     await Promise.all(clients.map((client) => closeClient(client, this.config.closeTimeoutMs || 1500)))
+    return { closed, busy }
   }
 }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, statSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { checkHostKey, fingerprint, keyId, storePath } from '../src/hostkey.js'
+import { checkHostKey, fingerprint, keyId, storePath, fingerprintsEqual } from '../src/hostkey.js'
 
 const keyA = Buffer.from('key-A')
 const keyB = Buffer.from('key-B')
@@ -71,6 +71,14 @@ test('policy off accepts anything but still reports the fingerprint', () => {
     assert.equal(v.ok, true)
     assert.match(v.fp, /^SHA256:/)
   } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
+test('fingerprint comparison is constant-time and length-safe', () => {
+  assert.equal(fingerprintsEqual('SHA256:abc', 'SHA256:abc'), true)
+  assert.equal(fingerprintsEqual('SHA256:abc', 'SHA256:abd'), false)
+  assert.equal(fingerprintsEqual('SHA256:abc', 'SHA256:ab'), false, 'length mismatch is not an error')
+  assert.equal(fingerprintsEqual('', ''), true)
+  assert.equal(fingerprintsEqual(null, null), true)
 })
 
 test('two hosts recorded in sequence both survive', () => {

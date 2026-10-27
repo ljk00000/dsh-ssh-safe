@@ -19,7 +19,13 @@ class FakeClient {
   constructor() { this.handlers = {}; this.closed = false }
   on(event, fn) { this.handlers[event] = fn }
   once(event, fn) { this.handlers[event] = fn }
-  exec(_cmd, cb) { cb(null, new FakeStream()) }
+  exec(_cmd, cb) {
+    const stream = new FakeStream()
+    cb(null, stream)
+    // Settle immediately: without a close event every exec would wait for
+    // commandTimeoutMs and the suite would take a minute to run.
+    stream.emit('close', 0)
+  }
   end() { this.closed = true; if (this.handlers.close) this.handlers.close() }
   sftp(cb) { cb(null, {}) }
 }
