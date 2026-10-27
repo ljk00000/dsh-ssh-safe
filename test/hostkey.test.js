@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, rmSync, statSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { checkHostKey, fingerprint, keyId, storePath } from '../src/hostkey.js'
@@ -70,6 +70,28 @@ test('policy off accepts anything but still reports the fingerprint', () => {
     const v = checkHostKey({ dshHome: home, host: 'h', port: 22, keyBlob: keyB, policy: 'off' })
     assert.equal(v.ok, true)
     assert.match(v.fp, /^SHA256:/)
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
+test('two hosts recorded in sequence both survive', () => {
+  const home = freshHome()
+  try {
+    checkHostKey({ dshHome: home, host: 'one', port: 22, keyBlob: keyA, policy: 'tofu' })
+    checkHostKey({ dshHome: home, host: 'two', port: 22, keyBlob: keyB, policy: 'tofu' })
+    const store = JSON.parse(readFileSync(storePath(home), 'utf8'))
+    assert.ok(store.hosts['one:22'], 'the first host was not lost')
+    assert.ok(store.hosts['two:22'], 'the second host was recorded')
+    assert.equal(Object.keys(store.hosts).length, 2)
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
+test('a store write leaves no temporary file behind', () => {
+  const home = freshHome()
+  try {
+    checkHostKey({ dshHome: home, host: 'h', port: 22, keyBlob: keyA, policy: 'tofu' })
+    const dir = path.dirname(storePath(home))
+    const strays = readdirSync(dir).filter((f) => f.includes('.tmp-'))
+    assert.deepEqual(strays, [], 'the atomic write must rename, not leave temp files')
   } finally { rmSync(home, { recursive: true, force: true }) }
 })
 

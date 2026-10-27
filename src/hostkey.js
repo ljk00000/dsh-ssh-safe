@@ -9,7 +9,7 @@
 // never a username, password, or key.
 
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync } from 'node:fs'
 import path from 'node:path'
 
 const STORE_VERSION = 1
@@ -26,10 +26,35 @@ function readStore(file) {
   return { version: STORE_VERSION, hosts: {} }
 }
 
+/**
+ * Persist the store atomically.
+ *
+ * Writing straight to the target would leave a truncated file if the process
+ * died mid-write, and a reader would then treat every host as unknown. Writing
+ * to a sibling and renaming makes the swap atomic on every platform Node
+ * supports.
+ */
 function writeStore(file, store) {
   mkdirSync(path.dirname(file), { recursive: true })
-  writeFileSync(file, JSON.stringify(store, null, 2), { encoding: 'utf8', mode: 0o600 })
-  try { chmodSync(file, 0o600) } catch { /* best effort on Windows */ }
+  const tmp = file + '.tmp-' + process.pid + '-' + Date.now()
+  writeFileSync(tmp, JSON.stringify(store, null, 2), { encoding: 'utf8', mode: 0o600 })
+  try { chmodSync(tmp, 0o600) } catch { /* best effort on Windows */ }
+  renameSync(tmp, file)
+}
+
+/**
+ * Record one host fingerprint without discarding concurrent additions.
+ *
+ * The previous code did readStore() -> mutate -> writeStore() with nothing in
+ * between, so two hosts reached for the first time in the same tick lost one
+ * another: the second write overwrote the first entry. Re-reading immediately
+ * before the merge narrows that window to a single synchronous block, which Node
+ * cannot interleave.
+ */
+function recordHost(file, id, fingerprintValue) {
+  const fresh = readStore(file)
+  fresh.hosts[id] = { fingerprint: fingerprintValue, firstSeenAt: new Date().toISOString() }
+  writeStore(file, fresh)
 }
 
 export function keyId(host, port) {
@@ -74,8 +99,7 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
   }
   // No record yet.
   if (policy === 'tofu' || trustHostKey === true) {
-    store.hosts[id] = { fingerprint: fp, firstSeenAt: new Date().toISOString() }
-    writeStore(file, store)
+    recordHost(file, id, fp)
     return { ok: true, reason: 'first connection to this host; fingerprint recorded', fp, firstSeen: true }
   }
   return {

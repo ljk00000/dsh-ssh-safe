@@ -263,6 +263,7 @@ export async function apply(ctx, config) {
       command: { type: 'string', required: true, description: 'Command to run on the remote host.' },
       timeoutMs: { type: 'integer', description: 'Override the per-command timeout. 0 = configured value.' },
       confirm: { type: 'boolean', description: 'Required when execGuard is "confirm".' },
+      password: { type: 'string', description: 'Only honoured when the profile sets allowSessionPassword: true.' },
     },
     output: textOut,
     async execute(args) {
@@ -271,7 +272,7 @@ export async function apply(ctx, config) {
       if (!command) throw new Error('command is required')
       guard(command, args.confirm)
       const budget = args.timeoutMs ? Number(args.timeoutMs) : undefined
-      const r = await pool.exec(alias, command, { timeoutMs: budget })
+      const r = await pool.exec(alias, command, { timeoutMs: budget, sessionPassword: args.password })
       // Render the two streams in the order they actually arrived. The old
       // all-stdout-then-all-stderr layout made compiler errors and progress
       // output hard to follow, because their position relative to stdout was
@@ -313,13 +314,19 @@ export async function apply(ctx, config) {
       path: { type: 'string', required: true, description: 'Absolute path on the remote host.' },
       maxBytes: { type: 'integer', description: '0 = use the configured cap.' },
       raw: { type: 'boolean', description: 'Return the file verbatim, skipping secret redaction. Use only when the redacted form hides what you need.' },
+      timeoutMs: { type: 'integer', description: 'Override the per-transfer deadline. 0 = configured value.' },
+      password: { type: 'string', description: 'Only honoured when the profile sets allowSessionPassword: true.' },
     },
     output: textOut,
     async execute(args) {
       const alias = machineFor(args)
       const remotePath = String(args.path || '').trim()
       if (!remotePath) throw new Error('path is required')
-      const r = await pool.readFile(alias, remotePath, { maxBytes: args.maxBytes ? Number(args.maxBytes) : undefined })
+      const r = await pool.readFile(alias, remotePath, {
+        maxBytes: args.maxBytes ? Number(args.maxBytes) : undefined,
+        timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined,
+        sessionPassword: args.password,
+      })
       // A file read is the most likely place for an .env or a config with a
       // password in it to reach the conversation transcript, so the default is
       // to redact. raw: true opts out for the cases where the masked value is
@@ -341,6 +348,8 @@ export async function apply(ctx, config) {
       machine: { type: 'string', description: 'Machine alias. Defaults to defaultMachine.' },
       path: { type: 'string', required: true, description: 'Absolute path on the remote host.' },
       content: { type: 'string', required: true, description: 'Full file content.' },
+      timeoutMs: { type: 'integer', description: 'Override the per-transfer deadline. 0 = configured value.' },
+      password: { type: 'string', description: 'Only honoured when the profile sets allowSessionPassword: true.' },
     },
     output: textOut,
     async execute(args) {
@@ -352,7 +361,10 @@ export async function apply(ctx, config) {
       if (bytes > cfg.maxFileBytes) {
         throw new Error('Refusing to write ' + bytes + ' bytes (maxFileBytes = ' + cfg.maxFileBytes + ').')
       }
-      const r = await pool.writeFile(alias, remotePath, content)
+      const r = await pool.writeFile(alias, remotePath, content, {
+        timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined,
+        sessionPassword: args.password,
+      })
       return { text: 'Wrote ' + r.bytes + ' bytes to ' + r.path }
     },
   })
@@ -364,12 +376,17 @@ export async function apply(ctx, config) {
     parameters: {
       machine: { type: 'string', description: 'Machine alias. Defaults to defaultMachine.' },
       path: { type: 'string', description: 'Absolute path on the remote host. Defaults to "."' },
+      timeoutMs: { type: 'integer', description: 'Override the listing deadline. 0 = configured value.' },
+      password: { type: 'string', description: 'Only honoured when the profile sets allowSessionPassword: true.' },
     },
     output: textOut,
     async execute(args) {
       const alias = machineFor(args)
       const remotePath = String(args.path || '.').trim() || '.'
-      const listing = await pool.list(alias, remotePath)
+      const listing = await pool.list(alias, remotePath, {
+        timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined,
+        sessionPassword: args.password,
+      })
       const items = listing.items
       if (!items.length) return { text: '(empty directory: ' + listing.path + ')' }
       const rows = items
