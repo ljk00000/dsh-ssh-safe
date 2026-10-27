@@ -94,17 +94,24 @@ export class SshPool {
    * explicit ssh_close or a plugin unload ever released them.
    *
    * @param {number} keep how many live connections to retain
+   * @param {string} [protect] an alias that must not be evicted (the one just used)
+   * @returns {Promise<string[]>} aliases that were closed
    */
-  async evictIdle(keep) {
+  async evictIdle(keep, protect) {
     const limit = Number(keep)
     if (!Number.isFinite(limit) || limit <= 0) return []
 
-    const live = [...this.entries.entries()].filter(([, e]) => e.client)
-    if (live.length <= limit) return []
+    const live = [...this.entries.entries()].filter(([alias, e]) => e.client && alias !== protect)
+    const protectedLive = [...this.entries.entries()].filter(([alias, e]) => e.client && alias === protect)
+    // Count the protected connection against the ceiling.
+    if (live.length + protectedLive.length <= limit) return []
+    const allowedVictims = live.length
 
     // Oldest first; keep the most recently used.
     live.sort((a, b) => (a[1].lastUsedAt || 0) - (b[1].lastUsedAt || 0))
-    const victims = live.slice(0, live.length - limit)
+    const excess = live.length + protectedLive.length - limit
+    if (excess <= 0) return []
+    const victims = live.slice(0, Math.min(excess, allowedVictims))
     const closed = []
     for (const [alias] of victims) {
       await this.closeOne(alias)
@@ -152,11 +159,20 @@ export class SshPool {
     if (force) e.nextAttemptAt = 0
 
     e.ready = this.#open(alias, e, { sessionPassword, trustHostKey })
-      .then((client) => {
+      .then(async (client) => {
         e.client = client
         e.lastError = ''
         e.nextAttemptAt = 0
         e.credentialIdentity = wantCredential
+        e.lastUsedAt = Date.now()
+        // Enforce the ceiling here, not in the tools: ssh_exec / ssh_read /
+        // ssh_write / ssh_list all reach the network through this method, so
+        // evicting anywhere else leaves those paths unbounded. `alias` is
+        // protected because it was just used.
+        const limit = Number(this.config.maxConnections)
+        if (Number.isFinite(limit) && limit > 0) {
+          await this.evictIdle(limit, alias)
+        }
         return client
       })
       .catch((err) => {

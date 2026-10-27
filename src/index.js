@@ -240,11 +240,8 @@ export async function apply(ctx, config) {
         trustHostKey: args.trustHostKey === true,
         force: args.force === true,
       })
-      // Enforce the connection ceiling right after a new socket is opened,
-      // so a session that touches many machines does not accumulate them.
-      if (cfg.maxConnections > 0) {
-        await pool.evictIdle(cfg.maxConnections)
-      }
+      // The ceiling is enforced inside pool.connect() so that every tool path
+      // (exec, read, write, list) is covered, not just this one.
       const uname = await pool.exec(alias, 'uname -a 2>/dev/null || ver', { timeoutMs: 8000 })
       const m = machineFromEnv(alias)
       return { text:
