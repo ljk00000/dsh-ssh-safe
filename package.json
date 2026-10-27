@@ -1,0 +1,68 @@
+{
+  "name": "dsh-ssh-safe",
+  "version": "0.1.0",
+  "description": "Security-first SSH remote execution tools for DeepSeek Harness — no telemetry, no cloud, no auto-update; credentials from env by default.",
+  "license": "MIT",
+  "author": "ljk00000",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ljk00000/dsh-ssh-safe.git"
+  },
+  "homepage": "https://github.com/ljk00000/dsh-ssh-safe",
+  "bugs": {
+    "url": "https://github.com/ljk00000/dsh-ssh-safe/issues"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek",
+    "ssh",
+    "remote",
+    "security"
+  ],
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "src",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.1.7-rc.1 <0.3.0-0"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": ">=0.1.7-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-system-prompt": ">=0.1.7-rc.1 <0.3.0-0",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-system-prompt": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "ssh2": "^1.16.0"
+  },
+  "bundleDependencies": [
+    "ssh2",
+    "asn1",
+    "bcrypt-pbkdf",
+    "tweetnacl",
+    "safer-buffer"
+  ],
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

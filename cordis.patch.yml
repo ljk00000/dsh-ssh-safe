@@ -1,0 +1,11 @@
+# dsh-ssh-safe bundle patch.
+#
+# Inserts ONLY this plugin. It deliberately:
+#   - does NOT disable fs-sandbox or bash-sandbox
+#   - does NOT patch DeepSeek Harness sources
+#   - does NOT take over ctx.fs / ctx.shell
+#
+# Local tools keep working exactly as before; SSH is a parallel tool set.
+- insert:
+    - id: dsh-ssh-safe
+      name: 'dsh-ssh-safe'
