@@ -75,11 +75,55 @@ test('a stalled directory listing rejects at the deadline', async () => {
   )
 })
 
-test('closeOne reports whether a live connection existed', async () => {
+test('maxBytes can tighten the configured cap but never exceed it', async () => {
+  // A tool argument must not be able to raise the configured ceiling.
+  class Counting {
+    constructor() { this.requestedRead = 0 }
+    sftp(cb) {
+      const self = this
+      cb(null, {
+        createReadStream() {
+          const rs = new EventEmitter()
+          self.requestedRead++
+          setImmediate(() => { rs.emit('data', Buffer.from('x'.repeat(4096))); rs.emit('end') })
+          rs.destroy = () => {}
+          return rs
+        },
+      })
+    }
+  }
+  const pool = await poolWith(new Counting())
+  pool.config.maxFileBytes = 64
+  const r = await pool.readFile('t', '/tmp/big', { maxBytes: 10_000_000 })
+  assert.equal(r.bytes, 64, 'the configured 64-byte ceiling wins over a huge argument')
+  assert.equal(r.truncated, true)
+})
+
+test('a listing reports the path it actually used', async () => {
+  class L extends FakeClient {
+    sftp(cb) {
+      cb(null, {
+        readdir(_p, done) {
+          done(null, [{ filename: 'a.txt', attrs: { size: 3, mode: 0o100644, mtime: 0 } }])
+        },
+      })
+    }
+  }
+  const pool = await poolWith(new L('ok'))
+  const r = await pool.list('t', '/home//user/./')
+  assert.equal(r.path, '/home/user', 'the normalised path is reported back')
+  assert.equal(r.items.length, 1)
+})
+
+test('closeOne reports whether a live connection existed and whether it was confirmed', async () => {
   const pool = await poolWith(new FakeClient('ok'))
-  assert.equal(await pool.closeOne('nope'), false)
+  const missing = await pool.closeOne('nope')
+  assert.equal(missing.closed, false, 'no entry at all')
+
   const e = pool.entry('t2')
   e.client = new FakeClient('ok')
-  assert.equal(await pool.closeOne('t2'), true)
+  const result = await pool.closeOne('t2')
+  assert.equal(result.closed, true, 'a connection existed')
+  assert.equal(result.confirmed, false, 'this fake never emits close')
   assert.equal(e.client, null, 'the entry is left usable but disconnected')
 })

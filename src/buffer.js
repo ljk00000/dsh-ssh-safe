@@ -10,28 +10,46 @@
 // Both are pinned by test/regression.test.js.
 
 /**
- * Append text to a capped accumulator.
- * @param {{text: string, truncated: boolean}} state mutated in place
- * @param {string} chunk
- * @param {number} cap maximum number of UTF-16 units to keep
+ * A shared character budget across several capped accumulators.
+ *
+ * maxOutputChars is documented as the ceiling on collected output per call.
+ * Two independent accumulators (stdout and stderr) each capped at that value
+ * would let one call hold twice the advertised amount, so they share one budget.
  */
-export function appendCapped(state, chunk, cap) {
-  const text = String(chunk ?? '')
-  if (text.length === 0) return state
-  const room = cap - state.text.length
-  if (room <= 0) {
-    state.truncated = true
+export class OutputBudget {
+  /** @param {number} cap total characters across every stream */
+  constructor(cap) {
+    this.cap = cap
+    this.used = 0
+    this.truncated = false
+  }
+
+  /** Characters still available. */
+  get remaining() { return Math.max(0, this.cap - this.used) }
+
+  /**
+   * Append to an accumulator, drawing from the shared budget.
+   * @param {{text: string, truncated: boolean}} state
+   * @param {string} chunk
+   */
+  append(state, chunk) {
+    const text = String(chunk ?? '')
+    if (text.length === 0) return state
+    const room = this.remaining
+    if (room <= 0) {
+      state.truncated = true
+      this.truncated = true
+      return state
+    }
+    const take = text.length > room ? text.slice(0, room) : text
+    state.text += take
+    this.used += take.length
+    if (take.length < text.length) {
+      state.truncated = true
+      this.truncated = true
+    }
     return state
   }
-  if (text.length > room) {
-    // Keep only what fits and say so. The old code decided this from a
-    // recomputed length and therefore missed the single-chunk case.
-    state.text += text.slice(0, room)
-    state.truncated = true
-    return state
-  }
-  state.text += text
-  return state
 }
 
 /**

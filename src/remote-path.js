@@ -48,8 +48,12 @@ export function normalizeRemotePath(input, options = {}) {
     )
   }
 
-  // posix.normalize preserves a leading slash and resolves ./..
-  const normalized = posix.normalize(trimmed)
+  // posix.normalize preserves a leading slash and resolves ./.., but it also
+  // preserves a trailing slash ('/a/b/' stays '/a/b/'). Two spellings of the
+  // same directory must compare equal, so the trailing slash is dropped except
+  // for the root itself.
+  let normalized = posix.normalize(trimmed)
+  if (normalized.length > 1 && normalized.endsWith('/')) normalized = normalized.replace(/\/+$/, '')
   if (normalized === '' || normalized === '.') {
     if (allowRelative) return '.'
     throw new RemotePathError('path resolves to an empty location: ' + trimmed)

@@ -27,11 +27,13 @@ async function loadClient() {
   }
 }
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { resolveAuth, redact, machineFromEnv, envNames } from './credentials.js'
 import { checkHostKey } from './hostkey.js'
-import { appendCapped, Utf8Collector } from './buffer.js'
+import { Utf8Collector, OutputBudget } from './buffer.js'
 import { normalizeRemotePath } from './remote-path.js'
+import { closeClient } from './close.js'
 
 /** Expand a leading ~ so key paths written by hand work. */
 export function expandHome(p) {
@@ -69,8 +71,11 @@ export class SshPool {
     // for a call that supplies a different session password would silently
     // authenticate as the earlier user, so the credential identity is part of
     // the cache key.
+    // Only a digest is kept. Storing the password itself would leave a usable
+    // secret resident in the pool for the life of the process, where a heap
+    // dump or a careless error message could expose it.
     const wantCredential = typeof sessionPassword === 'string' && sessionPassword.length > 0
-      ? 'session:' + sessionPassword
+      ? 'session:' + createHash('sha256').update(sessionPassword).digest('hex').slice(0, 16)
       : 'configured'
 
     if (e.client && e.credentialIdentity !== undefined && e.credentialIdentity !== wantCredential) {
@@ -219,6 +224,9 @@ export class SshPool {
     return await new Promise((resolve, reject) => {
       const out = { text: '', truncated: false }
       const err = { text: '', truncated: false }
+      // One budget for both streams: stdout and stderr together stay within
+      // maxOutputChars instead of each getting the full allowance.
+      const budget = new OutputBudget(cap)
       let settled = false
       let stream = null
       let timer = null
@@ -248,22 +256,22 @@ export class SshPool {
           stderr: err.text,
           code: null,
           timedOut: true,
-          truncated: out.truncated || err.truncated,
+          truncated: budget.truncated,
         })
       }, limit)
 
       client.exec(command, (error, s) => {
         if (error) return settle(null, new Error(redact(error.message)))
         stream = s
-        s.on('data', (d) => appendCapped(out, Buffer.isBuffer(d) ? d.toString('utf8') : String(d), cap))
-        s.stderr.on('data', (d) => appendCapped(err, Buffer.isBuffer(d) ? d.toString('utf8') : String(d), cap))
+        s.on('data', (d) => budget.append(out, Buffer.isBuffer(d) ? d.toString('utf8') : String(d)))
+        s.stderr.on('data', (d) => budget.append(err, Buffer.isBuffer(d) ? d.toString('utf8') : String(d)))
         s.on('close', (code) => {
           settle({
             stdout: out.text,
             stderr: err.text,
             code: typeof code === 'number' ? code : null,
             timedOut: false,
-            truncated: out.truncated || err.truncated,
+            truncated: budget.truncated,
           })
         })
         s.on('error', (e) => settle(null, new Error(redact(e.message))))
@@ -273,7 +281,12 @@ export class SshPool {
 
   async readFile(alias, remotePath, { maxBytes, sessionPassword, timeoutMs } = {}) {
     const target = normalizeRemotePath(remotePath)
-    const cap = maxBytes || this.config.maxFileBytes || 1048576
+    // maxBytes can only tighten the configured ceiling, never raise it: a tool
+    // argument must not be able to pull an arbitrary amount of the remote file
+    // into memory.
+    const configured = this.config.maxFileBytes || 1048576
+    const requested = Number(maxBytes) || 0
+    const cap = requested > 0 ? Math.min(requested, configured) : configured
     const limit = timeoutMs || this.config.sftpTimeoutMs || 30000
     const client = await this.connect(alias, { sessionPassword })
     return await new Promise((resolve, reject) => {
@@ -377,12 +390,12 @@ export class SshPool {
         if (err) return settle(null, new Error(redact(err.message)))
         sftp.readdir(target, (e, items) => {
           if (e) return settle(null, new Error(redact(e.message)))
-          settle(items.map((it) => ({
+          settle({ path: target, items: items.map((it) => ({
             name: it.filename,
             size: it.attrs.size,
             dir: (it.attrs.mode & 0o040000) !== 0,
             mtime: it.attrs.mtime ? new Date(it.attrs.mtime * 1000).toISOString() : null,
-          })))
+          })) })
         })
       })
     })
@@ -398,19 +411,16 @@ export class SshPool {
   /** Close one alias' connection, keeping the pool entry usable. */
   async closeOne(alias) {
     const e = this.entries.get(alias)
-    if (!e) return false
+    if (!e) return { closed: false, confirmed: false }
     const client = e.client
     e.client = null
     e.ready = null
+    e.fingerprint = null
+    e.credentialIdentity = undefined
     e.nextAttemptAt = 0
-    if (!client) return false
-    await new Promise((resolve) => {
-      let done = false
-      const finish = () => { if (!done) { done = true; resolve() } }
-      try { client.once('close', finish); client.end() } catch { finish() }
-      setTimeout(finish, 1500).unref?.()
-    })
-    return true
+    if (!client) return { closed: false, confirmed: false }
+    const confirmed = await closeClient(client, this.config.closeTimeoutMs || 1500)
+    return { closed: true, confirmed }
   }
 
   async closeAll() {
@@ -419,20 +429,11 @@ export class SshPool {
       if (e.client) clients.push(e.client)
       e.client = null
       e.ready = null
+      e.fingerprint = null
+      e.credentialIdentity = undefined
       e.nextAttemptAt = 0
     }
     this.entries.clear()
-    await Promise.all(clients.map((client) => new Promise((resolve) => {
-      let done = false
-      const finish = () => { if (!done) { done = true; resolve() } }
-      try {
-        client.once('close', finish)
-        client.end()
-      } catch {
-        finish()
-      }
-      // A hung socket must not block shutdown forever.
-      setTimeout(finish, 1500).unref?.()
-    })))
+    await Promise.all(clients.map((client) => closeClient(client, this.config.closeTimeoutMs || 1500)))
   }
 }

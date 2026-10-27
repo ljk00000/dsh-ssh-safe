@@ -57,6 +57,12 @@ export const Config = z.object({
    * an error, so this is the backstop that keeps a tool call from hanging.
    */
   sftpTimeoutMs: z.number().step(1).min(1000).default(30000),
+
+  /**
+   * How long to wait for the peer to confirm a close. A silent peer must not
+   * hang shutdown, so this bounds both closeOne and closeAll.
+   */
+  closeTimeoutMs: z.number().step(1).min(100).default(1500),
   connectTimeoutMs: z.number().step(1).min(1000).default(15000),
   keepaliveIntervalMs: z.number().step(1).min(0).default(20000),
   maxOutputChars: z.number().step(1).min(1024).default(200000),
@@ -93,8 +99,12 @@ export async function apply(ctx, config) {
     render: (_args, value) => [{ type: 'text', text: String(value?.text ?? '') }],
   }
 
+  // Aliases are case-insensitive: envNames() uppercases them anyway, so
+  // 'PROD' and 'prod' name the same machine and must not be listed twice.
+  const normalizeAlias = (value) => String(value ?? '').trim().toLowerCase()
+
   const machineFor = (args) => {
-    const alias = String(args?.machine || cfg.defaultMachine || '').trim()
+    const alias = normalizeAlias(args?.machine || cfg.defaultMachine || '')
     if (!alias) {
       throw new Error(
         'No machine given. Pass machine: "<alias>" or set defaultMachine in the plugin config. ' +
@@ -149,7 +159,7 @@ export async function apply(ctx, config) {
     output: textOut,
     async execute() {
       const aliases = new Set()
-      if (cfg.defaultMachine) aliases.add(String(cfg.defaultMachine))
+      if (cfg.defaultMachine) aliases.add(normalizeAlias(cfg.defaultMachine))
       for (const key of Object.keys(process.env)) {
         const m = /^DSH_SSH_(.+)_HOST$/.exec(key)
         if (m && process.env[key]) aliases.add(m[1].toLowerCase())
@@ -300,12 +310,13 @@ export async function apply(ctx, config) {
     async execute(args) {
       const alias = machineFor(args)
       const remotePath = String(args.path || '.').trim() || '.'
-      const items = await pool.list(alias, remotePath)
-      if (!items.length) return { text: '(empty directory: ' + remotePath + ')' }
+      const listing = await pool.list(alias, remotePath)
+      const items = listing.items
+      if (!items.length) return { text: '(empty directory: ' + listing.path + ')' }
       const rows = items
         .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1))
         .map((it) => (it.dir ? 'd' : '-') + ' ' + String(it.size).padStart(10) + '  ' + (it.mtime || '') + '  ' + it.name)
-      return { text: remotePath + '\n' + rows.join('\n') }
+      return { text: listing.path + '\n' + rows.join('\n') }
     },
   })
 
@@ -316,10 +327,13 @@ export async function apply(ctx, config) {
     parameters: { machine: { type: 'string', description: 'Alias to close; empty closes all.' } },
     output: textOut,
     async execute(args) {
-      const alias = String(args.machine || '').trim()
+      const alias = normalizeAlias(args.machine || '')
       if (alias) {
-        const had = await pool.closeOne(alias)
-        return { text: had ? 'Closed ' + alias : 'No live connection for ' + alias }
+        const result = await pool.closeOne(alias)
+        if (!result.closed) return { text: 'No live connection for ' + alias }
+        return { text: result.confirmed
+          ? 'Closed ' + alias
+          : 'Requested close for ' + alias + ' but the peer did not confirm; the entry was reset so the next call reconnects.' }
       }
       await pool.closeAll()
       return { text: 'Closed all SSH connections' }

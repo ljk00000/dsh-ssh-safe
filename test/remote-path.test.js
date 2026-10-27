@@ -36,6 +36,17 @@ test('a NUL byte is refused', () => {
   assert.throws(() => normalizeRemotePath('/tmp/a\u0000b'), RemotePathError)
 })
 
+test('a trailing slash is dropped so two spellings compare equal', () => {
+  assert.equal(normalizeRemotePath('/home/user/'), '/home/user')
+  assert.equal(normalizeRemotePath('/home/user/./'), '/home/user')
+  assert.equal(normalizeRemotePath('/home//user//'), '/home/user')
+  assert.equal(normalizeRemotePath('/home/user'), '/home/user')
+})
+
+test('the root is not reduced to an empty string', () => {
+  assert.equal(normalizeRemotePath('/'), '/')
+})
+
 test('the error names the problem so the caller can fix it', () => {
   try {
     normalizeRemotePath('~/x')
