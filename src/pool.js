@@ -35,6 +35,31 @@ import { Utf8Collector, OutputBudget } from './buffer.js'
 import { normalizeRemotePath } from './remote-path.js'
 import { closeClient } from './close.js'
 
+/** Policies the host-key store understands. */
+const VALID_POLICIES = new Set(['strict', 'tofu', 'off'])
+
+/**
+ * Resolve the host-key policy for one connection.
+ *
+ * A per-machine setting wins outright. The previous implementation only read
+ * the machine value when it happened to be 'tofu', so a machine could never be
+ * tightened to 'strict' nor relaxed to 'off' — the setting silently did nothing.
+ *
+ * An unrecognised machine value is ignored rather than passed through, so a
+ * typo cannot silently disable verification.
+ *
+ * @param {string} globalPolicy from the plugin config
+ * @param {string} machinePolicy from DSH_SSH_<ALIAS>_HOST_KEY_POLICY
+ * @returns {'strict'|'tofu'|'off'}
+ */
+export function effectivePolicy(globalPolicy, machinePolicy) {
+  const machine = String(machinePolicy ?? '').trim().toLowerCase()
+  if (VALID_POLICIES.has(machine)) return machine
+  const global = String(globalPolicy ?? '').trim().toLowerCase()
+  if (VALID_POLICIES.has(global)) return global
+  return 'strict'
+}
+
 /** Expand a leading ~ so key paths written by hand work. */
 export function expandHome(p) {
   const s = String(p || '')
@@ -53,10 +78,39 @@ export class SshPool {
   entry(alias) {
     let e = this.entries.get(alias)
     if (!e) {
-      e = { client: null, ready: null, lastError: '', nextAttemptAt: 0 }
+      e = { client: null, ready: null, lastError: '', nextAttemptAt: 0, lastUsedAt: Date.now() }
       this.entries.set(alias, e)
     }
+    e.lastUsedAt = Date.now()
     return e
+  }
+
+  /**
+   * Close the least recently used connections until at most `keep` live ones
+   * remain.
+   *
+   * Without this a long session that touches many machines holds an SSH
+   * socket open per machine for the life of the process; nothing but the
+   * explicit ssh_close or a plugin unload ever released them.
+   *
+   * @param {number} keep how many live connections to retain
+   */
+  async evictIdle(keep) {
+    const limit = Number(keep)
+    if (!Number.isFinite(limit) || limit <= 0) return []
+
+    const live = [...this.entries.entries()].filter(([, e]) => e.client)
+    if (live.length <= limit) return []
+
+    // Oldest first; keep the most recently used.
+    live.sort((a, b) => (a[1].lastUsedAt || 0) - (b[1].lastUsedAt || 0))
+    const victims = live.slice(0, live.length - limit)
+    const closed = []
+    for (const [alias] of victims) {
+      await this.closeOne(alias)
+      closed.push(alias)
+    }
+    return closed
   }
 
   /** Machine definition merged from env (+ explicit host override for one-offs). */
@@ -201,7 +255,7 @@ export class SshPool {
           host: m.host,
           port: m.port || 22,
           keyBlob,
-          policy: this.config.hostKeyPolicy === 'off' ? 'off' : (m.hostKeyPolicy === 'tofu' ? 'tofu' : this.config.hostKeyPolicy),
+          policy: effectivePolicy(this.config.hostKeyPolicy, m.hostKeyPolicy),
           trustHostKey,
           knownHostsFile: m.knownHosts ? expandHome(m.knownHosts) : undefined,
         })
@@ -224,12 +278,17 @@ export class SshPool {
     return await new Promise((resolve, reject) => {
       const out = { text: '', truncated: false }
       const err = { text: '', truncated: false }
+      // Ordered transcript of both streams. Concatenating stdout then stderr
+      // loses the interleaving, which is exactly what a compiler error or a
+      // progress bar needs to be readable.
+      const timeline = []
       // One budget for both streams: stdout and stderr together stay within
       // maxOutputChars instead of each getting the full allowance.
       const budget = new OutputBudget(cap)
       let settled = false
       let stream = null
       let timer = null
+      let timedOutResult = null
 
       const settle = (result, error) => {
         if (settled) return
@@ -247,24 +306,41 @@ export class SshPool {
       }
 
       timer = setTimeout(() => {
-        // The remote command keeps running unless it is signalled. ssh2 does
-        // not expose the remote pid, so closing the channel is the only
-        // portable way to stop it — and it is what ssh itself does on ^C.
+        // ssh2 does not expose the remote pid, so sending a signal to the
+        // channel is the portable way to stop the command — and it is what ssh
+        // itself does on ^C.
+        //
+        // Signal first, then wait one turn of the event loop before tearing the
+        // channel down. signal() only queues an SSH message; close()/destroy()
+        // run synchronously inside settle(), so calling settle() immediately
+        // destroyed the channel before the TERM message could be written and
+        // the remote process kept running.
         try { if (stream) stream.signal('TERM') } catch {}
-        settle({
+        timedOutResult = {
           stdout: out.text,
           stderr: err.text,
           code: null,
           timedOut: true,
           truncated: budget.truncated,
-        })
+          timeline,
+        }
+        // Let the TERM message flush before the channel is destroyed.
+        setImmediate(() => settle(timedOutResult))
       }, limit)
 
       client.exec(command, (error, s) => {
         if (error) return settle(null, new Error(redact(error.message)))
         stream = s
-        s.on('data', (d) => budget.append(out, Buffer.isBuffer(d) ? d.toString('utf8') : String(d)))
-        s.stderr.on('data', (d) => budget.append(err, Buffer.isBuffer(d) ? d.toString('utf8') : String(d)))
+        s.on('data', (d) => {
+          const text = Buffer.isBuffer(d) ? d.toString('utf8') : String(d)
+          timeline.push({ stream: 'out', text })
+          budget.append(out, text)
+        })
+        s.stderr.on('data', (d) => {
+          const text = Buffer.isBuffer(d) ? d.toString('utf8') : String(d)
+          timeline.push({ stream: 'err', text })
+          budget.append(err, text)
+        })
         s.on('close', (code) => {
           settle({
             stdout: out.text,
@@ -272,6 +348,7 @@ export class SshPool {
             code: typeof code === 'number' ? code : null,
             timedOut: false,
             truncated: budget.truncated,
+            timeline,
           })
         })
         s.on('error', (e) => settle(null, new Error(redact(e.message))))

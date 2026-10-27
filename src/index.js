@@ -37,6 +37,16 @@ export const Config = z.object({
   allowSessionPassword: z.boolean().default(false),
 
   /**
+   * How much of the machine inventory ssh_machines prints.
+   *
+   *   full  — alias, user@host:port, key path, detected env names (default)
+   *   alias — alias and auth kind only; host, port and key path are masked,
+   *           so a shared or exported transcript does not leak the network
+   *           topology or where private keys live
+   */
+  machineInventory: z.string().default('full'),
+
+  /**
    * allow   — ssh_exec runs immediately (default)
    * confirm — ssh_exec requires confirm: true, so a model cannot run a
    *           command entirely on its own initiative
@@ -68,6 +78,12 @@ export const Config = z.object({
   maxOutputChars: z.number().step(1).min(1024).default(200000),
   maxFileBytes: z.number().step(1).min(1024).default(1048576),
   reconnectCooldownMs: z.number().step(1).min(0).default(15000),
+
+  /**
+   * Maximum number of SSH connections kept alive at once. Least recently used
+   * connections are closed when the limit is exceeded. 0 disables the limit.
+   */
+  maxConnections: z.number().step(1).min(0).default(8),
 
   /**
    * Commands matching these regular expressions are refused before exec.
@@ -173,18 +189,31 @@ export async function apply(ctx, config) {
           '(or DSH_SSH_PROD_PASSWORD). Values are read at call time and never written to config.' }
       }
       const out = []
+      const lean = cfg.machineInventory === 'alias'
       for (const alias of aliases) {
         const m = machineFromEnv(alias)
         const need = expectedEnv(alias)
-        const authKind = m.password ? 'password (env)' : m.keyPath ? 'key ' + m.keyPath : 'NONE'
+        const authKind = m.password
+          ? 'password (env)'
+          : m.keyPath
+            ? (lean ? 'private key (path hidden)' : 'key ' + m.keyPath)
+            : 'NONE'
+        const endpoint = lean
+          ? '<host hidden>'
+          : (m.username || '<no user>') + '@' + (m.host || '<no host>') + ':' + m.port
         out.push(
-          '• ' + alias + '  ' + (m.username || '<no user>') + '@' + (m.host || '<no host>') + ':' + m.port +
+          '• ' + alias + '  ' + endpoint +
           '\n    auth: ' + authKind +
           '\n    hostKeyPolicy: ' + (m.hostKeyPolicy || cfg.hostKeyPolicy) +
           '\n    ' + trustedLine(m) +
-          (m.present.length ? '\n    detected env: ' + m.present.join(', ') : '\n    detected env: none') +
+          (lean
+            ? ''
+            : (m.present.length ? '\n    detected env: ' + m.present.join(', ') : '\n    detected env: none')) +
           (m.host && m.username ? '' : '\n    MISSING: ' + need.required.join(', '))
         )
+      }
+      if (lean) {
+        out.push('', '(machineInventory is "alias": host, port and key paths are hidden. Set machineInventory: full to show them.)')
       }
       return { text: out.join('\n') }
     },
@@ -211,6 +240,11 @@ export async function apply(ctx, config) {
         trustHostKey: args.trustHostKey === true,
         force: args.force === true,
       })
+      // Enforce the connection ceiling right after a new socket is opened,
+      // so a session that touches many machines does not accumulate them.
+      if (cfg.maxConnections > 0) {
+        await pool.evictIdle(cfg.maxConnections)
+      }
       const uname = await pool.exec(alias, 'uname -a 2>/dev/null || ver', { timeoutMs: 8000 })
       const m = machineFromEnv(alias)
       return { text:
@@ -241,14 +275,34 @@ export async function apply(ctx, config) {
       guard(command, args.confirm)
       const budget = args.timeoutMs ? Number(args.timeoutMs) : undefined
       const r = await pool.exec(alias, command, { timeoutMs: budget })
+      // Render the two streams in the order they actually arrived. The old
+      // all-stdout-then-all-stderr layout made compiler errors and progress
+      // output hard to follow, because their position relative to stdout was
+      // lost.
       const parts = []
-      if (r.stdout) parts.push(String(r.stdout).replace(/\s+$/, ''))
-      if (r.stderr) parts.push('[stderr]\n' + String(r.stderr).replace(/\s+$/, ''))
+      const timeline = Array.isArray(r.timeline) ? r.timeline : []
+      if (timeline.length > 0) {
+        let buffer = ''
+        let bufferStream = null
+        const flush = () => {
+          if (!buffer) return
+          parts.push(bufferStream === 'err' ? '[stderr]\n' + buffer.replace(/\s+$/, '') : buffer.replace(/\s+$/, ''))
+          buffer = ''
+        }
+        for (const entry of timeline) {
+          if (bufferStream !== null && entry.stream !== bufferStream) flush()
+          bufferStream = entry.stream
+          buffer += entry.text
+        }
+        flush()
+      } else {
+        if (r.stdout) parts.push(String(r.stdout).replace(/\s+$/, ''))
+        if (r.stderr) parts.push('[stderr]\n' + String(r.stderr).replace(/\s+$/, ''))
+      }
       if (r.truncated) parts.push('[output truncated at maxOutputChars]')
       if (r.timedOut) parts.push('[timed out after ' + (budget || cfg.commandTimeoutMs) + 'ms]')
       parts.push('[exit ' + (r.code === null ? 'unknown' : r.code) + ']')
-      return { text: redact(parts.join('\n')) }
-    },
+      return { text: redact(parts.join('\n')) }  },
   })
 
   // ── ssh_read ──────────────────────────────────────────────────────────
@@ -261,6 +315,7 @@ export async function apply(ctx, config) {
       machine: { type: 'string', description: 'Machine alias. Defaults to defaultMachine.' },
       path: { type: 'string', required: true, description: 'Absolute path on the remote host.' },
       maxBytes: { type: 'integer', description: '0 = use the configured cap.' },
+      raw: { type: 'boolean', description: 'Return the file verbatim, skipping secret redaction. Use only when the redacted form hides what you need.' },
     },
     output: textOut,
     async execute(args) {
@@ -268,7 +323,14 @@ export async function apply(ctx, config) {
       const remotePath = String(args.path || '').trim()
       if (!remotePath) throw new Error('path is required')
       const r = await pool.readFile(alias, remotePath, { maxBytes: args.maxBytes ? Number(args.maxBytes) : undefined })
-      return { text: (r.truncated ? '[truncated at ' + r.bytes + ' bytes]\n' : '') + r.content }
+      // A file read is the most likely place for an .env or a config with a
+      // password in it to reach the conversation transcript, so the default is
+      // to redact. raw: true opts out for the cases where the masked value is
+      // the thing being investigated.
+      const body = args.raw === true ? r.content : redact(r.content)
+      const header = r.truncated ? '[truncated at ' + r.bytes + ' bytes]\n' : ''
+      const note = args.raw === true ? '' : '\n[secrets masked; pass raw: true to see the file verbatim]'
+      return { text: header + body + note }
     },
   })
 

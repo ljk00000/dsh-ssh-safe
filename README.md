@@ -27,11 +27,19 @@
 
 ### 安装
 
+尚未发布到 npm。用 git 或本地路径安装，然后重启 DSH：
+
 ```sh
-dsh plugin --profile desktop add dsh-ssh-safe
+# 从 GitHub
+dsh plugin --profile desktop add github:ljk00000/dsh-ssh-safe
+
+# 或从本地克隆
+dsh plugin --profile desktop add file:/path/to/dsh-ssh-safe
 ```
 
-然后重启 DSH。
+> **本地 `file:` 安装的坑**：pnpm 不会重新拷贝后来新增的文件。改了源码后如果加了新文件,
+> 必须先 `remove` 再 `add`，否则插件会因 `ERR_MODULE_NOT_FOUND` 崩溃。
+> （`test/installed.test.js` 就是为了逮住这种情况。)
 
 ### 配置服务器凭据
 
@@ -83,6 +91,44 @@ ssh_connect { machine: "prod", trustHostKey: true }
 指纹会存进 `~/.dsh/dsh-ssh-safe/known_hosts.json`（权限 0600），内容只有主机、端口、指纹——**没有用户名、密码、密钥**。
 
 如果服务器的指纹**变了**，插件会拒绝连接并说明原因，而不是自动接受。这是防中间人攻击的核心行为。
+
+每台机器可以用 `DSH_SSH_<ALIAS>_HOST_KEY_POLICY` **单独覆盖**全局策略（收紧或放宽都行）：
+
+```sh
+DSH_SSH_PROD_HOST_KEY_POLICY=strict   # 这台机器强制 strict，即使全局是 tofu
+```
+
+### 可选：`ssh_read` 的脱敏
+
+`ssh_read` 默认会把你读到的内容里的密钥样式文本替换成 `<redacted>`——
+因为读 `.env` 或配置文件正是密码最容易流进对话记录的路径。
+
+需要看原文时传 `raw: true`：
+
+```
+ssh_read { machine: "prod", path: "/opt/app/.env", raw: true }
+```
+
+### 可选：隐藏主机拓扑
+
+`ssh_machines` 默认显示 `user@host:port` 和私钥路径。
+如果会话记录可能被分享或导出，改成只显示别名：
+
+```yaml
+- id: dsh-ssh-safe
+  name: 'dsh-ssh-safe'
+  config:
+    machineInventory: alias    # 隐藏 host / port / 私钥路径
+```
+
+### 连接上限
+
+最多保活 8 条连接，超出时关闭最久未使用的（LRU）。
+配了很多机器时不会无限累积 socket：
+
+```yaml
+    maxConnections: 8    # 0 = 不限制
+```
 
 ### 可选：允许在会话里传密码
 

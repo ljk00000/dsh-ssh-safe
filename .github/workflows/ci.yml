@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['20', '22', '24']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # The suite is deliberately dependency-free: no ssh2 install is needed
+      # because every module that would touch it is either lazy-loaded or
+      # exercised through a fake client.
+      - name: Run tests
+        run: node --test "test/*.test.js"
+      - name: Syntax check
+        run: |
+          for f in src/*.js; do node --check "$f"; done
+        shell: bash
