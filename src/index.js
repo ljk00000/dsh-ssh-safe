@@ -17,7 +17,7 @@
 import z from '@deepseek-ai/schemastery'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { SshPool } from './pool.js'
+import { SshPool, expandHome } from './pool.js'
 import { expectedEnv, machineFromEnv, redact } from './credentials.js'
 import { storePath } from './hostkey.js'
 
@@ -112,14 +112,23 @@ export async function apply(ctx, config) {
   }
 
   const trustedLine = (m) => {
+    // A per-machine knownHosts override goes through the same ~ expansion the
+    // pool uses; without it a "~/.ssh/x.json" value is read as a literal path.
+    const file = m.knownHosts ? expandHome(m.knownHosts) : storePath(dshHome)
+    let raw
     try {
-      const file = m.knownHosts || storePath(dshHome)
-      const raw = JSON.parse(readFileSync(file, 'utf8'))
-      const rec = raw?.hosts?.[String(m.host) + ':' + (m.port || 22)]
-      return rec ? 'trusted: ' + rec.fingerprint : 'not trusted yet (no fingerprint recorded)'
-    } catch {
-      return 'not trusted yet (no fingerprint recorded)'
+      raw = JSON.parse(readFileSync(file, 'utf8'))
+    } catch (err) {
+      // Distinguish "no store yet" from "the store exists but is unreadable".
+      // Silently reporting "not trusted" for a permission error would hide a
+      // real misconfiguration.
+      const code = err && err.code
+      if (code === 'ENOENT') return 'not trusted yet (no fingerprint recorded)'
+      return 'known-hosts store unreadable (' + (code || 'parse error') + '): ' + file
     }
+    const rec = raw?.hosts?.[String(m.host) + ':' + (m.port || 22)]
+    if (!rec) return 'not trusted yet (no fingerprint recorded)'
+    return 'trusted: ' + rec.fingerprint + (rec.firstSeenAt ? ' (since ' + rec.firstSeenAt + ')' : '')
   }
 
   // ── ssh_machines ──────────────────────────────────────────────────────
@@ -187,8 +196,9 @@ export async function apply(ctx, config) {
       const m = machineFromEnv(alias)
       return { text:
         'Connected: ' + (m.username || '?') + '@' + (m.host || '?') + ':' + (m.port || 22) +
-        '\nHost key: ' + (pool.entry(alias).fingerprint || 'verified') +
-        '\nRemote: ' + (redact(String(uname.stdout || '').trim()) || '(no output)') }
+        '\nHost key: ' + (pool.entry(alias).fingerprint || 'NOT VERIFIED (policy: ' + cfg.hostKeyPolicy + ')') +
+        '\nRemote: ' + (redact(String(uname.stdout || '').trim()) || '(no output)') +
+        (cfg.hostKeyPolicy === 'off' ? '\n\nWARNING: hostKeyPolicy is "off" — this connection is not protected against a man-in-the-middle.' : '') }
     },
   })
 

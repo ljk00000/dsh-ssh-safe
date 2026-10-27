@@ -30,6 +30,7 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { resolveAuth, redact, machineFromEnv, envNames } from './credentials.js'
 import { checkHostKey } from './hostkey.js'
+import { appendCapped, Utf8Collector } from './buffer.js'
 
 /** Expand a leading ~ so key paths written by hand work. */
 export function expandHome(p) {
@@ -182,42 +183,56 @@ export class SshPool {
     const cap = this.config.maxOutputChars || 200000
 
     return await new Promise((resolve, reject) => {
-      let out = ''
-      let errOut = ''
-      let truncated = false
-      let done = false
-      const finish = (result) => {
-        if (done) return
-        done = true
-        clearTimeout(timer)
-        resolve(result)
+      const out = { text: '', truncated: false }
+      const err = { text: '', truncated: false }
+      let settled = false
+      let stream = null
+      let timer = null
+
+      const settle = (result, error) => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        // Detach listeners so a stream that keeps draining after we gave up
+        // cannot grow the buffers or fire a second completion.
+        if (stream) {
+          try { stream.removeAllListeners('data'); stream.removeAllListeners('close'); stream.stderr?.removeAllListeners('data') } catch {}
+          try { stream.close() } catch {}
+          try { stream.destroy() } catch {}
+        }
+        if (error) reject(error)
+        else resolve(result)
       }
-      const timer = setTimeout(() => {
-        finish({ stdout: out, stderr: errOut, code: null, timedOut: true, truncated })
+
+      timer = setTimeout(() => {
+        // The remote command keeps running unless it is signalled. ssh2 does
+        // not expose the remote pid, so closing the channel is the only
+        // portable way to stop it — and it is what ssh itself does on ^C.
+        try { if (stream) stream.signal('TERM') } catch {}
+        settle({
+          stdout: out.text,
+          stderr: err.text,
+          code: null,
+          timedOut: true,
+          truncated: out.truncated || err.truncated,
+        })
       }, limit)
 
-      client.exec(command, (err, stream) => {
-        if (err) {
-          clearTimeout(timer)
-          done = true
-          return reject(new Error(redact(err.message)))
-        }
-        const push = (target, chunk) => {
-          const text = String(chunk)
-          if (target === 'out') {
-            if (out.length >= cap) { truncated = true; return }
-            out += text.slice(0, cap - out.length)
-            if (text.length > cap - (out.length - text.length)) truncated = true
-          } else {
-            if (errOut.length >= cap) { truncated = true; return }
-            errOut += text.slice(0, cap - errOut.length)
-          }
-        }
-        stream.on('data', (d) => push('out', d))
-        stream.stderr.on('data', (d) => push('err', d))
-        stream.on('close', (code) => {
-          finish({ stdout: out, stderr: errOut, code: typeof code === 'number' ? code : null, timedOut: false, truncated })
+      client.exec(command, (error, s) => {
+        if (error) return settle(null, new Error(redact(error.message)))
+        stream = s
+        s.on('data', (d) => appendCapped(out, Buffer.isBuffer(d) ? d.toString('utf8') : String(d), cap))
+        s.stderr.on('data', (d) => appendCapped(err, Buffer.isBuffer(d) ? d.toString('utf8') : String(d), cap))
+        s.on('close', (code) => {
+          settle({
+            stdout: out.text,
+            stderr: err.text,
+            code: typeof code === 'number' ? code : null,
+            timedOut: false,
+            truncated: out.truncated || err.truncated,
+          })
         })
+        s.on('error', (e) => settle(null, new Error(redact(e.message))))
       })
     })
   }
@@ -226,21 +241,32 @@ export class SshPool {
     const cap = maxBytes || this.config.maxFileBytes || 1048576
     const client = await this.connect(alias, { sessionPassword })
     return await new Promise((resolve, reject) => {
-      client.sftp((err, sftp) => {
-        if (err) return reject(new Error(redact(err.message)))
-        const chunks = []
-        let size = 0
-        let truncated = false
+      client.sftp((error, sftp) => {
+        if (error) return reject(new Error(redact(error.message)))
+        const collector = new Utf8Collector(cap)
+        let settled = false
         const rs = sftp.createReadStream(remotePath)
-        rs.on('data', (c) => {
-          if (size >= cap) { truncated = true; return }
-          const take = c.subarray(0, cap - size)
-          chunks.push(take)
-          size += take.length
-          if (take.length < c.length) truncated = true
+        rs.on('data', (chunk) => {
+          collector.push(chunk)
+          // Stop pulling once the cap is reached; the rest cannot be kept.
+          if (collector.truncated) { try { rs.destroy() } catch {} }
         })
-        rs.on('error', (e) => reject(new Error(redact(e.message))))
-        rs.on('end', () => resolve({ content: Buffer.concat(chunks).toString('utf8'), truncated, bytes: size }))
+        rs.on('error', (e) => {
+          if (settled) return
+          settled = true
+          reject(new Error(redact(e.message)))
+        })
+        rs.on('end', () => {
+          if (settled) return
+          settled = true
+          resolve({ content: collector.toString(), truncated: collector.truncated, bytes: collector.bytes })
+        })
+        rs.on('close', () => {
+          // destroy() after a cap hit closes the stream without 'end'.
+          if (settled) return
+          settled = true
+          resolve({ content: collector.toString(), truncated: collector.truncated, bytes: collector.bytes })
+        })
       })
     })
   }
