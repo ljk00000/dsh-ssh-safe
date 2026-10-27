@@ -47,6 +47,17 @@ export function normalizeRemotePath(input, options = {}) {
       'path must be absolute on the remote host (received: ' + trimmed + ')'
     )
   }
+  if (!trimmed.startsWith('/') && trimmed.split('/').includes('..')) {
+    // SFTP resolves a relative path against the login directory, which this
+    // plugin does not know (it depends on sshd configuration and the account).
+    // A '..' can therefore escape wherever the caller expected to be, so it is
+    // refused rather than resolved against a guessed base.
+    throw new RemotePathError(
+      'relative paths cannot contain "..": the remote base directory is not ' +
+      'known, so "' + trimmed + '" would resolve somewhere unpredictable. ' +
+      'Use an absolute path.'
+    )
+  }
 
   // posix.normalize preserves a leading slash and resolves ./.., but it also
   // preserves a trailing slash ('/a/b/' stays '/a/b/'). Two spellings of the

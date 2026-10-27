@@ -118,6 +118,12 @@ ssh_connect { machine: "prod", trustHostKey: true }
 DSH_SSH_PROD_HOST_KEY_POLICY=strict   # 这台机器强制 strict，即使全局是 tofu
 ```
 
+### `ssh_list` 的路径语义
+
+`ssh_list` 允许相对路径（默认 `.`），但**拒绝含 `..` 的相对路径**：
+SFTP 把相对路径解析到登录目录，而插件无从知道那是哪里（取决于 sshd 配置和账号类型）。
+让 `../etc` 在猜测的基准上解析，不如直接要求绝对路径。
+
 ### 可选：`ssh_read` 的脱敏
 
 `ssh_read` 默认会把你读到的内容里的密钥样式文本替换成 `<redacted>`——
@@ -223,6 +229,9 @@ pnpm approve-builds --all
 | `maxFileBytes` | `1048576` | 单次传输字节上限 |
 | `reconnectCooldownMs` | `15000` | 失败后冷却，期间可用 `force: true` 绕过 |
 | `healthCheckIdleMs` | `300000` | 空闲多久后复用前先探活，`0` 关闭 |
+| `defaultMachine` | `''` | 工具调用省略 `machine` 时使用的别名 |
+| `healthCheckTimeoutMs` | `3000` | 探活探测的截止时间 |
+| `pipeToShell` | `refuse` | `refuse` 拦截管道进解释器；`allow` 放行 |
 | `denyPatterns` | 5 条 | 危险命令拦截（安全带，不是边界） |
 
 ### 它不做什么

@@ -15,7 +15,7 @@
 // SSH is a PARALLEL tool set. Local read/write/bash keep working as before.
 
 import z from '@deepseek-ai/schemastery'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import net from 'node:net'
 import { homedir } from 'node:os'
 import { SshPool, expandHome, pick } from './pool.js'
@@ -185,10 +185,11 @@ export async function apply(ctx, config) {
         reason: verdict.reason,
       })
       const where = verdict.reason === 'matches deny pattern' ? '' : ' (' + verdict.reason + ')'
-      throw new Error(
-        'Command refused' + where + ': ' + verdict.pattern +
-        '. Adjust denyPatterns in the plugin config if this is intentional.'
-      )
+      // Point at the setting that actually governs this refusal.
+      const remedy = String(verdict.reason || '').startsWith('pipes into ')
+        ? 'Set pipeToShell: allow in the plugin config to permit pipelines into interpreters.'
+        : 'Adjust denyPatterns in the plugin config if this is intentional.'
+      throw new Error('Command refused' + where + ': ' + verdict.pattern + '. ' + remedy)
     }
   }
 
@@ -555,10 +556,25 @@ export async function apply(ctx, config) {
       const rows = records.map((r) => {
         if (r.malformed) return '[unreadable record] ' + r.line
         const when = String(r.at || '').replace('T', ' ').slice(0, 19)
-        const code = r.exitCode === null || r.exitCode === undefined ? '' : ' exit=' + r.exitCode
         const machine = r.machine ? ' ' + r.machine : ''
-        return when + machine + ' ' + (r.kind || '?') + ' ' + (r.outcome || '') + code +
-          '  ' + (r.command || r.pattern || '')
+        const parts = [when, machine.trim(), r.kind || '?', r.outcome || '']
+        if (r.exitCode !== null && r.exitCode !== undefined) parts.push('exit=' + r.exitCode)
+        // Show the subject: a command for exec, a path for transfers.
+        const subject = r.command || r.path || r.pattern || ''
+        if (subject) parts.push(subject)
+        const head = parts.filter(Boolean).join(' ')
+
+        // The detail fields are what make a record actionable; the earlier
+        // renderer dropped every one of them.
+        const detail = []
+        if (r.bytes !== undefined) detail.push(r.bytes + 'B')
+        if (r.entries !== undefined) detail.push(r.entries + ' entries')
+        if (r.truncated) detail.push('truncated')
+        if (r.redacted === true) detail.push('redacted')
+        if (r.ms !== undefined) detail.push(r.ms + 'ms')
+        if (r.reason) detail.push('reason=' + r.reason)
+        if (r.error) detail.push('error: ' + r.error)
+        return detail.length > 0 ? head + '\n    ' + detail.join('  ') : head
       })
       return { text: rows.join('\n') }
     },
@@ -592,12 +608,22 @@ export async function apply(ctx, config) {
         ['maxConnections', cfg.maxConnections, '0 = unlimited'],
         ['reconnectCooldownMs', cfg.reconnectCooldownMs, 'after a failure'],
         ['healthCheckIdleMs', cfg.healthCheckIdleMs, '0 disables the probe'],
+        ['healthCheckTimeoutMs', cfg.healthCheckTimeoutMs, 'liveness probe deadline'],
+        ['pipeToShell', cfg.pipeToShell, 'refuse | allow a pipe into an interpreter'],
         ['denyPatterns', (cfg.denyPatterns || []).length + ' pattern(s)', 'safety rail, not a boundary'],
       ]
       const lines = ['Configuration in effect:']
       for (const [key, value, note] of rows) {
         lines.push('  ' + String(key).padEnd(24) + JSON.stringify(value) + (note ? '   # ' + note : ''))
       }
+      // A setting added to Config but not to this list would be invisible to the
+      // operator, which is how pipeToShell and healthCheckTimeoutMs went missing.
+      const shown = new Set(rows.map((r) => r[0]))
+      const missing = Object.keys(cfg).filter((k) => !shown.has(k))
+      if (missing.length > 0) {
+        lines.push('', 'Settings not shown above (report this): ' + missing.join(', '))
+      }
+
       lines.push('', 'Live connections: ' + stats.live +
         (stats.limit > 0 ? ' / ' + stats.limit + ' max' : ' (no limit)') +
         (stats.aliases.length ? '  [' + stats.aliases.join(', ') + ']' : ''))
@@ -635,12 +661,40 @@ export async function apply(ctx, config) {
       const auth = resolveAuth(alias, { allowSessionPassword: cfg.allowSessionPassword })
       if (missing.length) say('configuration', 'FAIL', 'missing ' + missing.join(', '))
       else say('configuration', 'ok', m.username + '@' + m.host + ':' + m.port)
-      say('credentials', auth.kind === 'none' ? 'FAIL' : 'ok',
-        auth.kind === 'none'
-          ? 'no password, key or agent available — set ' + need.auth[0]
-          : auth.kind)
+      // Cheque the credential's usability, not just its declared kind: an
+      // env-key pointing at a missing file reported ok and then failed the
+      // connection, which is the opposite of what a diagnostic should do.
+      let credentialProblem = ''
+      if (auth.kind === 'env-key') {
+        const keyPath = expandHome(auth.keyPath)
+        if (!existsSync(keyPath)) {
+          credentialProblem = 'key file not found: ' + keyPath
+        } else {
+          try {
+            const body = readFileSync(keyPath)
+            if (body.length === 0) credentialProblem = 'key file is empty: ' + keyPath
+            else if (!/PRIVATE KEY-----/.test(String(body.subarray(0, 200)))) {
+              credentialProblem = 'key file does not look like a private key: ' + keyPath
+            }
+          } catch (err) {
+            const code = err && /** @type {{code?: string}} */ (err).code
+            credentialProblem = 'key file unreadable (' + (code || 'error') + '): ' + keyPath
+          }
+        }
+      } else if (auth.kind === 'agent') {
+        if (!existsSync(auth.agent)) credentialProblem = 'agent socket not found: ' + auth.agent
+      }
 
-      if (missing.length || auth.kind === 'none') {
+      if (auth.kind === 'none') {
+        say('credentials', 'FAIL', 'no password, key or agent available — set ' + need.auth[0])
+      } else if (credentialProblem) {
+        say('credentials', 'FAIL', credentialProblem)
+      } else {
+        say('credentials', 'ok', auth.kind)
+      }
+
+      // A broken credential cannot be fixed by waiting, so diagnose no further.
+      if (missing.length || auth.kind === 'none' || credentialProblem) {
         lines.push('', 'Stopped: fix the above before testing the network.')
         return { text: lines.join('\n') }
       }
