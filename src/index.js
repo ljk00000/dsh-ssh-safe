@@ -20,6 +20,7 @@ import { homedir } from 'node:os'
 import { SshPool, expandHome } from './pool.js'
 import { expectedEnv, machineFromEnv, redact } from './credentials.js'
 import { storePath } from './hostkey.js'
+import { checkCommand } from './guard.js'
 
 export const name = 'dsh-ssh-safe'
 export const inject = ['tools']
@@ -107,13 +108,13 @@ export async function apply(ctx, config) {
     if (cfg.execGuard === 'confirm' && confirmed !== true) {
       throw new Error('execGuard is "confirm": pass confirm: true to run this command.')
     }
-    const patterns = Array.isArray(cfg.denyPatterns) ? cfg.denyPatterns : []
-    for (const pattern of patterns) {
-      let re
-      try { re = new RegExp(pattern) } catch { continue }
-      if (re.test(command)) {
-        throw new Error('Command refused by denyPatterns (' + pattern + '). Adjust the plugin config if this is intended.')
-      }
+    const verdict = checkCommand(command, cfg.denyPatterns)
+    if (verdict.blocked) {
+      const where = verdict.reason === 'matches deny pattern' ? '' : ' (' + verdict.reason + ')'
+      throw new Error(
+        'Command refused' + where + ': ' + verdict.pattern +
+        '. Adjust denyPatterns in the plugin config if this is intentional.'
+      )
     }
   }
 
@@ -189,6 +190,7 @@ export async function apply(ctx, config) {
     parameters: {
       machine: { type: 'string', description: 'Machine alias, e.g. "prod". Defaults to defaultMachine.' },
       trustHostKey: { type: 'boolean', description: 'Accept this host key on FIRST contact only. Ignored when the key changed.' },
+      force: { type: 'boolean', description: 'Bypass the reconnect cooldown after a recent failure.' },
       password: { type: 'string', description: 'Only honoured when the profile sets allowSessionPassword: true.' },
     },
     output: textOut,
@@ -197,6 +199,7 @@ export async function apply(ctx, config) {
       await pool.connect(alias, {
         sessionPassword: args.password,
         trustHostKey: args.trustHostKey === true,
+        force: args.force === true,
       })
       const uname = await pool.exec(alias, 'uname -a 2>/dev/null || ver', { timeoutMs: 8000 })
       const m = machineFromEnv(alias)

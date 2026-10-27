@@ -62,20 +62,42 @@ export class SshPool {
     return machineFromEnv(alias)
   }
 
-  async connect(alias, { sessionPassword, trustHostKey } = {}) {
+  async connect(alias, { sessionPassword, trustHostKey, force = false } = {}) {
     const e = this.entry(alias)
+
+    // A pooled connection was opened with one specific credential. Reusing it
+    // for a call that supplies a different session password would silently
+    // authenticate as the earlier user, so the credential identity is part of
+    // the cache key.
+    const wantCredential = typeof sessionPassword === 'string' && sessionPassword.length > 0
+      ? 'session:' + sessionPassword
+      : 'configured'
+
+    if (e.client && e.credentialIdentity !== undefined && e.credentialIdentity !== wantCredential) {
+      await this.closeOne(alias)
+    }
+
     if (e.client) return e.client
-    if (Date.now() < e.nextAttemptAt) {
+
+    if (!force && Date.now() < e.nextAttemptAt) {
+      const waitMs = Math.max(0, e.nextAttemptAt - Date.now())
       throw new Error(
-        'Refusing to retry ' + alias + ' yet (last failure: ' + (e.lastError || 'unknown') + ')'
+        'Refusing to retry ' + alias + ' for another ' + Math.ceil(waitMs / 1000) + 's ' +
+        '(last failure: ' + (e.lastError || 'unknown') + '). ' +
+        'Pass force: true to try immediately.'
       )
     }
     if (e.ready) return e.ready
+
+    // force skips the cooldown for this attempt only.
+    if (force) e.nextAttemptAt = 0
 
     e.ready = this.#open(alias, e, { sessionPassword, trustHostKey })
       .then((client) => {
         e.client = client
         e.lastError = ''
+        e.nextAttemptAt = 0
+        e.credentialIdentity = wantCredential
         return client
       })
       .catch((err) => {
@@ -151,13 +173,24 @@ export class SshPool {
       })
       client.on('close', () => {
         // Drop from the pool so the next call reconnects instead of using a corpse.
-        if (e.client === client) e.client = null
+        // Every derived field goes with it: a stale fingerprint would otherwise be
+        // reported for a host we have not spoken to yet, and a stale cooldown
+        // would keep a healthy server unreachable.
+        if (e.client === client) {
+          e.client = null
+          e.fingerprint = null
+          e.credentialIdentity = undefined
+          e.nextAttemptAt = 0
+        }
         if (!settled) fail(new Error('connection closed before the handshake completed'))
       })
 
       if (typeof client.connect !== 'function') return fail(new Error('ssh2 Client is unavailable'))
       // hostVerifier must be set before connect().
       connectConfig.hostVerifier = (keyBlob) => {
+        // Clear before deciding: if this handshake is rejected, the previous
+        // host's fingerprint must not survive into the error report.
+        e.fingerprint = null
         const verdict = checkHostKey({
           dshHome: this.deps.dshHome,
           host: m.host,
