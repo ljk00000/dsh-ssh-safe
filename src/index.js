@@ -71,6 +71,16 @@ export const Config = z.object({
   useCredentialFile: z.boolean().default(true),
 
   /**
+   * Accept a plaintext password from the settings form or the credential file.
+   *
+   * OFF by default, and it should stay off: a plaintext password is readable by
+   * anything that can read the file, and it travels with the file into backups,
+   * sync folders and screenshots. The credential file stores a DPAPI-encrypted
+   * value instead, and an environment variable keeps the secret in memory only.
+   */
+  allowPlaintextPassword: z.boolean().default(false),
+
+  /**
    * Allow a password through a tool argument. OFF by default: with it off,
    * credentials can only come from environment variables, so they never
    * enter the conversation transcript or the config file.
@@ -761,7 +771,10 @@ export async function apply(ctx, config) {
         '  settings form   machines.<alias> in the plugin config',
         '  credential file ' + file + (cfg.useCredentialFile === true ? '' : '  [DISABLED]'),
         '  environment     DSH_SSH_<ALIAS>_*',
-        '  precedence      settings form > credential file > environment > SSH agent',
+        '  precedence      encrypted file > environment > SSH agent',
+        '  encryption      ' + (cfg.allowPlaintextPassword === true
+          ? 'plaintext ACCEPTED (allowPlaintextPassword is on)'
+          : 'plaintext refused; passwords stored DPAPI encrypted'),
       ]
       if (aliases.length === 0) {
         head.push('', 'No machines defined yet.')
@@ -781,7 +794,15 @@ export async function apply(ctx, config) {
           '    password   ' + where(st.passwordSource),
           '    key        ' + where(st.keyPathSource) +
             (st.keyPath ? '  ' + String(st.keyPath).replace(/^.*[\\/]/, '…/') : ''),
-          '    host key   ' + st.hostKeyPolicy
+          '    host key   ' + st.hostKeyPolicy +
+          (st.passwordSource === 'file-plaintext'
+            ? '\n    WARNING    plaintext password in the credential file is ignored;' +
+              ' re-run scripts/set-password.mjs to store it encrypted'
+            : '') +
+          (st.passwordSource === 'config' && cfg.allowPlaintextPassword !== true
+            ? '\n    WARNING    the settings-form password is plaintext and is ignored;' +
+              ' use the credential file or an environment variable'
+            : '')
         )
       }
       return { text: head.join('\n') }
@@ -808,6 +829,7 @@ export async function apply(ctx, config) {
         ['defaultMachine', cfg.defaultMachine || '(none)', ''],
         ['machines', Object.keys(cfg.machines || {}).length + ' defined', 'editable in the settings form'],
         ['useCredentialFile', cfg.useCredentialFile, 'read per connection, no restart needed'],
+        ['allowPlaintextPassword', cfg.allowPlaintextPassword, 'off: store DPAPI-encrypted or in memory only'],
         ['commandTimeoutMs', cfg.commandTimeoutMs, 'per ssh_exec command'],
         ['sftpTimeoutMs', cfg.sftpTimeoutMs, 'per transfer'],
         ['connectTimeoutMs', cfg.connectTimeoutMs, ''],
@@ -878,6 +900,7 @@ export async function apply(ctx, config) {
         machines: cfg.machines,
         dshHome,
         allowSessionPassword: cfg.allowSessionPassword,
+        allowPlaintextPassword: cfg.allowPlaintextPassword === true,
       })
       if (missing.length) say('configuration', 'FAIL', 'missing ' + missing.join(', '))
       else say('configuration', 'ok', m.username + '@' + m.host + ':' + m.port)
@@ -913,6 +936,12 @@ export async function apply(ctx, config) {
         say('credentials', 'FAIL', credentialProblem)
       } else {
         say('credentials', 'ok', auth.kind)
+      }
+
+      // Refused or unreadable sources are reported rather than silently skipped:
+      // "it did not use my password" is otherwise very hard to diagnose.
+      for (const warning of auth.warnings || []) {
+        say('credentials', 'warn', warning)
       }
 
       // A broken credential cannot be fixed by waiting, so diagnose no further.

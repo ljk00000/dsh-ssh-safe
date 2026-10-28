@@ -68,7 +68,7 @@ dsh plugin --profile desktop add file:/path/to/dsh-ssh-safe
 | 来源 | 适合放什么 | 改了要重启吗 |
 | --- | --- | --- |
 | **设置界面** `machines.<别名>` | host / port / user / 私钥路径 / 主机密钥策略 | 需要重载插件 |
-| **凭据文件** `~/.dsh/dsh-ssh-safe/credentials.json` | 密码、私钥口令 | **不用，下次连接即生效** |
+| **凭据文件** `~/.dsh/dsh-ssh-safe/credentials.json` | 密码、私钥口令（**DPAPI 加密**） | **不用，下次连接即生效** |
 | **环境变量** `DSH_SSH_<别名>_*` | CI、不想落盘的场景 | 需要重启 DSH |
 
 优先级：**设置界面 > 凭据文件 > 环境变量 > SSH agent**。
@@ -81,8 +81,8 @@ cd <插件目录>
 node scripts/set-password.mjs --alias gpu
 ```
 
-它会提示你输入密码（**不回显、不进 shell 历史、不进对话记录**），写入
-`~/.dsh/dsh-ssh-safe/credentials.json`，并把文件 ACL 限制到「你 + SYSTEM」。
+它会提示你输入密码（**不回显、不进 shell 历史、不进对话记录**），用 **Windows DPAPI 加密**后
+写入 `~/.dsh/dsh-ssh-safe/credentials.json`，并把文件 ACL 限制到「你 + SYSTEM」。
 
 **下一条命令就是新密码，不用重启 DSH。**
 
@@ -102,6 +102,28 @@ node scripts/set-password.mjs --alias prod \
 
 > 为什么不提供 `.ps1`：这台机器的 PowerShell 执行策略会拒绝未签名脚本。
 > Node 脚本不受该策略影响，而插件本来就依赖 Node。
+### 密码怎么存：磁盘上没有明文
+
+| 方式 | 磁盘上是什么 | 安全边界 |
+| --- | --- | --- |
+| 凭据文件（默认） | **DPAPI 密文** | 只有你这一个 Windows 账户能解开；文件复制到别的机器或别的用户下解不开 |
+| 环境变量 | 不落盘 | 只存在于启动 DSH 的那个进程内存里 |
+| SSH agent | 不落盘 | 私钥在 agent 里，插件只拿到签名 |
+| 设置界面 / 明文文件 | 明文 | **默认被拒绝** |
+
+所以：**插件默认不读明文密码**。如果在设置界面或凭据文件里写了明文，连接会失败并给出
+说明（`ssh_doctor` 会显示 `[warn]`）。要强行接受明文，设 `allowPlaintextPassword: true`——但那就等于
+放弃这层保护。
+
+### 没有 DPAPI 的平台（Linux / macOS）
+
+凭据文件只支持 DPAPI 加密，所以这些平台请用**环境变量**或 **SSH agent**：
+
+```bash
+export DSH_SSH_PROD_PASSWORD='...'   # 只在当前进程内存里
+```
+
+或者把公钥加到服务器后改用私钥 —— 私钥有口令也只会进 DPAPI 加密的口令字段。
 ### 推荐用法
 
 1. 在 DSH 设置里给插件加一个机器条目（“机器”很少变）：

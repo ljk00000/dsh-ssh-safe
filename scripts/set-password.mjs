@@ -16,10 +16,15 @@
 //   node scripts/set-password.mjs --alias gpu --host gpu.example.com --port 2222 --user root
 //   node scripts/set-password.mjs --alias prod --key-path ~/.ssh/id_ed25519 --key-passphrase
 //
+// The password is stored Windows-DPAPI encrypted: the file holds ciphertext that
+// only this Windows account can open. --plaintext writes it readable, which is
+// refused by the plugin unless allowPlaintextPassword is set.
+//
 // --password exists for automation. On a terminal, omit it: the prompt does not
 // echo, and the value stays out of your shell history.
 
 import { spawnSync } from 'node:child_process'
+import { encryptDpapi, dpapiAvailable } from '../src/dpapi.js'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -122,11 +127,30 @@ if (typeof args['key-passphrase'] === 'string') {
   entry.keyPassphrase = await readSecret('Key passphrase for "' + alias + '" (input hidden): ')
 }
 
-if (typeof args.password === 'string') {
-  entry.password = args.password
-} else if (args.password === true || args.password === undefined) {
-  const secret = await readSecret('Password for "' + alias + '" (input hidden): ')
-  if (secret) entry.password = secret
+let secret = typeof args.password === 'string' ? args.password : undefined
+if (secret === undefined && (args.password === true || args.password === undefined)) {
+  const typed = await readSecret('Password for "' + alias + '" (input hidden): ')
+  if (typed) secret = typed
+}
+
+if (secret) {
+  if (args.plaintext === true) {
+    // Kept for the rare case where something else must read the file. The plugin
+    // refuses it by default; say so rather than leaving a surprise.
+    entry.password = secret
+    delete entry.passwordDpapi
+    console.warn('')
+    console.warn('WARNING: --plaintext stores the password in readable form.')
+    console.warn('The plugin ignores it unless allowPlaintextPassword is true.')
+  } else if (!dpapiAvailable()) {
+    console.error('DPAPI encryption is available on Windows only.')
+    console.error('Store nothing instead: set DSH_SSH_' + alias.toUpperCase() + '_PASSWORD in the environment')
+    console.error('that launches DeepSeek Harness, which keeps the secret in memory.')
+    process.exit(2)
+  } else {
+    entry.passwordDpapi = encryptDpapi(secret)
+    delete entry.password
+  }
 }
 
 if (Object.keys(entry).length === 0) {
@@ -154,9 +178,13 @@ if (process.platform === 'win32') {
 
 console.log('')
 console.log('Stored for "' + alias + '":')
-for (const key of ['host', 'port', 'user', 'keyPath', 'keyPassphrase', 'password']) {
+for (const key of ['host', 'port', 'user', 'keyPath', 'keyPassphrase', 'passwordDpapi', 'password']) {
   if (entry[key] === undefined) continue
-  const shown = key === 'password' || key === 'keyPassphrase' ? '<set, not shown>' : entry[key]
+  const shown = key === 'password' || key === 'keyPassphrase'
+    ? '<set, NOT encrypted -- avoid>'
+    : key === 'passwordDpapi'
+      ? '<encrypted with DPAPI, ' + String(entry[key]).length + ' chars>'
+      : entry[key]
   console.log('  ' + key.padEnd(14) + shown)
 }
 console.log('')

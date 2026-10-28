@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.0 — 2026-10-28
+
+### Changed
+- Passwords are stored DPAPI encrypted, never as readable text. The credential
+  file holds ciphertext bound to the Windows account that wrote it: another
+  machine, or another user on this one, decrypts nothing.
+- A plaintext password in the settings form or the credential file is refused by
+  default, with an explanation rather than a silent failure. The refusal falls
+  through to the next source, so a machine that also has a usable key keeps
+  working. `allowPlaintextPassword: true` opts back in.
+- `scripts/set-password.mjs` encrypts by default. `--plaintext` still writes a
+  readable value for the rare case that needs one, and says so.
+
+### Added
+- `ssh_credentials` reports the encryption state and warns when a readable
+  password is being ignored; `ssh_doctor` reports the same as `[warn]`.
+
+### Notes
+- DPAPI is a Windows feature. On other platforms use an environment variable (in
+  memory only) or an SSH agent.
+- Verified that DPAPI's HMAC rejects a modified payload instead of decrypting to
+  a wrong password; a change outside the protected region cannot alter the
+  secret either.
 ## 0.3.0 — 2026-10-28
 
 ### Added

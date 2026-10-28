@@ -65,10 +65,12 @@ test('an empty settings field does not shadow the environment', () => {
 test('a rotated password is picked up without a restart', () => {
   const dir = home()
   try {
+    // allowPlaintextPassword keeps this test platform-neutral; the encrypted
+    // path is covered in dpapi.test.js.
     writeCredentials(dir, { gpu: { password: 'first' } })
-    assert.equal(credentialFor('gpu', { dshHome: dir }).password, 'first')
+    assert.equal(credentialFor('gpu', { dshHome: dir, allowPlaintextPassword: true }).password, 'first')
     writeCredentials(dir, { gpu: { password: 'second' } })
-    assert.equal(credentialFor('gpu', { dshHome: dir }).password, 'second',
+    assert.equal(credentialFor('gpu', { dshHome: dir, allowPlaintextPassword: true }).password, 'second',
       'the file is re-read; an mtime cache missed rotations within one millisecond')
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -82,6 +84,7 @@ test('the credential file supplies a password the other sources lack', () => {
     const auth = credentialFor('prod', {
       machines: { prod: { host: 'h', user: 'u' } },
       dshHome: dir,
+      allowPlaintextPassword: true,
     })
     assert.equal(auth.kind, 'file-password')
     assert.equal(auth.password, 'from-file')
@@ -158,7 +161,7 @@ test('the diagnostics view never contains a secret', () => {
     })
     const printed = JSON.stringify(st)
     assert.doesNotMatch(printed, /super-secret-value/, 'the password must not appear')
-    assert.equal(st.passwordSource, 'file', 'the source is reported instead')
+    assert.equal(st.passwordSource, 'file-plaintext', 'the source is reported instead')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -195,4 +198,73 @@ test('a per-machine policy still overrides the global one', () => {
   const m = machineDefinition('p', { machines: { p: { host: 'h', user: 'u', hostKeyPolicy: 'off' } } })
   assert.equal(m.hostKeyPolicy, 'off')
   assert.equal(effectivePolicy('strict', m.hostKeyPolicy), 'off')
+})
+
+test('a plaintext password is refused by default', () => {
+  const dir = home()
+  try {
+    writeCredentials(dir, { prod: { password: 'readable' } })
+    const auth = credentialFor('prod', {
+      machines: { prod: { host: 'h', user: 'u' } },
+      dshHome: dir,
+      useAgent: false,
+    })
+    assert.equal(auth.kind, 'none', 'a readable password must not be accepted')
+    assert.ok(auth.warnings.length > 0, 'the refusal is explained')
+    assert.match(auth.warnings.join(' '), /plaintext/)
+    assert.match(auth.warnings.join(' '), /set-password\.mjs/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a plaintext password in the settings form is refused too', () => {
+  const auth = credentialFor('p', {
+    machines: { p: { host: 'h', user: 'u', password: 'readable' } },
+    useAgent: false,
+  })
+  assert.equal(auth.kind, 'none')
+  assert.match(auth.warnings.join(' '), /settings form holds a plaintext password/)
+})
+
+test('allowPlaintextPassword opts back in, and says why it is a bad idea', () => {
+  const auth = credentialFor('p', {
+    machines: { p: { host: 'h', user: 'u', password: 'readable' } },
+    allowPlaintextPassword: true,
+  })
+  assert.equal(auth.kind, 'config-password')
+  assert.equal(auth.password, 'readable')
+})
+
+test('a usable key still works when a plaintext password is refused', () => {
+  // The refusal falls through instead of failing hard, so a machine configured
+  // with a key keeps working even if someone left a password in the file.
+  const dir = home()
+  try {
+    writeCredentials(dir, { prod: { password: 'readable', keyPath: '~/.ssh/id_k' } })
+    const auth = credentialFor('prod', {
+      machines: { prod: { host: 'h', user: 'u' } },
+      dshHome: dir,
+    })
+    assert.equal(auth.kind, 'file-key')
+    assert.ok(auth.warnings.length > 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('the environment password is still accepted: it is never written', () => {
+  process.env.DSH_SSH_V_HOST = 'h'
+  process.env.DSH_SSH_V_USER = 'u'
+  process.env.DSH_SSH_V_PASSWORD = 'in-memory'
+  try {
+    const auth = credentialFor('v', { useAgent: false })
+    assert.equal(auth.kind, 'env-password')
+    assert.equal(auth.password, 'in-memory')
+    assert.deepEqual(auth.warnings, [])
+  } finally {
+    delete process.env.DSH_SSH_V_HOST
+    delete process.env.DSH_SSH_V_USER
+    delete process.env.DSH_SSH_V_PASSWORD
+  }
 })

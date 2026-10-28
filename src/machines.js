@@ -23,6 +23,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { agentSocket, machineFromEnv } from './credentials.js'
+import { decryptDpapi } from './dpapi.js'
 
 /** Where the hot-reloadable credential file lives. */
 export function credentialsPath(dshHome) {
@@ -117,9 +118,17 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
   const knownHosts = firstSet([
     ['config', cfg.knownHosts], ['env', env.knownHosts], ['file', file.knownHosts],
   ])
-  const password = firstSet([
-    ['config', cfg.password], ['file', file.password], ['env', env.password],
-  ])
+  // A password is resolved by credentialFor(), because the value may need
+  // decrypting and plaintext may be refused. Here we only record the source.
+  const passwordSource = filled(cfg.password)
+    ? 'config'
+    : filled(file.passwordDpapi)
+      ? 'file-dpapi'
+      : filled(file.password)
+        ? 'file-plaintext'
+        : filled(env.password)
+          ? 'env'
+          : 'none'
 
   // 22 is the default, so an explicit 22 is indistinguishable from "not set".
   // The port simply stays 22, which is the same outcome.
@@ -132,7 +141,8 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
     host: String(host.value || ''),
     port: Number(port.value) || 22,
     username: String(user.value || ''),
-    password: String(password.value || ''),
+    // Never carries plaintext: a DPAPI entry has to be decrypted on demand.
+    password: '',
     keyPath: String(keyPath.value || ''),
     keyPassphrase: String(keyPassphrase.value || ''),
     // Empty means "inherit the global policy". A previous version defaulted to
@@ -146,7 +156,7 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
       host: host.source,
       port: port.source,
       user: user.source,
-      password: password.source,
+      password: passwordSource,
       keyPath: keyPath.source,
       keyPassphrase: keyPassphrase.source,
       hostKeyPolicy: policy.source,
@@ -158,13 +168,18 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
 /**
  * Assemble the auth object for ssh2.
  *
- * A password is tried before a key file, matching ssh's own preference when both
- * are offered. A session password comes after the configured sources, so a
- * deliberate configuration is not overridden by a tool argument.
+ * Order: an encrypted file secret, then a plaintext one the caller allowed, then
+ * the environment, then a session password, then the agent.
+ *
+ * A plaintext password is REFUSED by default. Storing one defeats the point of
+ * this plugin: it is readable by anything that can read the file, and travels
+ * with the file into backups and screenshots. The refusal is a warning plus a
+ * fallthrough rather than a hard error, so a machine that also has a usable key
+ * keeps working.
  *
  * @param {string} alias
  * @param {{machines?: Record<string, object>, dshHome?: string, sessionPassword?: string,
- *   allowSessionPassword?: boolean, useAgent?: boolean}} [options]
+ *   allowSessionPassword?: boolean, useAgent?: boolean, allowPlaintextPassword?: boolean}} [options]
  */
 export function credentialFor(alias, {
   machines = {},
@@ -172,28 +187,80 @@ export function credentialFor(alias, {
   sessionPassword,
   allowSessionPassword,
   useAgent,
+  allowPlaintextPassword = false,
 } = {}) {
   const m = machineDefinition(alias, { machines, dshHome })
+  const cfg = (machines && machines[alias]) || {}
+  const env = machineFromEnv(alias)
+  const file = (dshHome ? (loadCredentialFile(dshHome) || {})[alias] : {}) || {}
+  /** @type {string[]} */
+  const warnings = []
 
-  if (m.password) {
-    return { kind: m.sources.password + '-password', password: m.password, machine: m }
+  // 1. settings form (plaintext in the DSH config file)
+  if (filled(cfg.password)) {
+    if (allowPlaintextPassword) {
+      return { kind: 'config-password', password: String(cfg.password), machine: m, warnings }
+    }
+    warnings.push(
+      'the settings form holds a plaintext password; it was ignored. ' +
+      'Use the credential file (DPAPI encrypted) or an environment variable.'
+    )
   }
+
+  // 2. encrypted secret in the credential file
+  if (filled(file.passwordDpapi)) {
+    try {
+      return { kind: 'file-dpapi', password: decryptDpapi(file.passwordDpapi), machine: m, warnings }
+    } catch (err) {
+      // A blob written by another Windows account, or a corrupted one, cannot be
+      // opened here. Fall through rather than failing to a dead end.
+      warnings.push(
+        'the stored password could not be decrypted (' +
+        String(err && err.message ? err.message : err).slice(0, 120) +
+        '). Re-run scripts/set-password.mjs on this machine and account.'
+      )
+    }
+  }
+
+  // 3. plaintext secret in the credential file
+  if (filled(file.password)) {
+    if (allowPlaintextPassword) {
+      return { kind: 'file-password', password: String(file.password), machine: m, warnings }
+    }
+    warnings.push(
+      'credentials.json holds a plaintext password; it was ignored. ' +
+      'Re-run scripts/set-password.mjs, which stores it DPAPI encrypted.'
+    )
+  }
+
+  // 4. environment: memory only, nothing written
+  if (filled(env.password)) {
+    return { kind: 'env-password', password: env.password, machine: m, warnings }
+  }
+
+  // 5. key file
   if (m.keyPath) {
     return {
       kind: m.sources.keyPath + '-key',
       keyPath: m.keyPath,
       passphrase: m.keyPassphrase,
       machine: m,
+      warnings,
     }
   }
+
+  // 6. a password passed for this call only
   if (allowSessionPassword && typeof sessionPassword === 'string' && sessionPassword.length > 0) {
-    return { kind: 'session-password', password: sessionPassword, machine: m }
+    return { kind: 'session-password', password: sessionPassword, machine: m, warnings }
   }
+
+  // 7. agent: no secret reaches this plugin at all
   if (useAgent !== false) {
     const sock = agentSocket()
-    if (sock) return { kind: 'agent', agent: sock, machine: m }
+    if (sock) return { kind: 'agent', agent: sock, machine: m, warnings }
   }
-  return { kind: 'none', machine: m }
+
+  return { kind: 'none', machine: m, warnings }
 }
 
 /**

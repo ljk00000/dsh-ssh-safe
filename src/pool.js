@@ -354,6 +354,7 @@ export class SshPool {
       dshHome: this.deps.dshHome,
       sessionPassword,
       allowSessionPassword: this.config.allowSessionPassword === true,
+      allowPlaintextPassword: this.config.allowPlaintextPassword === true,
     })
     const m = auth.machine
     if (!m.host || !m.username) {

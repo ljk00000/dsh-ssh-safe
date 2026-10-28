@@ -29,7 +29,10 @@ test('the helper writes a credential the plugin can read', () => {
     assert.equal(body.gpu.host, 'h.example.com')
     assert.equal(body.gpu.port, 2222)
     assert.equal(body.gpu.user, 'root')
-    assert.equal(body.gpu.password, 'dummy-secret')
+    // Stored encrypted: the file must not carry the password in readable form.
+    assert.equal(body.gpu.password, undefined, 'no plaintext password field')
+    assert.match(String(body.gpu.passwordDpapi), /^[0-9a-f]+$/i, 'DPAPI ciphertext instead')
+    assert.doesNotMatch(readFileSync(file, 'utf8'), /dummy-secret/)
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
@@ -42,7 +45,7 @@ test('the helper does not echo the secret it stored', () => {
     assert.equal(r.status, 0, r.stderr)
     const printed = String(r.stdout) + String(r.stderr)
     assert.doesNotMatch(printed, /never-print-me/, 'the value must not be printed')
-    assert.match(printed, /<set, not shown>/)
+    assert.match(printed, /encrypted with DPAPI/, 'it reports that the value is encrypted')
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
@@ -56,7 +59,7 @@ test('a second run preserves the other machines', () => {
     const body = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
     assert.ok(body.gpu, 'gpu must survive')
     assert.ok(body.prod, 'prod must be added')
-    assert.equal(body.gpu.password, 'one')
+    assert.ok(body.gpu.passwordDpapi, 'gpu keeps its encrypted secret')
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
@@ -68,7 +71,7 @@ test('a rerun updates the password in place', () => {
     run(['--alias', 'gpu', '--host', 'h', '--password', 'old', '--dsh-home', home])
     run(['--alias', 'gpu', '--password', 'new', '--dsh-home', home])
     const body = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
-    assert.equal(body.gpu.password, 'new')
+    assert.ok(body.gpu.passwordDpapi, 'the secret was replaced')
     assert.equal(body.gpu.host, 'h', 'fields not passed this time are kept')
   } finally {
     rmSync(home, { recursive: true, force: true })

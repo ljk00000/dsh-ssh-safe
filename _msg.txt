@@ -1,10 +1,30 @@
-fix: tests read the developer's real credentials.json
+feat: store passwords DPAPI encrypted, refuse plaintext
 
-capture() in tools.test.js inherited the ambient DSH_HOME, so once a real
-credentials.json existed the "nothing configured" assertion saw a machine. Each
-test now gets its own empty temp home.
+A password has to live somewhere between connections. The previous commit put it
+in the credential file as readable text, which is readable by anything that reads
+the file and travels with it into backups, sync folders and screenshots.
 
-It only surfaced because the credential file was populated for real this time;
-the suite had been relying on that file never existing.
+1. Passwords are now DPAPI encrypted. The ciphertext is bound to the Windows
+   account that wrote it: another machine, or another user on this one, decrypts
+   nothing. Encryption goes through PowerShell's ConvertFrom-SecureString, which
+   is DPAPI backed, so no native module is needed. The secret travels over stdin,
+   never on a command line.
 
-Tests: 204 passing, 4 skipped.
+2. Plaintext is refused by default, in both the settings form and the credential
+   file. The refusal is a warning plus a fallthrough, not a hard error, so a
+   machine that also has a usable key keeps working. ssh_credentials and
+   ssh_doctor surface the warning; allowPlaintextPassword opts back in.
+
+3. scripts/set-password.mjs encrypts by default. --plaintext exists for the rare
+   case that needs a readable value and says so loudly.
+
+4. Decrypted values are cached in memory keyed by ciphertext, so repeated
+   connections do not pay ~150ms for a PowerShell start, and a rotation naturally
+   misses the cache because the ciphertext changes.
+
+On integrity: DPAPI's HMAC rejects a modified payload rather than decrypting to a
+wrong password -- that would be the dangerous failure, silently authenticating
+with something other than what was stored. A change in the unprotected header
+region leaves the secret unchanged. Both are covered by tests.
+
+Tests: 216 passing, 4 skipped.
