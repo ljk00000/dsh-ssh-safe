@@ -16,6 +16,10 @@ import { apply } from '../src/index.js'
 
 function capture(config = {}, env = {}) {
   const saved = { ...process.env }
+  // An isolated home per test: the real one may hold credentials for real
+  // machines, which would leak into assertions and hide regressions.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-tools-'))
+  process.env.DSH_HOME = home
   for (const [k, v] of Object.entries(env)) process.env[k] = v
   const tools = {}
   const ctx = {
@@ -26,6 +30,7 @@ function capture(config = {}, env = {}) {
   const restore = () => {
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k]
     Object.assign(process.env, saved)
+    rmSync(home, { recursive: true, force: true })
   }
   return { tools, restore }
 }

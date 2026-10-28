@@ -1,18 +1,10 @@
-feat: a helper that stores a password without putting it in a transcript
+fix: tests read the developer's real credentials.json
 
-The credential file solved rotation, but getting a password into it still meant
-either typing it into a tool call (which puts it in the conversation) or editing
-JSON by hand.
+capture() in tools.test.js inherited the ambient DSH_HOME, so once a real
+credentials.json existed the "nothing configured" assertion saw a machine. Each
+test now gets its own empty temp home.
 
-scripts/set-password.mjs prompts with echo disabled, writes the entry, and
-restricts the file with icacls to the owner plus SYSTEM. On a terminal the value
-never appears in the shell history, the output or a tool result.
-
-It merges rather than overwrites: a second run for another alias keeps the
-first, and a rerun that only passes --password keeps the host recorded earlier.
-
-A PowerShell version was written first and removed: this machine's execution
-policy rejects unsigned scripts. Node is the right dependency here anyway -- the
-plugin already needs it.
+It only surfaced because the credential file was populated for real this time;
+the suite had been relying on that file never existing.
 
 Tests: 204 passing, 4 skipped.
