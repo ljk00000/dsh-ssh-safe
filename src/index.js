@@ -130,7 +130,10 @@ export const Config = z.object({
   pipeToShell: z.union(['refuse', 'allow']).default('refuse'),
 
   denyPatterns: z.array(z.string()).default([
-    'rm\\s+-rf\\s+/(?:\\s|$)',
+    // '/' alone, or '/' followed by a glob: 'rm -rf /' and 'rm -rf /*' both
+    // destroy the filesystem, so the target must be '/' and not the start of
+    // a longer path.
+    'rm\\s+-rf\\s+/(?:\\s|$|\\*)',
     '\\bmkfs\\.',
     '\\bdd\\s+if=.*\\bof=/dev/[sn]',
     ':\\(\\)\\s*\\{\\s*:\\|:\\s*&\\s*\\};:',
@@ -261,6 +264,23 @@ export async function apply(ctx, config) {
         ? 'Set pipeToShell: allow in the plugin config to permit pipelines into interpreters.'
         : 'Adjust denyPatterns in the plugin config if this is intentional.'
       throw new Error('Command refused' + where + ': ' + verdict.pattern + '. ' + remedy)
+    }
+  }
+
+  /**
+   * Gate for remote writes.
+   *
+   * execGuard previously applied only to ssh_exec, so a file write -- a script,
+   * a line in ~/.bashrc, a replacement authorized_keys -- went through without
+   * confirmation. Writing is often the more dangerous half of an agent's work,
+   * so the guard covers it too.
+   */
+  const guardWrite = (confirmed) => {
+    if (cfg.execGuard === 'confirm' && confirmed !== true) {
+      throw new Error(
+        'execGuard is "confirm": pass confirm: true to write to the remote host. ' +
+        'Writes can install scripts or change access, so they are gated as well.'
+      )
     }
   }
 
@@ -479,12 +499,13 @@ export async function apply(ctx, config) {
       raw: { type: 'boolean', description: 'Return the file verbatim, skipping secret redaction. Use only when the redacted form hides what you need.' },
       timeoutMs: { type: 'integer', description: 'Override the per-transfer deadline. 0 = configured value.' },
       password: { type: 'string', description: 'Only honoured when the profile sets allowSessionPassword: true.' },
+      confirm: { type: 'boolean', description: 'Required when execGuard is "confirm".' },
     },
     output: textOut,
     async execute(args) {
       const alias = machineFor(args)
-      const remotePath = String(args.path || '').trim()
-      if (!remotePath) throw new Error('path is required')
+      guardWrite(optionalFlag(args.confirm, 'confirm'))
+      const remotePath = requireText(args.path, 'path')
       const startedAt = Date.now()
       let r
       try {
@@ -532,9 +553,11 @@ export async function apply(ctx, config) {
       content: { type: 'string', required: true, description: 'Full file content.' },
       timeoutMs: { type: 'integer', description: 'Override the per-transfer deadline. 0 = configured value.' },
       password: { type: 'string', description: 'Only honoured when the profile sets allowSessionPassword: true.' },
+      confirm: { type: 'boolean', description: 'Required when execGuard is "confirm".' },
     },
     output: textOut,
     async execute(args) {
+      guardWrite(optionalFlag(args.confirm, 'confirm'))
       const alias = machineFor(args)
       const remotePath = requireText(args.path, 'path')
       // Content is required and must be a string: String(null) silently wrote

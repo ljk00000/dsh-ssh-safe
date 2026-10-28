@@ -15,10 +15,13 @@
 // credential. An audit log that copies stdout would become a second, larger
 // leak surface -- the opposite of the point.
 
-import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs'
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs'
 import path from 'node:path'
 
 /** Default cap so a long-running session cannot fill the disk. */
+/** How many rotated generations to keep beside the live log. */
+const ROTATED_GENERATIONS = 4
+
 const DEFAULT_MAX_BYTES = 4 * 1024 * 1024
 
 /**
@@ -62,9 +65,31 @@ export class AuditLog {
         ...record,
       })
       appendFileSync(this.file, line + '\n', { encoding: 'utf8' })
+      // After the write: the file must exist before its mode can be set.
+      this.#ensurePrivate()
     } catch {
       // A read-only home directory, a full disk, a permission change: none of
       // these should turn a successful command into a failure.
+      this.failures += 1
+    }
+  }
+
+  /**
+   * Keep the log readable only by its owner.
+   *
+   * The file records hosts, commands and file paths. The default mode is 0644,
+   * which means every other account on the machine can read it -- not acceptable
+   * for a plugin whose selling point is that it keeps secrets out of the way.
+   * Windows has no POSIX mode, so the call is a no-op there.
+   */
+  #ensurePrivate() {
+    try {
+      if (process.platform === 'win32') return
+      if (!existsSync(this.file)) return
+      chmodSync(this.file, 0o600)
+    } catch {
+      // A filesystem without POSIX modes (or a permission change) must not turn
+      // a successful command into a failure.
       this.failures += 1
     }
   }
@@ -74,7 +99,17 @@ export class AuditLog {
     let size = 0
     try { size = statSync(this.file).size } catch { return }
     if (size < this.maxBytes) return
-    try { renameSync(this.file, this.file + '.1') } catch { /* keep appending if it fails */ }
+    try {
+      // Shift the generations up, dropping the oldest one. Overwriting .1
+      // silently lost records, and recent() could not read them back.
+      for (let g = ROTATED_GENERATIONS - 1; g >= 1; g--) {
+        const from = this.file + '.' + g
+        const to = this.file + '.' + (g + 1)
+        if (!existsSync(from)) continue
+        try { renameSync(from, to) } catch { /* keep going */ }
+      }
+      renameSync(this.file, this.file + '.1')
+    } catch { /* keep appending if it fails */ }
   }
 
   /**
@@ -83,9 +118,21 @@ export class AuditLog {
    */
   recent(limit = 50) {
     try {
-      const text = readFileSync(this.file, 'utf8')
-      const lines = text.split('\n').filter(Boolean)
-      return lines.slice(-limit).map((line) => {
+      // Oldest generation first, so the newest records end up last.
+      const all = []
+      // Oldest generation first, newest last, so the records read in the order
+      // they were written.
+      const names = []
+      for (let g = ROTATED_GENERATIONS; g >= 1; g--) names.push(this.file + '.' + g)
+      names.push(this.file)
+      for (const name of names) {
+        try {
+          for (const line of readFileSync(name, 'utf8').split('\n')) {
+            if (line) all.push(line)
+          }
+        } catch { /* that generation may not exist */ }
+      }
+      return all.slice(-limit).map((line) => {
         try { return JSON.parse(line) } catch { return { malformed: true, line: line.slice(0, 120) } }
       })
     } catch {

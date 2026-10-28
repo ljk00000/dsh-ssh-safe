@@ -235,7 +235,7 @@ pnpm approve-builds --all
 | 配置项 | 默认 | 作用 |
 | --- | --- | --- |
 | `hostKeyPolicy` | `strict` | 只连已记录指纹的主机 |
-| `execGuard` | `allow` | `confirm` 时 `ssh_exec` 必须带 `confirm: true` |
+| `execGuard` | `allow` | `confirm` 时 `ssh_exec` 和 `ssh_write` 都必须带 `confirm: true` |
 | `allowSessionPassword` | `false` | 是否允许在会话里传密码 |
 | `machineInventory` | `full` | `alias` 时隐藏 host/port/私钥路径 |
 | `auditLog` | `false` | 是否记录操作到 NDJSON |

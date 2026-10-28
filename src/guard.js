@@ -24,7 +24,25 @@
  * matched no pattern: the string contains no forbidden command, only a pipe
  * into an interpreter.
  */
-const PIPE_EXECUTORS = ['bash', 'sh', 'zsh', 'dash', 'ksh', 'python', 'python3', 'perl', 'ruby', 'node', 'eval', 'source']
+/**
+ * Prefixes that may stand in front of the interpreter on the right of a pipe.
+ * They change how the command runs, not what it runs.
+ */
+const PIPE_PREFIXES = new Set(['sudo', 'env', 'command', 'nohup', 'time', 'stdbuf', 'exec'])
+
+/** Interpreters: piping into one of these executes whatever arrived. */
+const PIPE_EXECUTORS = new Set([
+  'bash', 'sh', 'zsh', 'dash', 'ksh', 'python', 'python3', 'perl', 'ruby',
+  'node', 'eval', 'source',
+])
+
+/**
+ * Writers: piping into one of these is only dangerous with elevated rights,
+ * because 'echo hi | tee out.txt' is ordinary work.
+ */
+const PIPE_PRIVILEGED_WRITERS = new Set([
+  'tee', 'dd', 'install', 'chown', 'chmod', 'mv', 'cp',
+])
 
 /** Words that wrap another command and should be looked into. */
 const SHELL_WRAPPERS = ['bash', 'sh', 'zsh', 'dash', 'ksh', 'eval', 'exec', 'env', 'command', 'builtin', 'sudo', 'doas']
@@ -51,13 +69,30 @@ export function canonicalizeRm(text) {
   const re = /(?:^|[\s;&|()])(?:[\w./-]*\/)?rm\s+([^;|&\n]*)/g
   return String(text).replace(re, (_m, rawArgs) => {
     const args = String(rawArgs)
+
+    // Collect the flags that matter, in one place.
     const recursive = /(?:^|\s)(?:--recursive|-r|-R)(?=\s|$)/.test(args) || /-[a-zA-Z]*[rR]/.test(args)
     const force = /(?:^|\s)--force(?=\s|$)/.test(args) || /-[a-zA-Z]*f/.test(args)
-    const targets = args
-      .replace(/--recursive|--force|--verbose/g, ' ')
-      .replace(/-[a-zA-Z]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
+
+    // The target list is everything that is not a flag. Long options are kept
+    // as words rather than deleted: the previous version stripped every
+    // '-[a-zA-Z]+' token, so '--no-preserve-root' vanished and left 'rm -rf -',
+    // which no longer matched the pattern for 'rm -rf /'.
+    let rest = args
+    // Known long options become their short form.
+    rest = rest.replace(/--recursive(?=\s|$)/g, ' ')
+    rest = rest.replace(/--force(?=\s|$)/g, ' ')
+    rest = rest.replace(/--preserve-root(?=\s|$)/g, ' ')
+    rest = rest.replace(/--no-preserve-root(?=\s|$)/g, ' ')
+    rest = rest.replace(/--verbose(?=\s|$)/g, ' ')
+    rest = rest.replace(/--dir(?=\s|$)/g, ' ')
+    // Any other long option is kept as a plain word.
+    rest = rest.replace(/--[a-z][a-z-]*/g, (m) => ' ' + m.replace(/^--/, '') + ' ')
+    // Short option clusters are removed from the argument list; the collected
+    // letters are emitted once, in canonical order.
+    rest = rest.replace(/-[a-zA-Z]+/g, '')
+
+    const targets = rest.replace(/\s+/g, ' ').trim()
     const flags = (recursive ? 'r' : '') + (force ? 'f' : '')
     return ' rm -' + flags + ' ' + targets
   })
@@ -109,9 +144,44 @@ export function checkPipeline(normalized) {
   for (let i = 1; i < segments.length; i++) {
     const right = segments[i].trim()
     if (!right) continue
-    const head = right.split(/\s+/)[0].replace(/^[\w./-]*\//, '')
-    if (PIPE_EXECUTORS.includes(head)) {
-      return { found: true, executor: head, source: segments[i - 1].trim() }
+
+    // The right side of a pipe can carry the usual prefixes: 'sudo', 'env',
+    // 'command', 'nohup', and variable assignments. Looking only at the first
+    // word missed 'curl x |sudo bash', which is the same threat as
+    // 'curl x | bash'.
+    let head = right.split(/\s+/)[0]
+    let elevated = false
+    let guard = 0
+    while (guard++ < 8) {
+      const bare = head.replace(/^[\w./-]*\//, '')
+      if (PIPE_PREFIXES.has(bare)) {
+        // A privilege prefix makes the write on the right privileged.
+        if (bare === 'sudo') elevated = true
+        // A prefix may carry its own options: 'sudo -u root bash'. Skip them
+        // and keep looking for the command.
+        const rest = right.split(/\s+/).slice(1)
+        let k = 0
+        while (k < rest.length && /^(-|--)/.test(rest[k])) k++
+        // 'sudo -u root bash' -- '-u' takes a value, so the word after it is
+        // not the command either.
+        if (rest[k - 1] === '-u' || rest[k - 1] === '--user' || rest[k - 1] === '-g' || rest[k - 1] === '--group') k++
+        if (k >= rest.length) break
+        head = rest[k]
+        continue
+      }
+      break
+    }
+    const bare = head.replace(/^[\w./-]*\//, '')
+    if (PIPE_EXECUTORS.has(bare)) {
+      return { found: true, executor: bare, source: segments[i - 1].trim() }
+    }
+    if (elevated && PIPE_PRIVILEGED_WRITERS.has(bare)) {
+      return { found: true, executor: bare, source: segments[i - 1].trim() }
+    }
+    // 'dd of=/dev/sda' destroys a disk. The deny list covers 'dd if=... of=/dev/*',
+    // but the piped form has no 'if=', so it is caught here.
+    if (bare === 'dd' && /\bof=\/dev\//.test(right)) {
+      return { found: true, executor: bare, source: segments[i - 1].trim() }
     }
   }
   return { found: false }

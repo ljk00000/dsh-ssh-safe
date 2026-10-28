@@ -116,6 +116,16 @@ export function redact(text) {
   s = s.replace(/\b([A-Z0-9_]*(?:PASSWORD|PASSPHRASE|SECRET|TOKEN|KEY)[A-Z0-9_]*)\s*[=:]\s*\S+/gi, '$1=<redacted>')
   // PEM blocks
   s = s.replace(/-----BEGIN [\s\S]*?-----END [^-]*-----/g, '<redacted-pem>')
+  // HTTP authorization headers. 'Authorization: Bearer <token>' and
+  // 'Basic <base64>' are how an API key usually reaches a config file, and
+  // they are not KEY=value so the rule above missed them.
+  s = s.replace(/\b(authorization|proxy-authorization)\s*:\s*(basic|bearer|token)\s+\S+/gi,
+    '$1: <redacted>')
+  // 'Basic <base64>' / 'Bearer <token>' on their own line, without a header
+  // name. The token is consumed greedily so trailing '=' padding is included.
+  s = s.replace(/\b(basic|bearer)\s+([A-Za-z0-9+/=._~-]{8,})/gi, '$1 <redacted>')
+  // Credentials inside a URL: scheme://user:password@host.
+  s = s.replace(/([a-z][a-z0-9+.-]*:\/\/)([^\s:@/]+):([^\s@/]+)@/gi, '$1$2:<redacted>@')
   // bare long secrets are left alone on purpose: guessing wrong shreds output.
   return s
 }

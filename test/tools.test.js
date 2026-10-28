@@ -183,3 +183,35 @@ test('ssh_close reports a machine with no live connection', async () => {
     assert.match(text, /No live connection/)
   } finally { restore() }
 })
+
+test('execGuard confirm also gates writes', async () => {
+  const { tools, restore } = capture({ execGuard: 'confirm' }, {
+    DSH_SSH_T_HOST: '127.0.0.1', DSH_SSH_T_PORT: '1',
+    DSH_SSH_T_USER: 'u', DSH_SSH_T_PASSWORD: 'p',
+  })
+  try {
+    // A write can install a script or change access, so it is gated as well.
+    await assert.rejects(
+      () => tools['ssh_write'].execute({ machine: 't', path: '/tmp/x.sh', content: 'echo hi' }),
+      (err) => { assert.match(err.message, /confirm: true/); return true }
+    )
+  } finally { restore() }
+})
+
+test('a write passes once confirmed', async () => {
+  const { tools, restore } = capture({ execGuard: 'confirm' }, {
+    DSH_SSH_T_HOST: '127.0.0.1', DSH_SSH_T_PORT: '1',
+    DSH_SSH_T_USER: 'u', DSH_SSH_T_PASSWORD: 'p',
+  })
+  try {
+    // With confirmation given, the guard lets it through to the network layer,
+    // which then fails to connect -- that is the expected outcome here.
+    await assert.rejects(
+      () => tools['ssh_write'].execute({ machine: 't', path: '/tmp/x.sh', content: 'echo hi', confirm: true }),
+      (err) => {
+        assert.doesNotMatch(err.message, /confirm: true/, 'the guard must not block a confirmed write')
+        return true
+      }
+    )
+  } finally { restore() }
+})

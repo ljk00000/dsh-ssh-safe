@@ -1,30 +1,46 @@
-fix: apply validated nothing, so the schema checks never ran
+fix: the deny list was bypassed, the audit file was world-readable
 
-1. apply() built its config as { ...Config(), ...(config || {}) }: it took the
-   defaults and overwrote them with the user's values. The enum schemas only
-   ran when the DSH host called Config() itself, which is not the path the plugin
-   loads through -- so execGuard: "yes" reached the running plugin, and since
-   "yes" is not "confirm", the confirmation guard was silently OFF while the
-   config displayed something that looked enabled. The same hole let
-   maxConnections: "abc" through, where Number("abc") is NaN and the ceiling
-   was quietly removed. apply() now validates through the schema and fails the
-   load with a message naming the setting and its allowed values.
+1. rm -rf /* and rm -rf --no-preserve-root / got through. The root pattern
+   required a whitespace or end-of-string after the slash, and canonicalizeRm
+   deleted every short-flag token, so --no-preserve-root vanished and left
+   'rm -rf -', which no longer matched. The pattern now accepts a glob, and
+   the canonicaliser keeps unknown long options as words and emits one
+   canonical flag cluster.
 
-2. Tool arguments were described in `parameters` but never checked. A shared set
-   of validators rejects wrong types and non-positive numbers before any network
-   work, instead of surfacing them as ECONNREFUSED or hiding them behind the
-   reconnect cooldown.
+2. 'curl x | sudo bash' got through: checkPipeline looked at the first word on
+   the right of the pipe, which was sudo. Privilege and environment prefixes
+   are stripped first now, and a privileged writer (sudo tee, dd of=/dev) is
+   caught too. Ordinary pipes are unaffected.
 
-3. ssh_write wrote the four characters "null" when content was null.
+3. The guard was a no-op. The 'return true' added to guard() when the confirm
+   check was introduced landed BEFORE the pattern check, making the whole body
+   unreachable -- every command passed unexamined since. Both guards are now
+   covered by tests.
 
-4. sftp.js: 15 direct tests. It was the only module without any, so its error
-   and deadline branches had never executed. One of its four reject paths also
-   skipped redaction while the other three applied it.
+4. execGuard confirm gated ssh_exec only. ssh_write could drop a script or a
+   line into ~/.bashrc without confirmation, which for an agent is often the more
+   dangerous half of the work. Writes are gated too.
 
-5. Every source file carries an SPDX header; the README states the DSH, Node and
-   sshd requirements and the known limits.
+5. The audit file was created with the default mode, so every account on the
+   machine could read hosts, commands and paths. It is now 0600 where POSIX
+   modes apply.
 
-6. Version 0.2.0 with a changelog entry and a git tag, instead of 14 commits on
-   0.1.0.
+6. The audit log rotated by overwriting .1 and recent() read only the live
+   file, so records older than the last rotation were unreachable -- exactly the
+   window that matters after an incident. Four generations are kept and read
+   back in order.
 
-Tests: 165 passing, 4 skipped. Typecheck clean.
+7. redact handled KEY=value and PEM only. An Authorization header or a
+   password inside a URL went through untouched, and ssh_read returns exactly
+   that text. Bearer/Basic credentials and scheme://user:pass@host are now
+   masked.
+
+8. ssh_read still used inline argument parsing: an earlier edit to the
+   validators did not match this tool's block and failed silently, while my
+   check searched the whole file rather than this tool. It now uses the shared
+   validators like every other tool, and the check is per-tool.
+
+9. package.json files omitted SECURITY.md and CHANGELOG.md, so publishing
+   would have dropped the security documentation.
+
+Tests: 189 passing, 4 skipped. Typecheck clean.
