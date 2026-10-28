@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ljk00000
+//
+// Part of dsh-ssh-safe. See LICENSE.
 // dsh-ssh-safe — credential resolution.
 //
 // SECURITY CONTRACT (read before changing this file):

@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ljk00000
+//
+// Part of dsh-ssh-safe. See LICENSE.
 // dsh-ssh-safe — security-first SSH tools for DeepSeek Harness.
 //
 // DESIGN CONTRACT (the whole point of this plugin):
@@ -141,7 +145,25 @@ function resolveDshHome() {
 }
 
 export async function apply(ctx, config) {
-  const cfg = { ...Config(), ...(config || {}) }
+  // Validate through the schema instead of spreading defaults and overwriting
+  // them. The spread form let any value through: execGuard: "yes" stayed at
+  // "yes", which is not "confirm", so the confirmation guard was silently OFF
+  // while the config displayed something that looked enabled.
+  //
+  // A bad value now fails the load with a message naming the setting and its
+  // allowed values. Refusing to start is correct here: a security plugin that
+  // quietly interprets an unknown policy is worse than one that will not boot.
+  let cfg
+  try {
+    cfg = Config(config || {})
+  } catch (err) {
+    const detail = err && err.message ? err.message : String(err)
+    throw new Error(
+      'dsh-ssh-safe: invalid configuration — ' + detail +
+      '. Fix the plugin config listed under "dsh-ssh-safe" in cordis.patch.yml ' +
+      '(or run ssh_config after a valid load to see the effective values).'
+    )
+  }
   const dshHome = resolveDshHome()
   const pool = new SshPool(cfg, { dshHome })
   // Auditing is off by default: writing files someone did not ask for is its
@@ -149,6 +171,55 @@ export async function apply(ctx, config) {
   const audit = new AuditLog(dshHome + (process.platform === 'win32' ? '\\' : '/') + 'dsh-ssh-safe', {
     enabled: cfg.auditLog === true,
   })
+
+  /**
+   * Argument validators.
+   *
+   * `parameters` describes the arguments to the model; nothing enforces it. A
+   * model can send null, a number, or a negative timeout, and each tool used to
+   * check only one field with its own wording. These run before any network work,
+   * so a malformed call fails immediately instead of surfacing as ECONNREFUSED or
+   * being swallowed by the reconnect cooldown.
+   */
+  const requireText = (value, field) => {
+    if (typeof value !== 'string') {
+      throw new Error(field + ' must be a string (received ' + (value === null ? 'null' : typeof value) + ')')
+    }
+    const trimmed = value.trim()
+    if (trimmed.length === 0) throw new Error(field + ' is required')
+    return trimmed
+  }
+
+  /** Optional string: absent stays undefined, a non-string is rejected. */
+  const optionalText = (value, field) => {
+    if (value === undefined || value === null || value === '') return undefined
+    if (typeof value !== 'string') {
+      throw new Error(field + ' must be a string when provided (received ' + typeof value + ')')
+    }
+    return value
+  }
+
+  /**
+   * Optional positive integer, used for timeouts and sizes.
+   * Returns undefined when absent or 0, so callers fall back to the config.
+   */
+  const optionalBudget = (value, field) => {
+    if (value === undefined || value === null || value === '' || value === 0) return undefined
+    const n = Number(value)
+    if (!Number.isFinite(n) || n <= 0) {
+      throw new Error(field + ' must be a positive number (received ' + JSON.stringify(value) + ')')
+    }
+    return Math.floor(n)
+  }
+
+  /** Boolean that only accepts true/false, not the string "true". */
+  const optionalFlag = (value, field) => {
+    if (value === undefined || value === null) return false
+    if (typeof value !== 'boolean') {
+      throw new Error(field + ' must be true or false (received ' + typeof value + ')')
+    }
+    return value
+  }
 
   const textOut = {
     schema: { type: 'object', additionalProperties: false, properties: { text: { type: 'string', required: true } } },
@@ -287,9 +358,9 @@ export async function apply(ctx, config) {
       const startedAt = Date.now()
       try {
         await pool.connect(alias, {
-          sessionPassword: args.password,
-          trustHostKey: args.trustHostKey === true,
-          force: args.force === true,
+          sessionPassword: optionalText(args.password, 'password'),
+          trustHostKey: optionalFlag(args.trustHostKey, 'trustHostKey'),
+          force: optionalFlag(args.force, 'force'),
         })
       } catch (err) {
         audit.write({
@@ -335,14 +406,16 @@ export async function apply(ctx, config) {
     output: textOut,
     async execute(args) {
       const alias = machineFor(args)
-      const command = String(args.command || '').trim()
-      if (!command) throw new Error('command is required')
-      guard(command, args.confirm)
-      const budget = args.timeoutMs ? Number(args.timeoutMs) : undefined
+      const command = requireText(args.command, 'command')
+      const budget = optionalBudget(args.timeoutMs, 'timeoutMs')
+      guard(command, optionalFlag(args.confirm, 'confirm'))
       const startedAt = Date.now()
       let r
       try {
-        r = await pool.exec(alias, command, { timeoutMs: budget, sessionPassword: args.password })
+        r = await pool.exec(alias, command, {
+          timeoutMs: budget,
+          sessionPassword: optionalText(args.password, 'password'),
+        })
       } catch (err) {
         audit.write({
           kind: 'exec',
@@ -416,9 +489,12 @@ export async function apply(ctx, config) {
       let r
       try {
         r = await pool.readFile(alias, remotePath, {
-          maxBytes: args.maxBytes ? Number(args.maxBytes) : undefined,
-          timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined,
-          sessionPassword: args.password,
+          // These two went through a bare Number() while the other tools used
+          // the shared validators, so "abc" reached the pool as NaN and -5 as a
+          // negative budget. Same shape as the password below.
+          maxBytes: optionalBudget(args.maxBytes, 'maxBytes'),
+          timeoutMs: optionalBudget(args.timeoutMs, 'timeoutMs'),
+          sessionPassword: optionalText(args.password, 'password'),
         })
       } catch (err) {
         audit.write({
@@ -460,9 +536,13 @@ export async function apply(ctx, config) {
     output: textOut,
     async execute(args) {
       const alias = machineFor(args)
-      const remotePath = String(args.path || '').trim()
-      const content = String(args.content ?? '')
-      if (!remotePath) throw new Error('path is required')
+      const remotePath = requireText(args.path, 'path')
+      // Content is required and must be a string: String(null) silently wrote
+      // the four characters "null" into a file.
+      if (typeof args.content !== 'string') {
+        throw new Error('content must be a string (received ' + (args.content === null ? 'null' : typeof args.content) + ')')
+      }
+      const content = args.content
       const bytes = Buffer.byteLength(content)
       if (bytes > cfg.maxFileBytes) {
         throw new Error('Refusing to write ' + bytes + ' bytes (maxFileBytes = ' + cfg.maxFileBytes + ').')
@@ -471,8 +551,8 @@ export async function apply(ctx, config) {
       let r
       try {
         r = await pool.writeFile(alias, remotePath, content, {
-          timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined,
-          sessionPassword: args.password,
+          timeoutMs: optionalBudget(args.timeoutMs, 'timeoutMs'),
+          sessionPassword: optionalText(args.password, 'password'),
         })
       } catch (err) {
         audit.write({
@@ -503,13 +583,17 @@ export async function apply(ctx, config) {
     output: textOut,
     async execute(args) {
       const alias = machineFor(args)
-      const remotePath = String(args.path || '.').trim() || '.'
+      const rawPath = args.path === undefined || args.path === null || args.path === '' ? '.' : args.path
+      if (typeof rawPath !== 'string') {
+        throw new Error('path must be a string (received ' + typeof rawPath + ')')
+      }
+      const remotePath = rawPath.trim() || '.'
       const startedAt = Date.now()
       let listing
       try {
         listing = await pool.list(alias, remotePath, {
-          timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined,
-          sessionPassword: args.password,
+          timeoutMs: optionalBudget(args.timeoutMs, 'timeoutMs'),
+          sessionPassword: optionalText(args.password, 'password'),
         })
       } catch (err) {
         audit.write({
@@ -545,12 +629,17 @@ export async function apply(ctx, config) {
     },
     output: textOut,
     async execute(args) {
+      const requested = args.limit === undefined || args.limit === null ? 20 : Number(args.limit)
+      if (!Number.isFinite(requested)) {
+        throw new Error('limit must be a number (received ' + JSON.stringify(args.limit) + ')')
+      }
+      const limit = Math.min(Math.max(Math.floor(requested), 1), 200)
+
       if (cfg.auditLog !== true) {
         return { text:
           'Audit logging is off. Set auditLog: true in the plugin config to record operations.\n' +
           'Records include the command summary, exit code and outcome — never output or secrets.' }
       }
-      const limit = Math.min(Math.max(Number(args.limit) || 20, 1), 200)
       const records = audit.recent(limit)
       if (records.length === 0) return { text: 'No operations recorded yet.' }
       const rows = records.map((r) => {
@@ -771,7 +860,7 @@ export async function apply(ctx, config) {
     output: textOut,
     async execute(args) {
       const alias = normalizeAlias(args.machine || '')
-      const force = args.force === true
+      const force = optionalFlag(args.force, 'force')
       if (alias) {
         const result = await pool.closeOne(alias, { force })
         if (result.busy) {

@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ljk00000
+//
+// Part of dsh-ssh-safe. See LICENSE.
 // dsh-ssh-safe — SFTP transfer operations.
 //
 // These three lived inside SshPool, which had grown to ~700 lines mixing
@@ -151,7 +155,7 @@ export async function listRemoteDir(client, remotePath, { timeoutMs }) {
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
-      reject(new Error('listing ' + target + ' did not complete within ' + timeoutMs + 'ms'))
+      reject(new Error(redact('listing ' + target + ' did not complete within ' + timeoutMs + 'ms')))
     }, timeoutMs)
 
     const settle = (result, error) => {

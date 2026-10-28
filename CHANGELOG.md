@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-10-28
 
 ### Fixed
 - `ssh_config` now lists every setting, including `pipeToShell` and
@@ -18,6 +18,22 @@
 ### Added
 - `test/tools.test.js`: drives all ten registered tools through a fake ctx and
   asserts on their output. The defects above all lived where no test looked.
+- `test/sftp.test.js`: 15 tests for the transfer module, including the error and
+  deadline branches that had never executed.
+
+### Fixed (this release)
+- `apply()` validated nothing: it spread the defaults and overwrote them with the
+  user's config, so the enum schemas only ran when the host called `Config()`
+  itself. An invalid value now fails the load and names the setting.
+- Tool arguments were documented in `parameters` but never checked. A shared set
+  of validators rejects wrong types and negative numbers before any network work,
+  instead of surfacing them as ECONNREFUSED or hiding them behind the cooldown.
+- `ssh_write` silently wrote the string "null" when content was null.
+- One sftp error path skipped redaction while the other three applied it.
+- SPDX headers on every source file; compatibility requirements and known
+  limitations documented in both README halves, not just the Chinese one.
+- `package.json` now declares `engines.node` (`>=20`), so the Node floor the
+  README states is enforced by npm instead of being prose only.
 
 ## 0.1.0
 

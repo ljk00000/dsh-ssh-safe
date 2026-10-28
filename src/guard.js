@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ljk00000
+//
+// Part of dsh-ssh-safe. See LICENSE.
 // dsh-ssh-safe — command guard.
 //
 // This is a safety rail against catastrophic typos, NOT a security boundary.

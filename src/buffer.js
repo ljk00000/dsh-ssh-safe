@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ljk00000
+//
+// Part of dsh-ssh-safe. See LICENSE.
 // dsh-ssh-safe — output buffering helpers.
 //
 // Two bugs lived here before these helpers existed:

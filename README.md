@@ -3,6 +3,8 @@
 > Security-first SSH tools for DeepSeek Harness. No telemetry, no cloud, no
 > auto-update, no host patching. Credentials from environment variables by default.
 
+**v0.2.0** · [更新日志](CHANGELOG.md) · MIT
+
 [English](#english) · [中文](#中文)
 
 ---
@@ -24,6 +26,24 @@
 | 修改 `app.asar` 内的 DSH 源文件 | **不碰宿主**。`cordis.patch.yml` 只 `insert` 自己一条 |
 | 禁用 `fs-sandbox` / `bash-sandbox` | **不禁用**。本地沙箱保持原样 |
 | 把密码写进 `cordis.patch.yml` 明文 | **不落盘**。默认只从环境变量读取 |
+
+## 兼容性要求
+
+| 项目 | 要求 |
+| --- | --- |
+| DeepSeek Harness | `>=0.1.7-rc.1 <0.3.0`（见 `package.json` 的 `dsh.engines.dsh`） |
+| Node.js | `>=20` |
+| 目标主机 | 运行中的 `sshd`。`ssh_list`/SFTP 需要 sshd 启用 sftp 子系统（现代发行版默认开启） |
+| 认证 | 密码、私钥文件、或 SSH agent（`SSH_AUTH_SOCK`）三者之一 |
+
+不需要在目标主机上安装任何东西，也不需要 Python、Node 或 `ripgrep`。
+
+### 已知限制
+
+- **长任务**：`commandTimeoutMs` 默认 30 秒，超时会向远端发送 `TERM`。跑训练、`apt upgrade` 这类长任务需要显式提高 `timeoutMs`。
+- **不支持二进制传输**：`ssh_read`/`ssh_write` 只处理 UTF-8 文本，单次上限 `maxFileBytes`（默认 1 MB）。
+- **不支持端口转发 / 跳板机 / 多机批量**：设计上只做「安全地跑命令和读写文件」。
+- **`denyPatterns` 是安全带，不是边界**：它能挡住手滑和常见的包装写法，但 shell 是图灵完备的。真正的隔离属于远端账号权限。
 
 ### 安装
 
@@ -261,6 +281,24 @@ credentials to a third party**.
 | Patch DeepSeek Harness files inside `app.asar` | **No host patching.** `cordis.patch.yml` only inserts this plugin |
 | Disable `fs-sandbox` / `bash-sandbox` | **Leaves them alone.** Local sandboxing is unchanged |
 | Store the SSH password in plaintext config | **Never persisted.** Environment variables by default |
+
+### Compatibility
+
+| Item | Requirement |
+| --- | --- |
+| DeepSeek Harness | `>=0.1.7-rc.1 <0.3.0` (see `dsh.engines.dsh` in `package.json`) |
+| Node.js | `>=20` (declared as `engines.node`) |
+| Target host | a running `sshd`; `ssh_list`/SFTP need the sftp subsystem (on by default on modern distros) |
+| Auth | password, private key file, or SSH agent (`SSH_AUTH_SOCK`) |
+
+Nothing needs to be installed on the target host — no Python, no Node, no `ripgrep`.
+
+### Known limitations
+
+- **Long-running tasks**: `commandTimeoutMs` defaults to 30 s and sends `TERM` on expiry. Training runs, `apt upgrade` and the like need an explicit higher `timeoutMs`.
+- **No binary transfer**: `ssh_read`/`ssh_write` handle UTF-8 text only, capped at `maxFileBytes` (1 MB by default).
+- **No port forwarding, jump hosts or fleet-wide fan-out**: by design this only runs commands and moves files, safely.
+- **`denyPatterns` is a seatbelt, not a boundary**: it stops slips and the common wrapper spellings, but the shell is Turing-complete. Real isolation belongs to the remote account's permissions.
 
 ### Install
 

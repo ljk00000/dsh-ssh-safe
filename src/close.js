@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ljk00000
+//
+// Part of dsh-ssh-safe. See LICENSE.
 // dsh-ssh-safe — bounded connection shutdown.
 //
 // ssh2's end() asks the peer to close and waits for the socket to go away. A

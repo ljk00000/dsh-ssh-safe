@@ -1,33 +1,30 @@
-fix: tool output was never asserted on, and three defects shipped in one round
+fix: apply validated nothing, so the schema checks never ran
 
-1. ssh_config omitted pipeToShell and healthCheckTimeoutMs. The tool exists to
-   report what is in effect, and it was itself incomplete: the setting added to
-   govern pipeline refusals was the one you could not inspect. Both are listed
-   now, and the tool warns at runtime if a Config key is ever missing from the
-   table.
+1. apply() built its config as { ...Config(), ...(config || {}) }: it took the
+   defaults and overwrote them with the user's values. The enum schemas only
+   ran when the DSH host called Config() itself, which is not the path the plugin
+   loads through -- so execGuard: "yes" reached the running plugin, and since
+   "yes" is not "confirm", the confirmation guard was silently OFF while the
+   config displayed something that looked enabled. The same hole let
+   maxConnections: "abc" through, where Number("abc") is NaN and the ceiling
+   was quietly removed. apply() now validates through the schema and fails the
+   load with a message naming the setting and its allowed values.
 
-2. A pipeline refusal said 'Adjust denyPatterns' -- advice that can never work,
-   because denyPatterns does not govern pipelines. The remedy now names
-   pipeToShell for pipelines and denyPatterns for patterns.
+2. Tool arguments were described in `parameters` but never checked. A shared set
+   of validators rejects wrong types and non-positive numbers before any network
+   work, instead of surfacing them as ECONNREFUSED or hiding them behind the
+   reconnect cooldown.
 
-3. The audit log wrote error/path/bytes/entries/truncated/redacted/ms and
-   rendered none of them, so a failed operation showed the word 'error' with no
-   cause. All detail fields are shown, on an indented second line.
+3. ssh_write wrote the four characters "null" when content was null.
 
-4. ssh_doctor reported 'ok' for a credential it never checked: an env-key
-   pointing at a missing file looked healthy until the connection failed. It now
-   checks existence, non-emptiness and key shape, and that an agent socket
-   exists.
+4. sftp.js: 15 direct tests. It was the only module without any, so its error
+   and deadline branches had never executed. One of its four reject paths also
+   skipped redaction while the other three applied it.
 
-5. Relative paths containing '..' are refused. SFTP resolves them against the
-   login directory, which depends on sshd configuration and is not knowable
-   here, so '..' would escape wherever the caller assumed.
+5. Every source file carries an SPDX header; the README states the DSH, Node and
+   sshd requirements and the known limits.
 
-6. README documented 16 of 19 settings; the three missing ones are added, as is
-   the ssh_list path semantics.
+6. Version 0.2.0 with a changelog entry and a git tag, instead of 14 commits on
+   0.1.0.
 
-7. test/tools.test.js: 12 tests that call apply() and assert on what each tool
-   returns. Defects 1, 2 and 4 are exactly the class this catches, and defect 1
-   was invisible to every existing suite.
-
-Tests: 146 passing, 4 skipped. Typecheck clean.
+Tests: 165 passing, 4 skipped. Typecheck clean.

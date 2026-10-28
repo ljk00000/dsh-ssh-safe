@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ljk00000
+//
+// Part of dsh-ssh-safe. See LICENSE.
 // dsh-ssh-safe — host key verification (TOFU store).
 //
 // Default policy is STRICT: a host must already be trusted, or the caller must
