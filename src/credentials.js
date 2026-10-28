@@ -52,7 +52,10 @@ export function machineFromEnv(alias, env = process.env) {
     password: get(names.password),
     keyPath: get(names.keyPath),
     keyPassphrase: get(names.keyPassphrase),
-    hostKeyPolicy: get(names.hostKeyPolicy) || 'strict',
+    // Empty, not 'strict': effectivePolicy(global, machine) lets the machine
+    // win when it holds a valid value, so defaulting here made the global
+    // hostKeyPolicy setting unreachable.
+    hostKeyPolicy: get(names.hostKeyPolicy),
     knownHosts: get(names.knownHosts),
     /** Names of the env vars that were found, for diagnostics. Never values. */
     present: Object.entries(names)

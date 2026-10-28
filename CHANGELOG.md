@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0 — 2026-10-28
+
+### Added
+- `machines` config: define hosts in the DSH settings form instead of
+  environment variables. DSH renders the schema as a form, so host, port, user,
+  key path and host-key policy are editable without touching the environment.
+- `<DSH_HOME>/dsh-ssh-safe/credentials.json`, read on every connection. A rotated
+  password takes effect on the next command with no restart — which is the whole
+  point, since passwords are what change most often.
+- `ssh_credentials`: reports which source supplies each machine's password or
+  key. Never prints the value.
+- `ssh_machines` now lists machines from all three sources and shows which one
+  supplied each field.
+
+### Fixed
+- The global `hostKeyPolicy` setting was unreachable: `machineFromEnv` defaulted
+  to `'strict'`, and `effectivePolicy(global, machine)` lets the machine win when
+  it holds a valid value, so the machine default always overrode the global
+  setting. An unset per-machine policy is now empty and the global one applies.
+- A test asserted the old behaviour (`'strict' is the default policy`), so the
+  bug was encoded in the suite. It now asserts the fallback.
 ## 0.2.0 — 2026-10-28
 
 ### Fixed

@@ -1,0 +1,233 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ljk00000
+//
+// Part of dsh-ssh-safe. See LICENSE.
+// dsh-ssh-safe -- machine definitions and credential resolution.
+//
+// Three places can define a machine, because they solve different problems:
+//
+//   config   the DSH settings form. Best for fields that rarely change: host,
+//            port, user, key path, host-key policy.
+//   file     <DSH_HOME>/dsh-ssh-safe/credentials.json, mode 0600. Read on every
+//            connection and re-read when its mtime changes, so a rotated
+//            password takes effect on the next command with no restart.
+//   env      DSH_SSH_<ALIAS>_*. Best for CI and for keeping secrets off disk.
+//
+// Precedence, highest first: config, then file, then env. An empty value never
+// wins, so a settings form left blank does not shadow an environment variable.
+//
+// SECURITY: nothing here writes a secret anywhere, and every shape it returns is
+// safe to print. Use credentialState() for diagnostics -- it reports which
+// source is in play without revealing the value.
+
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { agentSocket, machineFromEnv } from './credentials.js'
+
+/** Where the hot-reloadable credential file lives. */
+export function credentialsPath(dshHome) {
+  return path.join(dshHome, 'dsh-ssh-safe', 'credentials.json')
+}
+
+/** The file's expected shape, shown in error messages and in the docs. */
+export function credentialsTemplate() {
+  return [
+    '{',
+    '  "gpu": { "password": "..." },',
+    '  "prod": { "keyPath": "~/.ssh/id_ed25519", "keyPassphrase": "..." }',
+    '}',
+  ].join('\n')
+}
+
+/**
+ * Read the credential file.
+ *
+ * Never throws: a missing, unreadable or malformed file means "no file", and the
+ * other sources still work.
+ *
+ * @param {string} dshHome
+ * @returns {Record<string, object>} alias -> entry
+ */
+export function loadCredentialFile(dshHome) {
+  const file = credentialsPath(dshHome)
+  let text
+  try {
+    // Read on every call. An mtime cache was tried and could miss a rotation
+    // that landed in the same millisecond, which is exactly the "change the
+    // password and retry" case this file exists for. The file is a few hundred
+    // bytes; the read costs nothing next to the TCP handshake.
+    text = readFileSync(file, 'utf8')
+  } catch {
+    return {}
+  }
+  try {
+    const parsed = JSON.parse(text)
+    const data = {}
+    if (parsed && typeof parsed === 'object') {
+      for (const [alias, entry] of Object.entries(parsed)) {
+        if (entry && typeof entry === 'object') data[String(alias).toLowerCase()] = entry
+      }
+    }
+    return data
+  } catch {
+    // A truncated file or a stray comma must not break every connection.
+    return {}
+  }
+}
+
+/** True when a value counts as present. 0 and false do. */
+function filled(value) {
+  return value !== undefined && value !== null && value !== ''
+}
+
+/**
+ * First source that actually has a value.
+ * @param {Array<[string, unknown]>} candidates
+ * @returns {{value: unknown, source: string}}
+ */
+function firstSet(candidates) {
+  for (const [source, value] of candidates) {
+    if (filled(value)) return { value, source }
+  }
+  return { value: '', source: 'none' }
+}
+
+/**
+ * Merge the three sources into one machine definition.
+ *
+ * @param {string} alias
+ * @param {{machines?: Record<string, object>, dshHome?: string}} [options]
+ */
+export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
+  const env = machineFromEnv(alias)
+  const cfg = (machines && machines[alias]) || {}
+  const file = (loadCredentialFile(dshHome) || {})[alias] || {}
+
+  const host = firstSet([['config', cfg.host], ['env', env.host], ['file', file.host]])
+  const user = firstSet([
+    ['config', cfg.user], ['env', env.username], ['file', file.user], ['file', file.username],
+  ])
+  const keyPath = firstSet([['config', cfg.keyPath], ['env', env.keyPath], ['file', file.keyPath]])
+  const keyPassphrase = firstSet([
+    ['config', cfg.keyPassphrase], ['env', env.keyPassphrase], ['file', file.keyPassphrase],
+  ])
+  const policy = firstSet([
+    ['config', cfg.hostKeyPolicy], ['env', env.hostKeyPolicy], ['file', file.hostKeyPolicy],
+  ])
+  const knownHosts = firstSet([
+    ['config', cfg.knownHosts], ['env', env.knownHosts], ['file', file.knownHosts],
+  ])
+  const password = firstSet([
+    ['config', cfg.password], ['file', file.password], ['env', env.password],
+  ])
+
+  // 22 is the default, so an explicit 22 is indistinguishable from "not set".
+  // The port simply stays 22, which is the same outcome.
+  const port = firstSet([
+    ['config', cfg.port], ['file', file.port], ['env', env.port !== 22 ? env.port : ''],
+  ])
+
+  return {
+    alias,
+    host: String(host.value || ''),
+    port: Number(port.value) || 22,
+    username: String(user.value || ''),
+    password: String(password.value || ''),
+    keyPath: String(keyPath.value || ''),
+    keyPassphrase: String(keyPassphrase.value || ''),
+    // Empty means "inherit the global policy". A previous version defaulted to
+    // 'strict' here, which made the global setting unreachable.
+    hostKeyPolicy: String(policy.value || ''),
+    knownHosts: String(knownHosts.value || ''),
+    /** Env var names that were found, for diagnostics. Never values. */
+    present: env.present,
+    /** Which source supplied each field. Never contains a value. */
+    sources: {
+      host: host.source,
+      port: port.source,
+      user: user.source,
+      password: password.source,
+      keyPath: keyPath.source,
+      keyPassphrase: keyPassphrase.source,
+      hostKeyPolicy: policy.source,
+      knownHosts: knownHosts.source,
+    },
+  }
+}
+
+/**
+ * Assemble the auth object for ssh2.
+ *
+ * A password is tried before a key file, matching ssh's own preference when both
+ * are offered. A session password comes after the configured sources, so a
+ * deliberate configuration is not overridden by a tool argument.
+ *
+ * @param {string} alias
+ * @param {{machines?: Record<string, object>, dshHome?: string, sessionPassword?: string,
+ *   allowSessionPassword?: boolean, useAgent?: boolean}} [options]
+ */
+export function credentialFor(alias, {
+  machines = {},
+  dshHome = '',
+  sessionPassword,
+  allowSessionPassword,
+  useAgent,
+} = {}) {
+  const m = machineDefinition(alias, { machines, dshHome })
+
+  if (m.password) {
+    return { kind: m.sources.password + '-password', password: m.password, machine: m }
+  }
+  if (m.keyPath) {
+    return {
+      kind: m.sources.keyPath + '-key',
+      keyPath: m.keyPath,
+      passphrase: m.keyPassphrase,
+      machine: m,
+    }
+  }
+  if (allowSessionPassword && typeof sessionPassword === 'string' && sessionPassword.length > 0) {
+    return { kind: 'session-password', password: sessionPassword, machine: m }
+  }
+  if (useAgent !== false) {
+    const sock = agentSocket()
+    if (sock) return { kind: 'agent', agent: sock, machine: m }
+  }
+  return { kind: 'none', machine: m }
+}
+
+/**
+ * Diagnostic view of a machine's credentials. Safe to print: it reports which
+ * source is in play and never the value.
+ *
+ * @param {string} alias
+ * @param {{machines?: Record<string, object>, dshHome?: string}} [options]
+ */
+export function credentialState(alias, { machines = {}, dshHome = '' } = {}) {
+  const m = machineDefinition(alias, { machines, dshHome })
+  return {
+    alias,
+    host: m.host,
+    port: m.port,
+    username: m.username,
+    passwordSource: m.sources.password,
+    keyPathSource: m.sources.keyPath,
+    keyPath: m.keyPath,
+    hostKeyPolicy: m.hostKeyPolicy || '(global)',
+    configured: Boolean(m.host && m.username),
+    sources: m.sources,
+  }
+}
+
+/** All aliases any source knows about, sorted. */
+export function knownAliases({ machines = {}, dshHome = '', env = process.env } = {}) {
+  const set = new Set()
+  for (const key of Object.keys(machines || {})) set.add(String(key).toLowerCase())
+  for (const key of Object.keys(loadCredentialFile(dshHome) || {})) set.add(String(key).toLowerCase())
+  for (const key of Object.keys(env || {})) {
+    const match = /^DSH_SSH_(.+)_HOST$/.exec(key)
+    if (match && env[key]) set.add(match[1].toLowerCase())
+  }
+  set.delete('')
+  return [...set].sort()
+}

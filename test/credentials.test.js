@@ -20,7 +20,10 @@ test('machineFromEnv reads only what is present', () => {
   assert.equal(m.username, 'ubuntu')
   assert.equal(m.port, 22, 'port defaults to 22')
   assert.equal(m.password, '', 'absent password is an empty string, not undefined')
-  assert.equal(m.hostKeyPolicy, 'strict', 'strict is the default policy')
+  // Empty, not 'strict'. effectivePolicy(global, machine) lets the machine win
+  // when it holds a valid value, so a default here would make the global
+  // hostKeyPolicy setting unreachable. (pool.test.js covers the fallback.)
+  assert.equal(m.hostKeyPolicy, '', 'unset policy is empty so the global one applies')
   assert.deepEqual(m.present, ['DSH_SSH_PROD_HOST', 'DSH_SSH_PROD_USER'])
 })
 

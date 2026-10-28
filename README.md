@@ -61,7 +61,56 @@ dsh plugin --profile desktop add file:/path/to/dsh-ssh-safe
 > 必须先 `remove` 再 `add`，否则插件会因 `ERR_MODULE_NOT_FOUND` 崩溃。
 > （`test/installed.test.js` 就是为了逮住这种情况。)
 
-### 配置服务器凭据
+## 三种配置来源（密码经常变化时看这里）
+
+机器可以从三个地方定义，各有用途：
+
+| 来源 | 适合放什么 | 改了要重启吗 |
+| --- | --- | --- |
+| **设置界面** `machines.<别名>` | host / port / user / 私钥路径 / 主机密钥策略 | 需要重载插件 |
+| **凭据文件** `~/.dsh/dsh-ssh-safe/credentials.json` | 密码、私钥口令 | **不用，下次连接即生效** |
+| **环境变量** `DSH_SSH_<别名>_*` | CI、不想落盘的场景 | 需要重启 DSH |
+
+优先级：**设置界面 > 凭据文件 > 环境变量 > SSH agent**。
+空值不参与比较，所以设置界面留空不会遮蔽环境变量。
+
+### 推荐用法
+
+1. 在 DSH 设置里给插件加一个机器条目（“机器”很少变）：
+
+```
+machines.prod = { host: "10.0.0.5", port: 22, user: "ubuntu" }
+```
+
+2. 密码放进凭据文件（“密码”经常变）：
+
+```bash
+# ~/.dsh/dsh-ssh-safe/credentials.json
+{
+  "prod": { "password": "..." },
+  "gpu":  { "keyPath": "~/.ssh/id_ed25519", "keyPassphrase": "..." }
+}
+```
+
+改完不用重启——插件每次连接都会重新读这个文件。
+
+### 查看当前生效的是什么
+
+```
+ssh_credentials    # 每台机器的密码/密钥来自哪里（只报来源，不显示值）
+ssh_config         # 插件配置 + 凭据文件路径
+ssh_machines       # 机器清单 + 每个字段的来源
+```
+
+> **密码要不要写进设置界面？** 可以，但设置界面的内容会以明文存进 DSH 的配置文件。
+> 凭据文件是独立文件、权限 0600、改动即时生效，更适合经常轮换的密码。
+
+### 安全提醒
+
+- 凭据文件在 Windows 上无法设置 POSIX 权限（`chmod` 无效果），请确保它位于只有你能访问的用户目录。
+- 目录已通过 `.gitignore` 排除，不会被误提交。
+
+### 配置服务器凭据（环境变量方式）
 
 用一个「别名 + 环境变量」的方式。别名 `prod` 对应下面这些变量：
 
@@ -250,6 +299,8 @@ pnpm approve-builds --all
 | `reconnectCooldownMs` | `15000` | 失败后冷却，期间可用 `force: true` 绕过 |
 | `healthCheckIdleMs` | `300000` | 空闲多久后复用前先探活，`0` 关闭 |
 | `defaultMachine` | `''` | 工具调用省略 `machine` 时使用的别名 |
+| `machines` | `{}` | 机器定义（设置界面可编辑，不含密码优先） |
+| `useCredentialFile` | `true` | 每次连接读取凭据文件，改密码免重启 |
 | `healthCheckTimeoutMs` | `3000` | 探活探测的截止时间 |
 | `pipeToShell` | `refuse` | `refuse` 拦截管道进解释器；`allow` 放行 |
 | `denyPatterns` | 5 条 | 危险命令拦截（安全带，不是边界） |

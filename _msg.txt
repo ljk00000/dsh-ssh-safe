@@ -1,46 +1,31 @@
-fix: the deny list was bypassed, the audit file was world-readable
+feat: define machines in the settings form, rotate passwords without a restart
 
-1. rm -rf /* and rm -rf --no-preserve-root / got through. The root pattern
-   required a whitespace or end-of-string after the slash, and canonicalizeRm
-   deleted every short-flag token, so --no-preserve-root vanished and left
-   'rm -rf -', which no longer matched. The pattern now accepts a glob, and
-   the canonicaliser keeps unknown long options as words and emits one
-   canonical flag cluster.
+Credentials were environment variables only, which meant changing a password
+required editing the environment and restarting the application. Passwords are
+the field that changes most often, so that was the wrong shape.
 
-2. 'curl x | sudo bash' got through: checkPipeline looked at the first word on
-   the right of the pipe, which was sudo. Privilege and environment prefixes
-   are stripped first now, and a privileged writer (sudo tee, dd of=/dev) is
-   caught too. Ordinary pipes are unaffected.
+1. machines: a dict in the Config schema. DSH renders plugin config as a form,
+   so host, port, user, key path and host-key policy are editable in the
+   settings page. No environment variables, no restart.
 
-3. The guard was a no-op. The 'return true' added to guard() when the confirm
-   check was introduced landed BEFORE the pattern check, making the whole body
-   unreachable -- every command passed unexamined since. Both guards are now
-   covered by tests.
+2. credentials.json under DSH_HOME, mode 0600, read on every connection. A
+   rotated password takes effect on the next command. An mtime cache was tried
+   first and removed: a rotation landing in the same millisecond was missed,
+   which is exactly the case this file exists for.
 
-4. execGuard confirm gated ssh_exec only. ssh_write could drop a script or a
-   line into ~/.bashrc without confirmation, which for an agent is often the more
-   dangerous half of the work. Writes are gated too.
+3. Precedence is settings form > credential file > environment > agent, and an
+   empty value never wins, so a blank field does not shadow an environment
+   variable.
 
-5. The audit file was created with the default mode, so every account on the
-   machine could read hosts, commands and paths. It is now 0600 where POSIX
-   modes apply.
+4. ssh_credentials: reports which source supplies each machine's password or
+   key, never the value. ssh_machines now lists all three sources and shows the
+   source of every field.
 
-6. The audit log rotated by overwriting .1 and recent() read only the live
-   file, so records older than the last rotation were unreachable -- exactly the
-   window that matters after an incident. Four generations are kept and read
-   back in order.
+Fixed on the way: the global hostKeyPolicy setting was unreachable.
+machineFromEnv defaulted to 'strict', and effectivePolicy(global, machine) lets
+the machine win when it holds a valid value, so the per-machine default always
+overrode the global setting. An unset per-machine policy is empty now and the
+global one applies. A test asserted the old behaviour, so the bug was encoded in
+the suite; it now asserts the fallback.
 
-7. redact handled KEY=value and PEM only. An Authorization header or a
-   password inside a URL went through untouched, and ssh_read returns exactly
-   that text. Bearer/Basic credentials and scheme://user:pass@host are now
-   masked.
-
-8. ssh_read still used inline argument parsing: an earlier edit to the
-   validators did not match this tool's block and failed silently, while my
-   check searched the whole file rather than this tool. It now uses the shared
-   validators like every other tool, and the check is per-tool.
-
-9. package.json files omitted SECURITY.md and CHANGELOG.md, so publishing
-   would have dropped the security documentation.
-
-Tests: 189 passing, 4 skipped. Typecheck clean.
+Tests: 199 passing, 4 skipped. Typecheck clean.

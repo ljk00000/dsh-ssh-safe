@@ -23,7 +23,15 @@ import { readFileSync, existsSync } from 'node:fs'
 import net from 'node:net'
 import { homedir } from 'node:os'
 import { SshPool, expandHome, pick } from './pool.js'
-import { expectedEnv, machineFromEnv, redact, resolveAuth } from './credentials.js'
+import { expectedEnv, redact } from './credentials.js'
+import {
+  credentialFor,
+  credentialState,
+  credentialsPath,
+  credentialsTemplate,
+  knownAliases,
+  machineDefinition,
+} from './machines.js'
 import { storePath } from './hostkey.js'
 import { checkCommand } from './guard.js'
 import { AuditLog, summarize } from './audit.js'
@@ -34,6 +42,33 @@ export const inject = ['tools']
 export const Config = z.object({
   /** Machine alias used when a tool call omits 'machine'. */
   defaultMachine: z.string().default(''),
+
+  /**
+   * Machines defined here edit like any other setting: DSH renders this schema
+   * as a form, so host, port and user can be changed without touching
+   * environment variables or restarting.
+   *
+   * Passwords belong in the credential file instead (see below). A password
+   * typed here is stored in the profile's config file in plain text.
+   */
+  machines: z.dict(z.object({
+    host: z.string().default(''),
+    port: z.number().step(1).min(1).max(65535).default(22),
+    user: z.string().default(''),
+    keyPath: z.string().default(''),
+    keyPassphrase: z.string().default(''),
+    password: z.string().default(''),
+    hostKeyPolicy: z.union(['', 'strict', 'tofu', 'off']).default(''),
+    knownHosts: z.string().default(''),
+  })).default({}),
+
+  /**
+   * Read <DSH_HOME>/dsh-ssh-safe/credentials.json on each connection.
+   *
+   * This is the file to edit when a password changes: it is re-read every time,
+   * so a new value takes effect on the next command with no restart. Mode 0600.
+   */
+  useCredentialFile: z.boolean().default(true),
 
   /**
    * Allow a password through a tool argument. OFF by default: with it off,
@@ -316,27 +351,36 @@ export async function apply(ctx, config) {
     async execute() {
       const aliases = new Set()
       if (cfg.defaultMachine) aliases.add(normalizeAlias(cfg.defaultMachine))
-      for (const key of Object.keys(process.env)) {
-        const m = /^DSH_SSH_(.+)_HOST$/.exec(key)
-        if (m && process.env[key]) aliases.add(m[1].toLowerCase())
-      }
+      // Config, credential file and environment: any of the three can define a
+      // machine, so the inventory lists all of them.
+      for (const alias of knownAliases({ machines: cfg.machines, dshHome })) aliases.add(alias)
       if (aliases.size === 0) {
         return { text:
-          'No machines configured. Set environment variables, then restart DeepSeek Harness:\n' +
-          '  DSH_SSH_PROD_HOST=10.0.0.5\n' +
-          '  DSH_SSH_PROD_USER=ubuntu\n' +
-          '  DSH_SSH_PROD_KEY_PATH=~/.ssh/id_ed25519\n' +
-          '(or DSH_SSH_PROD_PASSWORD). Values are read at call time and never written to config.' }
+          'No machines configured. Any one of these works:\n' +
+          '\n' +
+          ' 1. Settings form (recommended): add an entry under machines, e.g.\n' +
+          '      machines.prod = { host: "10.0.0.5", user: "ubuntu", port: 22 }\n' +
+          '\n' +
+          ' 2. Credential file for passwords that change often — no restart needed:\n' +
+          '      ' + credentialsPath(dshHome) + '\n' +
+          '    ' + credentialsTemplate().split('\n').join('\n    ') + '\n' +
+          '\n' +
+          ' 3. Environment variables (restart required):\n' +
+          '      DSH_SSH_PROD_HOST=10.0.0.5\n' +
+          '      DSH_SSH_PROD_USER=ubuntu\n' +
+          '      DSH_SSH_PROD_KEY_PATH=~/.ssh/id_ed25519' }
       }
       const out = []
       const lean = cfg.machineInventory === 'alias'
       for (const alias of aliases) {
-        const m = machineFromEnv(alias)
+        const m = machineDefinition(alias, { machines: cfg.machines, dshHome })
         const need = expectedEnv(alias)
         const authKind = m.password
-          ? 'password (env)'
+          ? 'password (' + m.sources.password + ')'
           : m.keyPath
-            ? (lean ? 'private key (path hidden)' : 'key ' + m.keyPath)
+            ? (lean
+                ? 'private key (' + m.sources.keyPath + ', path hidden)'
+                : 'key ' + m.keyPath + ' (' + m.sources.keyPath + ')')
             : 'NONE'
         const endpoint = lean
           ? '<host hidden>'
@@ -348,7 +392,12 @@ export async function apply(ctx, config) {
           '\n    ' + trustedLine(m) +
           (lean
             ? ''
-            : (m.present.length ? '\n    detected env: ' + m.present.join(', ') : '\n    detected env: none')) +
+            : (() => {
+                const used = Object.entries(m.sources || {})
+                  .filter(([, source]) => source !== 'none')
+                  .map(([field, source]) => field + '=' + source)
+                return used.length ? '\n    sources: ' + used.join(', ') : '\n    sources: none'
+              })()) +
           (m.host && m.username ? '' : '\n    MISSING: ' + need.required.join(', '))
         )
       }
@@ -394,7 +443,7 @@ export async function apply(ctx, config) {
       }
       audit.write({ kind: 'connect', machine: alias, outcome: 'ok', ms: Date.now() - startedAt })
 
-      const m = machineFromEnv(alias)
+      const m = machineDefinition(alias, { machines: cfg.machines, dshHome })
       const entry = pool.entry(alias)
       const stats = pool.connectionStats()
       // Deliberately no remote command here. Verifying the channel is what
@@ -692,6 +741,53 @@ export async function apply(ctx, config) {
     },
   })
 
+  // ── ssh_credentials ──────────────────────────────────────────────────
+  ctx.tools.defineTool({
+    name: 'ssh_credentials',
+    description:
+      'Show where each machine`s credentials come from: the settings form, the credential ' +
+      'file, or the environment. Reports the source, never the value. Use this after a ' +
+      'password rotation to confirm the plugin is reading the new one.',
+    parameters: {},
+    output: textOut,
+    async execute() {
+      const aliases = knownAliases({ machines: cfg.machines, dshHome })
+      if (cfg.defaultMachine && !aliases.includes(normalizeAlias(cfg.defaultMachine))) {
+        aliases.push(normalizeAlias(cfg.defaultMachine))
+      }
+      const file = credentialsPath(dshHome)
+      const head = [
+        'Credential sources (values are never shown):',
+        '  settings form   machines.<alias> in the plugin config',
+        '  credential file ' + file + (cfg.useCredentialFile === true ? '' : '  [DISABLED]'),
+        '  environment     DSH_SSH_<ALIAS>_*',
+        '  precedence      settings form > credential file > environment > SSH agent',
+      ]
+      if (aliases.length === 0) {
+        head.push('', 'No machines defined yet.')
+        return { text: head.join('\n') }
+      }
+      for (const alias of aliases) {
+        const st = credentialState(alias, {
+          machines: cfg.machines,
+          dshHome: cfg.useCredentialFile === true ? dshHome : '',
+        })
+        const where = (source) => source === 'none' ? '—' : source
+        head.push(
+          '',
+          '• ' + alias + '  ' + (st.configured
+            ? (st.username || '?') + '@' + (st.host || '?') + ':' + st.port
+            : 'INCOMPLETE (needs host and user)'),
+          '    password   ' + where(st.passwordSource),
+          '    key        ' + where(st.keyPathSource) +
+            (st.keyPath ? '  ' + String(st.keyPath).replace(/^.*[\\/]/, '…/') : ''),
+          '    host key   ' + st.hostKeyPolicy
+        )
+      }
+      return { text: head.join('\n') }
+    },
+  })
+
   // ── ssh_config ────────────────────────────────────────────────────────
   ctx.tools.defineTool({
     name: 'ssh_config',
@@ -710,6 +806,8 @@ export async function apply(ctx, config) {
         ['machineInventory', cfg.machineInventory, 'full | alias'],
         ['auditLog', cfg.auditLog, 'NDJSON record of operations'],
         ['defaultMachine', cfg.defaultMachine || '(none)', ''],
+        ['machines', Object.keys(cfg.machines || {}).length + ' defined', 'editable in the settings form'],
+        ['useCredentialFile', cfg.useCredentialFile, 'read per connection, no restart needed'],
         ['commandTimeoutMs', cfg.commandTimeoutMs, 'per ssh_exec command'],
         ['sftpTimeoutMs', cfg.sftpTimeoutMs, 'per transfer'],
         ['connectTimeoutMs', cfg.connectTimeoutMs, ''],
@@ -736,6 +834,12 @@ export async function apply(ctx, config) {
         lines.push('', 'Settings not shown above (report this): ' + missing.join(', '))
       }
 
+      if (cfg.useCredentialFile === true) {
+        lines.push('', 'Credential file: ' + credentialsPath(dshHome) + '  (mode 0600)')
+      }
+      const defined = Object.keys(cfg.machines || {})
+      if (defined.length > 0) lines.push('Machines in the settings form: ' + defined.join(', '))
+
       lines.push('', 'Live connections: ' + stats.live +
         (stats.limit > 0 ? ' / ' + stats.limit + ' max' : ' (no limit)') +
         (stats.aliases.length ? '  [' + stats.aliases.join(', ') + ']' : ''))
@@ -761,7 +865,7 @@ export async function apply(ctx, config) {
     output: textOut,
     async execute(args) {
       const alias = machineFor(args)
-      const m = machineFromEnv(alias)
+      const m = machineDefinition(alias, { machines: cfg.machines, dshHome })
       const need = expectedEnv(alias)
       const lines = []
       const say = (stage, verdict, detail) => lines.push('[' + verdict + '] ' + stage + (detail ? ': ' + detail : ''))
@@ -770,14 +874,20 @@ export async function apply(ctx, config) {
       const missing = []
       if (!m.host) missing.push(need.required[0])
       if (!m.username) missing.push(need.required[1])
-      const auth = resolveAuth(alias, { allowSessionPassword: cfg.allowSessionPassword })
+      const auth = credentialFor(alias, {
+        machines: cfg.machines,
+        dshHome,
+        allowSessionPassword: cfg.allowSessionPassword,
+      })
       if (missing.length) say('configuration', 'FAIL', 'missing ' + missing.join(', '))
       else say('configuration', 'ok', m.username + '@' + m.host + ':' + m.port)
       // Cheque the credential's usability, not just its declared kind: an
       // env-key pointing at a missing file reported ok and then failed the
       // connection, which is the opposite of what a diagnostic should do.
       let credentialProblem = ''
-      if (auth.kind === 'env-key') {
+      // Any key-based kind: config, credential file or environment, not just the
+      // environment: the other sources deserve the same scrutiny.
+      if (String(auth.kind).endsWith('-key')) {
         const keyPath = expandHome(auth.keyPath)
         if (!existsSync(keyPath)) {
           credentialProblem = 'key file not found: ' + keyPath

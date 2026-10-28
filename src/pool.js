@@ -33,7 +33,8 @@ async function loadClient() {
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
-import { resolveAuth, redact, machineFromEnv, envNames } from './credentials.js'
+import { redact, envNames } from './credentials.js'
+import { credentialFor, machineDefinition } from './machines.js'
 import { checkHostKey } from './hostkey.js'
 import { Utf8Collector, OutputBudget } from './buffer.js'
 import { normalizeRemotePath } from './remote-path.js'
@@ -229,7 +230,10 @@ export class SshPool {
   }
 
   describe(alias) {
-    return machineFromEnv(alias)
+    return machineDefinition(alias, {
+      machines: this.config.machines || {},
+      dshHome: this.deps.dshHome,
+    })
   }
 
   /**
@@ -345,7 +349,9 @@ export class SshPool {
   }
 
   async #open(alias, e, { sessionPassword, trustHostKey }) {
-    const auth = resolveAuth(alias, {
+    const auth = credentialFor(alias, {
+      machines: this.config.machines || {},
+      dshHome: this.deps.dshHome,
       sessionPassword,
       allowSessionPassword: this.config.allowSessionPassword === true,
     })
@@ -357,7 +363,8 @@ export class SshPool {
       if (!m.username) need.push(names.user)
       throw new Error(
         'Machine "' + alias + '" is not configured: missing ' + need.join(', ') +
-        '. Set the environment variable(s) and restart DeepSeek Harness, or pass host/username ' +
+        '. Set it in the plugin settings (machines.' + alias + '), or as the environment ' +
+        'variable(s) ' + need.join(', ') + ', or pass host/username ' +
         'explicitly to ssh_connect. Nothing was read from disk.'
       )
     }

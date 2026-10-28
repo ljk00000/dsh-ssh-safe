@@ -3,3 +3,6 @@ lib/
 *.tgz
 .DS_Store
 *.log
+
+# never commit real credentials
+credentials.json
