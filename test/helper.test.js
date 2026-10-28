@@ -1,24 +1,25 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { dpapiAvailable } from '../src/dpapi.js'
 
 // The helper is how a password reaches the credential file without passing
-// through a conversation. These tests pin the parts that matter: it writes the
-// file the plugin reads, it merges instead of overwriting, and it never prints
-// the secret back.
+// through a conversation. It encrypts with DPAPI, so the storing tests only run
+// on Windows; the refusal on other platforms is asserted instead.
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const script = path.join(here, '..', 'scripts', 'set-password.mjs')
+const needsDpapi = dpapiAvailable() ? false : 'DPAPI is a Windows feature'
 
 function run(args) {
   return spawnSync(process.execPath, [script, ...args], { encoding: 'utf8' })
 }
 
-test('the helper writes a credential the plugin can read', () => {
+test('the helper writes a credential the plugin can read', { skip: needsDpapi }, () => {
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-helper-'))
   try {
     const r = run(['--alias', 'gpu', '--host', 'h.example.com', '--port', '2222',
@@ -38,7 +39,7 @@ test('the helper writes a credential the plugin can read', () => {
   }
 })
 
-test('the helper does not echo the secret it stored', () => {
+test('the helper does not echo the secret it stored', { skip: needsDpapi }, () => {
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-helper-'))
   try {
     const r = run(['--alias', 'gpu', '--password', 'never-print-me', '--dsh-home', home])
@@ -51,7 +52,7 @@ test('the helper does not echo the secret it stored', () => {
   }
 })
 
-test('a second run preserves the other machines', () => {
+test('a second run preserves the other machines', { skip: needsDpapi }, () => {
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-helper-'))
   try {
     run(['--alias', 'gpu', '--password', 'one', '--dsh-home', home])
@@ -65,14 +66,42 @@ test('a second run preserves the other machines', () => {
   }
 })
 
-test('a rerun updates the password in place', () => {
+test('a rerun updates the password in place', { skip: needsDpapi }, () => {
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-helper-'))
   try {
     run(['--alias', 'gpu', '--host', 'h', '--password', 'old', '--dsh-home', home])
+    const first = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
     run(['--alias', 'gpu', '--password', 'new', '--dsh-home', home])
+    const second = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
+    assert.equal(second.gpu.host, 'h', 'fields not passed this time are kept')
+    assert.notEqual(second.gpu.passwordDpapi, first.gpu.passwordDpapi, 'the secret was replaced')
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('--plaintext is available but says what it costs', { skip: needsDpapi }, () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-helper-'))
+  try {
+    const r = run(['--alias', 'gpu', '--password', 'readable', '--plaintext', '--dsh-home', home])
+    assert.equal(r.status, 0, r.stderr)
     const body = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
-    assert.ok(body.gpu.passwordDpapi, 'the secret was replaced')
-    assert.equal(body.gpu.host, 'h', 'fields not passed this time are kept')
+    assert.equal(body.gpu.password, 'readable')
+    assert.match(String(r.stderr) + String(r.stdout), /plaintext/i, 'the warning is shown')
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('without DPAPI the helper refuses and points at the environment', {
+  skip: dpapiAvailable() ? 'DPAPI is available here' : false,
+}, () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-helper-'))
+  try {
+    const r = run(['--alias', 'gpu', '--password', 'x', '--dsh-home', home])
+    assert.notEqual(r.status, 0, 'it must not silently store a readable password')
+    assert.match(String(r.stderr), /Windows only/)
+    assert.match(String(r.stderr), /DSH_SSH_GPU_PASSWORD/, 'it names the alternative')
   } finally {
     rmSync(home, { recursive: true, force: true })
   }

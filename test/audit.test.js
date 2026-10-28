@@ -44,9 +44,20 @@ test('a disabled log writes nothing', () => {
 })
 
 test('a write failure does not throw', () => {
-  const audit = new AuditLog('\\\\?\\invalid\\path', { enabled: true })
-  assert.doesNotThrow(() => audit.write({ kind: 'exec' }))
-  assert.equal(audit.failures, 1, 'the failure is counted, not raised')
+  const base = mkdtempSync(path.join(tmpdir(), 'dsh-audit-fail-'))
+  try {
+    // A path inside an existing file fails with ENOTDIR on every platform.
+    // The previous version used a Windows-only invalid path, which Linux
+    // accepted as an ordinary directory name -- so the write succeeded and the
+    // assertion failed only on CI.
+    const blocker = path.join(base, 'a-file')
+    writeFileSync(blocker, 'x')
+    const audit = new AuditLog(path.join(blocker, 'sub'), { enabled: true })
+    assert.doesNotThrow(() => audit.write({ kind: 'exec' }))
+    assert.equal(audit.failures, 1, 'the failure is counted, not raised')
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
 })
 
 test('recent returns the newest records last', () => {

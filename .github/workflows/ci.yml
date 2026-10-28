@@ -29,6 +29,11 @@ jobs:
       # The suite is deliberately dependency-free: no ssh2 install is needed
       # because every module that would touch it is either lazy-loaded or
       # exercised through a fake client.
+      #
+      # `node --test` with no path, not `node --test "test/*.test.js"`: the glob
+      # form needs Node 21+, and on Node 20 the quoted pattern is taken as a
+      # literal path ("Could not find .../*.test.js"). Automatic discovery works
+      # on every version in the matrix.
       - name: Run tests
         run: npm test
 
