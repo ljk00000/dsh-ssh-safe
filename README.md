@@ -74,6 +74,34 @@ dsh plugin --profile desktop add file:/path/to/dsh-ssh-safe
 优先级：**设置界面 > 凭据文件 > 环境变量 > SSH agent**。
 空值不参与比较，所以设置界面留空不会遮蔽环境变量。
 
+### 改密码（最常见的操作）
+
+```bash
+cd <插件目录>
+node scripts/set-password.mjs --alias gpu
+```
+
+它会提示你输入密码（**不回显、不进 shell 历史、不进对话记录**），写入
+`~/.dsh/dsh-ssh-safe/credentials.json`，并把文件 ACL 限制到「你 + SYSTEM」。
+
+**下一条命令就是新密码，不用重启 DSH。**
+
+也可以一次把机器信息写进去（这样连环境变量都不用配）：
+
+```bash
+node scripts/set-password.mjs --alias gpu \
+  --host gpu.example.com --port 2222 --user root
+```
+
+用私钥 + 口令：
+
+```bash
+node scripts/set-password.mjs --alias prod \
+  --key-path ~/.ssh/id_ed25519 --key-passphrase
+```
+
+> 为什么不提供 `.ps1`：这台机器的 PowerShell 执行策略会拒绝未签名脚本。
+> Node 脚本不受该策略影响，而插件本来就依赖 Node。
 ### 推荐用法
 
 1. 在 DSH 设置里给插件加一个机器条目（“机器”很少变）：

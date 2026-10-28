@@ -11,6 +11,9 @@
   point, since passwords are what change most often.
 - `ssh_credentials`: reports which source supplies each machine's password or
   key. Never prints the value.
+- `scripts/set-password.mjs`: prompts for a password without echoing it and
+  writes the credential file with an owner-only ACL. A Node script rather than
+  PowerShell because this machine's execution policy rejects unsigned scripts.
 - `ssh_machines` now lists machines from all three sources and shows which one
   supplied each field.
 

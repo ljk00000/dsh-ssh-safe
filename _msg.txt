@@ -1,31 +1,18 @@
-feat: define machines in the settings form, rotate passwords without a restart
+feat: a helper that stores a password without putting it in a transcript
 
-Credentials were environment variables only, which meant changing a password
-required editing the environment and restarting the application. Passwords are
-the field that changes most often, so that was the wrong shape.
+The credential file solved rotation, but getting a password into it still meant
+either typing it into a tool call (which puts it in the conversation) or editing
+JSON by hand.
 
-1. machines: a dict in the Config schema. DSH renders plugin config as a form,
-   so host, port, user, key path and host-key policy are editable in the
-   settings page. No environment variables, no restart.
+scripts/set-password.mjs prompts with echo disabled, writes the entry, and
+restricts the file with icacls to the owner plus SYSTEM. On a terminal the value
+never appears in the shell history, the output or a tool result.
 
-2. credentials.json under DSH_HOME, mode 0600, read on every connection. A
-   rotated password takes effect on the next command. An mtime cache was tried
-   first and removed: a rotation landing in the same millisecond was missed,
-   which is exactly the case this file exists for.
+It merges rather than overwrites: a second run for another alias keeps the
+first, and a rerun that only passes --password keeps the host recorded earlier.
 
-3. Precedence is settings form > credential file > environment > agent, and an
-   empty value never wins, so a blank field does not shadow an environment
-   variable.
+A PowerShell version was written first and removed: this machine's execution
+policy rejects unsigned scripts. Node is the right dependency here anyway -- the
+plugin already needs it.
 
-4. ssh_credentials: reports which source supplies each machine's password or
-   key, never the value. ssh_machines now lists all three sources and shows the
-   source of every field.
-
-Fixed on the way: the global hostKeyPolicy setting was unreachable.
-machineFromEnv defaulted to 'strict', and effectivePolicy(global, machine) lets
-the machine win when it holds a valid value, so the per-machine default always
-overrode the global setting. An unset per-machine policy is empty now and the
-global one applies. A test asserted the old behaviour, so the bug was encoded in
-the suite; it now asserts the fallback.
-
-Tests: 199 passing, 4 skipped. Typecheck clean.
+Tests: 204 passing, 4 skipped.
