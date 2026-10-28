@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.0 — 2026-10-28
+
+### Added
+- `scripts/gui.mjs` + `scripts/gui.html`: an on-demand local page for machines
+  and credentials. Lists every alias from all three sources, edits host / port /
+  user / key path, stores a password DPAPI encrypted immediately, and runs a real
+  connection test that reports 配置 / TCP / 主机密钥 / 认证 / 命令通道 in order.
+- `npm run gui`.
+
+### Why a separate process
+
+The plugin keeps no listening socket. The page runs only while the command runs,
+binds 127.0.0.1 on a random port, requires a per-start token in the URL, and exits
+on close or after ten idle minutes. No CDN, no telemetry, one local file.
+
+### Deliberate limits
+- The connection test reports the host-key fingerprint but does not record it: a
+  test must not move the trust state.
+- If a machine's host or user is defined in the DSH settings form, editing it here
+  warns instead of silently losing to the settings form's precedence.
+- No endpoint returns a password. Tests assert this for the state call and the
+  save response.
 ## 0.4.0 — 2026-10-28
 
 ### Changed

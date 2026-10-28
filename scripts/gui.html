@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dsh-ssh-safe — 机器与凭据</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 20px 60px;
+    font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #0f1116; color: #e6e8ee;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 19px; margin: 0 0 4px; font-weight: 650; }
+  .sub { color: #8b93a7; font-size: 12.5px; margin-bottom: 22px; }
+  .sub code { background: #1b1f29; padding: 1px 5px; border-radius: 4px; color: #b9c2d6; }
+  .card {
+    background: #161a22; border: 1px solid #232936; border-radius: 10px;
+    padding: 16px 18px; margin-bottom: 14px;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 11.5px; color: #8b93a7; letter-spacing: .02em; }
+  input {
+    background: #0d1017; border: 1px solid #2b3242; color: #e6e8ee;
+    border-radius: 6px; padding: 7px 9px; font: inherit; min-width: 0;
+  }
+  input:focus { outline: none; border-color: #4b6bfb; }
+  button {
+    background: #232b3a; color: #dfe4ef; border: 1px solid #2f3849;
+    border-radius: 6px; padding: 7px 13px; font: inherit; cursor: pointer;
+  }
+  button:hover { background: #2b3446; }
+  button.primary { background: #3b56d6; border-color: #4b6bfb; color: #fff; }
+  button.primary:hover { background: #4664e8; }
+  button.danger { color: #ff9a9a; }
+  button:disabled { opacity: .5; cursor: default; }
+  .m { padding: 14px 0; border-top: 1px solid #212836; }
+  .m:first-child { border-top: none; padding-top: 0; }
+  .m-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .alias { font-weight: 650; font-size: 15px; }
+  .tag {
+    font-size: 11px; padding: 2px 7px; border-radius: 20px;
+    background: #1e2532; color: #93a0b8; border: 1px solid #2a3345;
+  }
+  .tag.ok { color: #6ee7a8; border-color: #1f4a35; background: #12251c; }
+  .tag.bad { color: #ff9a9a; border-color: #4d2425; background: #251415; }
+  .tag.warn { color: #f0c674; border-color: #4a3c1c; background: #241f10; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  pre {
+    background: #0b0e14; border: 1px solid #202734; border-radius: 6px;
+    padding: 10px 12px; margin: 10px 0 0; font-size: 12.5px; line-height: 1.55;
+    color: #b9c2d6; overflow-x: auto; white-space: pre-wrap;
+  }
+  .empty { color: #8b93a7; padding: 8px 0; }
+  .note { color: #8b93a7; font-size: 12.5px; margin-top: 10px; }
+  .note b { color: #b9c2d6; font-weight: 600; }
+  #toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px);
+    background: #232b3a; border: 1px solid #37425a; color: #e6e8ee;
+    padding: 9px 16px; border-radius: 8px; opacity: 0; transition: .18s;
+    pointer-events: none; font-size: 13px; max-width: 80vw;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.err { border-color: #5a2a2c; background: #2a1718; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>dsh-ssh-safe — 机器与凭据</h1>
+  <div class="sub">
+    密码经 <b>Windows DPAPI</b> 加密后写入 <code id="credPath">…</code>，磁盘上不留明文。
+    改完即时生效，DSH 无需重启。关闭本页即退出（或闲置 10 分钟自动退出）。
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="field" style="flex:1 1 150px">
+        <label>别名</label>
+        <input id="newAlias" placeholder="gpu" autocomplete="off">
+      </div>
+      <div class="field" style="flex:2 1 220px">
+        <label>主机</label>
+        <input id="newHost" placeholder="gpu.example.com" autocomplete="off">
+      </div>
+      <div class="field" style="flex:0 1 100px">
+        <label>端口</label>
+        <input id="newPort" placeholder="22" autocomplete="off">
+      </div>
+      <div class="field" style="flex:1 1 130px">
+        <label>用户</label>
+        <input id="newUser" placeholder="root" autocomplete="off">
+      </div>
+      <button class="primary" id="addBtn">添加</button>
+    </div>
+  </div>
+
+  <div id="list"></div>
+
+  <div class="card">
+    <div class="row" style="justify-content: space-between">
+      <div class="note" id="envNote" style="margin:0"></div>
+      <button id="closeBtn" class="danger">关闭页面并退出</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const TOKEN = "__TOKEN__";
+const api = async (path, body) => {
+  const res = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { "content-type": "application/json", "x-gui-token": TOKEN },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({ error: "bad response" }));
+  if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+  return data;
+};
+
+const toast = (msg, isErr) => {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.className = "show" + (isErr ? " err" : "");
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.className = ""; }, 2600);
+};
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+let state = null;
+
+async function refresh() {
+  state = await api("/api/state");
+  document.getElementById("credPath").textContent = state.credentialFile;
+  document.getElementById("envNote").innerHTML = state.envAliases.length
+    ? "另有环境变量提供的机器：<b>" + state.envAliases.map(esc).join(", ") + "</b>（本页可覆盖，优先级见下方说明）"
+    : "环境变量未提供任何机器。";
+  renderList();
+}
+
+function renderList() {
+  const host = document.getElementById("list");
+  if (!state.machines.length) {
+    host.innerHTML = '<div class="card"><div class="empty">还没有机器。在上方填写别名、主机、用户后点「添加」。</div></div>';
+    return;
+  }
+  host.innerHTML = state.machines.map((m) => {
+    const pwd = m.passwordSource === "file-dpapi"
+      ? '<span class="tag ok">密码已加密存储</span>'
+      : m.passwordSource === "file-plaintext"
+        ? '<span class="tag bad">明文密码（将被拒绝）</span>'
+        : m.passwordSource === "env"
+          ? '<span class="tag">密码来自环境变量</span>'
+          : '<span class="tag warn">无密码</span>';
+    const key = m.keyPath
+      ? '<span class="tag">私钥 ' + esc(m.keyPath) + "</span>"
+      : "";
+    const ready = m.host && m.username
+      ? '<span class="tag ok">' + esc(m.username) + "@" + esc(m.host) + ":" + m.port + "</span>"
+      : '<span class="tag bad">缺少主机或用户</span>';
+    return (
+      '<div class="card m" data-alias="' + esc(m.alias) + '">' +
+        '<div class="m-head">' +
+          '<span class="alias">' + esc(m.alias) + "</span>" + ready + pwd + key +
+        "</div>" +
+        '<div class="grid">' +
+          field(m.alias, "host", "主机", m.host, "") +
+          field(m.alias, "port", "端口", m.port, 'style="max-width:90px"') +
+          field(m.alias, "user", "用户", m.username, "") +
+          field(m.alias, "keyPath", "私钥路径（可空）", m.keyPath, "") +
+        "</div>" +
+        '<div class="grid" style="margin-top:10px">' +
+          '<div class="field" style="grid-column: span 2">' +
+            '<label>密码（留空表示不改；写入后立即加密）</label>' +
+            '<input type="password" data-f="password" data-alias="' + esc(m.alias) + '" placeholder="不填则保持原样" autocomplete="new-password">' +
+          "</div>" +
+        "</div>" +
+        '<div class="actions">' +
+          '<button class="primary" data-act="save" data-alias="' + esc(m.alias) + '">保存</button>' +
+          '<button data-act="test" data-alias="' + esc(m.alias) + '">测试连接</button>' +
+          '<button class="danger" data-act="delete" data-alias="' + esc(m.alias) + '">删除</button>' +
+        "</div>" +
+        '<pre hidden data-out="' + esc(m.alias) + '"></pre>' +
+      "</div>"
+    );
+  }).join("");
+}
+
+const field = (alias, name, label, value, extra) =>
+  '<div class="field">' +
+    "<label>" + label + "</label>" +
+    '<input data-f="' + name + '" data-alias="' + esc(alias) + '" value="' + esc(value) + '" ' + (extra || "") + " autocomplete=\"off\">" +
+  "</div>";
+
+const readField = (alias, name) => {
+  const el = document.querySelector('input[data-f="' + name + '"][data-alias="' + alias + '"]');
+  return el ? el.value : "";
+};
+
+document.getElementById("list").addEventListener("click", async (ev) => {
+  const btn = ev.target.closest("button[data-act]");
+  if (!btn) return;
+  const alias = btn.dataset.alias;
+  const act = btn.dataset.act;
+  const out = document.querySelector('pre[data-out="' + alias + '"]');
+  try {
+    if (act === "save") {
+      const password = readField(alias, "password");
+      await api("/api/save", {
+        alias,
+        host: readField(alias, "host"),
+        port: readField(alias, "port"),
+        user: readField(alias, "user"),
+        keyPath: readField(alias, "keyPath"),
+        password: password || undefined,
+      });
+      toast(password ? "已保存，密码已加密" : "已保存");
+      await refresh();
+      return;
+    }
+    if (act === "delete") {
+      if (!confirm("删除 " + alias + " 的凭据条目？")) return;
+      await api("/api/delete", { alias });
+      toast("已删除 " + alias);
+      await refresh();
+      return;
+    }
+    if (act === "test") {
+      btn.disabled = true;
+      btn.textContent = "测试中…";
+      if (out) { out.hidden = false; out.textContent = "连接中…"; }
+      try {
+        const r = await api("/api/test", { alias });
+        if (out) out.textContent = r.lines.join("\n");
+        toast(r.ok ? "连接成功" : "连接失败，详见下方", !r.ok);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "测试连接";
+      }
+    }
+  } catch (e) {
+    toast(e.message, true);
+  }
+});
+
+document.getElementById("addBtn").addEventListener("click", async () => {
+  const alias = document.getElementById("newAlias").value.trim().toLowerCase();
+  if (!alias) return toast("请填写别名", true);
+  try {
+    await api("/api/save", {
+      alias,
+      host: document.getElementById("newHost").value.trim(),
+      port: document.getElementById("newPort").value.trim(),
+      user: document.getElementById("newUser").value.trim(),
+    });
+    for (const id of ["newAlias", "newHost", "newPort", "newUser"]) {
+      document.getElementById(id).value = "";
+    }
+    toast("已添加 " + alias + "，请填写密码后点「保存」");
+    await refresh();
+  } catch (e) {
+    toast(e.message, true);
+  }
+});
+
+document.getElementById("closeBtn").addEventListener("click", async () => {
+  try { await api("/api/shutdown", {}); } catch {}
+  document.body.innerHTML =
+    '<div class="wrap"><div class="card">服务已退出，可以直接关闭此标签页。</div></div>';
+});
+
+refresh().catch((e) => toast("加载失败: " + e.message, true));
+</script>
+</body>
+</html>
