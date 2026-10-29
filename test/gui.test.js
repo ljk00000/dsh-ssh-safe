@@ -71,6 +71,32 @@ test('the page is served only with the token', async () => {
   }
 })
 
+test('a query-string token opens the page but not the API', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    // The startup URL is a ?t= link. It must keep working for the page itself,
+    // and must not become a way to call the API -- a URL that ends up in a chat
+    // log or browser history should not carry write access to the credentials.
+    const page = await fetch(base + '/?t=' + token)
+    assert.equal(page.status, 200)
+
+    const state = await fetch(base + '/api/state?t=' + token)
+    assert.equal(state.status, 403, 'the API must require the header')
+
+    const save = await fetch(base + '/api/save?t=' + token, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ alias: 'x', host: 'h', user: 'u' }),
+    })
+    assert.equal(save.status, 403)
+    assert.equal(existsSync(path.join(home, 'dsh-ssh-safe', 'credentials.json')), false)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('an API call without the token is refused', async () => {
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
   const { child, base } = await start(home)

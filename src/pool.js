@@ -34,6 +34,7 @@ import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { redact, envNames } from './credentials.js'
+import { connectOptions, expandHome } from './connect.js'
 import { credentialFor, machineDefinition } from './machines.js'
 import { checkHostKey } from './hostkey.js'
 import { Utf8Collector, OutputBudget } from './buffer.js'
@@ -96,12 +97,9 @@ export function effectivePolicy(globalPolicy, machinePolicy) {
   return 'strict'
 }
 
-/** Expand a leading ~ so key paths written by hand work. */
-export function expandHome(p) {
-  const s = String(p || '')
-  if (!s.startsWith('~')) return s
-  return s.replace(/^~(?=[/\\]|$)/, homedir())
-}
+// Expand-home lives in connect.js now: the pool and the settings page both
+// need it, and sharing it is how they stopped disagreeing about key paths.
+export { expandHome }
 
 export class SshPool {
   constructor(config, deps) {
@@ -380,35 +378,15 @@ export class SshPool {
       )
     }
 
-    const connectConfig = {
-      host: m.host,
-      port: m.port || 22,
-      username: m.username,
+    // One shared mapping, also used by the settings page's test button. It keys
+    // on the resolved credential VALUE rather than on the kind: the previous
+    // per-kind chain dropped every source it did not name (notably a password
+    // from the credential file), which produced a connect attempt carrying no
+    // authentication at all.
+    const connectConfig = connectOptions(m, auth, {
       readyTimeout: pick(this.config.connectTimeoutMs, 15000),
       keepaliveInterval: pick(this.config.keepaliveIntervalMs, 20000),
-      keepaliveCountMax: 3,
-    }
-
-    // Map whatever credentialFor() resolved onto ssh2's options.
-    //
-    // The previous chain named four kinds explicitly (session-password,
-    // env-password, env-key, agent) and silently dropped every other one. A
-    // password stored in the credential file -- the documented way to keep a
-    // changing password out of the config -- therefore produced a connect
-    // attempt with NO authentication at all, which surfaces only as the
-    // bare "All configured authentication methods failed". Key material from
-    // the settings form or the credential file was dropped the same way.
-    // Keying on the resolved value instead of on the kind makes a new source
-    // usable here the moment credentialFor() learns to produce it.
-    if (auth.keyPath) {
-      connectConfig.privateKey = readFileSync(expandHome(auth.keyPath))
-      if (auth.passphrase) connectConfig.passphrase = auth.passphrase
-    } else if (auth.password) {
-      connectConfig.password = auth.password
-    } else if (auth.agent) {
-      // The agent holds the key; ssh2 asks it to sign and we never see it.
-      connectConfig.agent = auth.agent
-    }
+    })
 
     // Tests inject a stand-in here: without a seam the auth mapping below was
     // never executed by any test, which is how a password from the credential

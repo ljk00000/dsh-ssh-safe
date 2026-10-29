@@ -179,7 +179,9 @@ export const Config = z.object({
     // destroy the filesystem, so the target must be '/' and not the start of
     // a longer path.
     'rm\\s+-rf\\s+/(?:\\s|$|\\*)',
-    '\\bmkfs\\.',
+    // Only a device is a disk. 'mkfs.ext4 ./disk.img' builds a filesystem in a
+    // file, which is ordinary work for loopback mounts and swap images.
+    '\\bmkfs(?:\\.\\w+)?\\b[^\n]*\\s/dev/',
     '\\bdd\\s+if=.*\\bof=/dev/[sn]',
     ':\\(\\)\\s*\\{\\s*:\\|:\\s*&\\s*\\};:',
     '\\b(?:shutdown|reboot|halt|poweroff)\\b',

@@ -94,7 +94,11 @@ export function canonicalizeRm(text) {
 
     const targets = rest.replace(/\s+/g, ' ').trim()
     const flags = (recursive ? 'r' : '') + (force ? 'f' : '')
-    return ' rm -' + flags + ' ' + targets
+    // A trailing space keeps the canonical form self-delimiting. Without it,
+    // 'rm -rf /;' produced " rm -rf /;" and the pattern for 'rm -rf /' -- which
+    // requires whitespace, end-of-string or '*' after the slash -- did not
+    // match, so a semicolon was enough to slip past the rail.
+    return ' rm -' + flags + ' ' + targets + ' '
   })
 }
 

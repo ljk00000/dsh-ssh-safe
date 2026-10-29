@@ -24,7 +24,7 @@
 //   node scripts/gui.mjs [--dsh-home DIR] [--profile DIR] [--port N] [--no-open] [--idle-ms N]
 
 import { spawn } from 'node:child_process'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { networkInterfaces } from 'node:os'
@@ -34,6 +34,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
+import { connectOptions } from '../src/connect.js'
 import { dpapiAvailable, encryptDpapi } from '../src/dpapi.js'
 import { credentialFor, credentialState, credentialsPath, machineDefinition } from '../src/machines.js'
 
@@ -289,38 +290,29 @@ async function testConnection(alias) {
       done(false)
     })
 
-    const config = {
-      host: m.host,
-      port: m.port,
-      username: m.username,
-      readyTimeout: 15000,
-      keepaliveInterval: 0,
-      hostVerifier: (key) => {
-        // Report, do not record: a test must not change the trust state.
-        try {
-          fingerprint = 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '')
-          say('主机密钥', 'ok', fingerprint + '（仅报告，未记录；正式连接用 ssh_connect）')
-        } catch { /* ignore */ }
-        return true
-      },
+    // Same mapping the pool uses, so the page and ssh_exec cannot disagree
+    // about which credential is in play. (They did: the page authenticated and
+    // the pool sent nothing at all.)
+    let config
+    try {
+      config = connectOptions(m, auth, { readyTimeout: 15000, keepaliveInterval: 0 })
+    } catch (err) {
+      clearTimeout(timer)
+      say('凭据', 'FAIL', '私钥读取失败：' + String(err.message).slice(0, 100))
+      return done(false)
     }
-
-    if (auth.keyPath) {
-      const expanded = auth.keyPath.replace(/^~(?=[/\\]|$)/, process.env.USERPROFILE || process.env.HOME || '~')
-      try {
-        config.privateKey = readFileSync(expanded)
-        if (auth.passphrase) config.passphrase = auth.passphrase
-      } catch (err) {
-        clearTimeout(timer)
-        say('凭据', 'FAIL', '私钥读取失败：' + String(err.message).slice(0, 100))
-        return done(false)
-      }
-    } else if (auth.password) {
-      config.password = auth.password
-    } else {
+    if (!config.password && !config.privateKey && !config.agent) {
       clearTimeout(timer)
       say('凭据', 'FAIL', '没有可用的密码或私钥，请在上方填写密码后保存')
       return done(false)
+    }
+    config.hostVerifier = (key) => {
+      // Report, do not record: a test must not change the trust state.
+      try {
+        fingerprint = 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '')
+        say('主机密钥', 'ok', fingerprint + '（仅报告，未记录；正式连接用 ssh_connect）')
+      } catch { /* ignore */ }
+      return true
     }
 
     try { client.connect(config) } catch (err) {
@@ -372,15 +364,33 @@ function touch() {
   idleTimer.unref()
 }
 
-const authorized = (req, url) => {
-  const header = req.headers['x-gui-token']
-  const query = url.searchParams.get('t')
-  return header === token || query === token
+/**
+ * Constant-time token comparison.
+ *
+ * '===' on a secret leaks its length and prefix through timing; the token is
+ * the only thing between another local process and the saved credentials, so
+ * it is worth comparing the way the cryptography library does.
+ */
+function tokenMatches(candidate) {
+  if (typeof candidate !== 'string') return false
+  const given = Buffer.from(candidate)
+  const expected = Buffer.from(token)
+  if (given.length !== expected.length) return false
+  return timingSafeEqual(given, expected)
 }
+
+/** API calls must carry the token in the header. */
+const authorized = (req) => tokenMatches(req.headers['x-gui-token'])
+
+/**
+ * The page itself may be opened with ?t=... -- that is the URL printed at
+ * startup. The query form is NOT accepted by the API: a URL pasted into a chat
+ * or a browser history should not hand over write access to the credential file.
+ */
+const pageAuthorized = (req, url) => authorized(req) || tokenMatches(url.searchParams.get('t'))
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1')
-  touch()
 
   // Belt and braces: only answer a Host that points at this machine.
   if (!/^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(String(req.headers.host || ''))) {
@@ -390,7 +400,7 @@ const server = createServer(async (req, res) => {
 
   try {
     if (req.method === 'GET' && url.pathname === '/') {
-      if (!authorized(req, url)) {
+      if (!pageAuthorized(req, url)) {
         res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
         return res.end('forbidden: open the URL printed by the command')
       }
@@ -401,7 +411,10 @@ const server = createServer(async (req, res) => {
       return res.end(html)
     }
 
-    if (!authorized(req, url)) return sendJson(res, 403, { error: 'forbidden' })
+    if (!authorized(req)) return sendJson(res, 403, { error: 'forbidden' })
+    // Only an authenticated request keeps the page alive; a scanner that probes
+    // the port must not be able to postpone the idle exit.
+    touch()
     const body = req.method === 'POST' ? await readBody(req) : {}
 
     if (req.method === 'GET' && url.pathname === '/api/state') {
