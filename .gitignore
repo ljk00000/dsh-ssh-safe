@@ -6,3 +6,10 @@ lib/
 
 # never commit real credentials
 credentials.json
+
+# temp files used to pass commit messages
+_msg.txt
+_*.mjs
+
+# npm artefacts: this project installs with pnpm
+package-lock.json

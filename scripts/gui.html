@@ -73,7 +73,7 @@
   <h1>dsh-ssh-safe — 机器与凭据</h1>
   <div class="sub">
     密码经 <b>Windows DPAPI</b> 加密后写入 <code id="credPath">…</code>，磁盘上不留明文。
-    改完即时生效，DSH 无需重启。关闭本页即退出（或闲置 10 分钟自动退出）。
+    改完即时生效，DSH 无需重启。关闭本页即退出（或闲置 __IDLE__ 分钟自动退出）。
   </div>
 
   <div class="card">
@@ -237,9 +237,27 @@ document.getElementById("list").addEventListener("click", async (ev) => {
       btn.textContent = "测试中…";
       if (out) { out.hidden = false; out.textContent = "连接中…"; }
       try {
+        // A password typed into the box has not been stored yet, so testing
+        // straight away reported "no credential" -- correct, and baffling. Save
+        // it first when the box has a value, then test what is actually stored.
+        const typed = readField(alias, "password");
+        if (typed) {
+          await api("/api/save", {
+            alias,
+            host: readField(alias, "host"),
+            port: readField(alias, "port"),
+            user: readField(alias, "user"),
+            keyPath: readField(alias, "keyPath"),
+            password: typed,
+          });
+          await refresh();
+        }
         const r = await api("/api/test", { alias });
-        if (out) out.textContent = r.lines.join("\n");
+        const target = document.querySelector('pre[data-out="' + alias + '"]');
+        if (target) { target.hidden = false; target.textContent = r.lines.join("\n"); }
         toast(r.ok ? "连接成功" : "连接失败，详见下方", !r.ok);
+      } catch (e) {
+        toast(e.message, true);
       } finally {
         btn.disabled = false;
         btn.textContent = "测试连接";

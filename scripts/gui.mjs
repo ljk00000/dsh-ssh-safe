@@ -24,7 +24,7 @@
 //   node scripts/gui.mjs [--dsh-home DIR] [--profile DIR] [--port N] [--no-open] [--idle-ms N]
 
 import { spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { networkInterfaces } from 'node:os'
@@ -332,11 +332,11 @@ async function testConnection(alias) {
 
 // ---- server ----------------------------------------------------------------
 
+// A cryptographic source, not Math.random(): this token is the only thing
+// standing between another local process and the saved credentials.
 const token = randomToken()
 function randomToken() {
-  const bytes = new Uint8Array(24)
-  for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256)
-  return Buffer.from(bytes).toString('hex')
+  return randomBytes(24).toString('hex')
 }
 
 function sendJson(res, status, body) {
@@ -393,7 +393,9 @@ const server = createServer(async (req, res) => {
         res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
         return res.end('forbidden: open the URL printed by the command')
       }
-      const html = readFileSync(path.join(here, 'gui.html'), 'utf8').replace('__TOKEN__', token)
+      const html = readFileSync(path.join(here, 'gui.html'), 'utf8')
+        .replace('__TOKEN__', token)
+        .replace(/__IDLE__/g, String(Math.round(idleMs / 60000)))
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
       return res.end(html)
     }
