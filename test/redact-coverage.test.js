@@ -26,6 +26,33 @@ test('credentials are redacted wherever they appear', () => {
   }
 })
 
+// Measured against a real transcript: ssh_read redacts files by default, and
+// the files most likely to hold a password are JSON and YAML. Neither was
+// covered — '{"password": "hunter2"}' kept its value because the closing quote
+// sat between the key and the colon.
+test('quoted config formats are redacted too', () => {
+  const secrets = [
+    '{"password": "hunter2"}',
+    '{ "password" : "hunter2" }',
+    '{"db": {"user": "root", "passwd": "hunter2"}}',
+    '{"keyPassphrase": "topsecret"}',
+    '{"access_token":"eyJhbGciOiJIUzI1NiJ9.x.y"}',
+    'password="hunter 2"',
+    'curl -u admin:hunter2 https://api.example.com',
+    'mysql --password=hunter2 -h db',
+  ]
+  for (const secret of secrets) {
+    const out = redact(secret)
+    assert.doesNotMatch(out, /hunter2|topsecret|eyJhbGciOiJIUzI1NiJ9/, 'secret survived: ' + secret + ' -> ' + out)
+  }
+})
+
+test('a word that merely contains a secret word is not a secret', () => {
+  for (const plain of ['secretary: hello', 'The token of appreciation was noted.', 'monkey see monkey do']) {
+    assert.equal(redact(plain), plain, 'must not alter: ' + plain)
+  }
+})
+
 test('ordinary text is left untouched', () => {
   for (const plain of [
     'no secret here at all',

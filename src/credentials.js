@@ -109,14 +109,35 @@ export function resolveAuth(alias, { sessionPassword, allowSessionPassword, useA
   return { kind: 'none', machine: m }
 }
 
-const SECRET_ENV = /(PASSWORD|PASSPHRASE|SECRET|TOKEN|PRIVATE)/i
+/**
+ * Names that end a secret. Anchored at the end on purpose: 'secretary: hello'
+ * is prose, while 'client_secret: x' and 'AWS_SECRET_ACCESS_KEY=...' are not.
+ * A prefix is allowed because real variable names carry one.
+ */
+const SECRET_ENV = /(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|API_?KEY|PRIVATE_?KEY|KEY)$/i
 
 /** Replace anything that looks like a secret before it can reach a message. */
 export function redact(text) {
   let s = String(text ?? '')
   if (!s) return s
-  // env-var style assignments
-  s = s.replace(/\b([A-Z0-9_]*(?:PASSWORD|PASSPHRASE|SECRET|TOKEN|KEY)[A-Z0-9_]*)\s*[=:]\s*\S+/gi, '$1=<redacted>')
+  // One pass for .env, YAML, TOML, INI and JSON.
+  //
+  // The JSON case was the gap: '{"password": "hunter2"}' did not match, because
+  // the closing quote sat between the key and the colon. A quoted key, a quoted
+  // value and a value containing spaces are all common in the config files this
+  // redaction exists to protect.
+  s = s.replace(
+    /(["']?)([A-Za-z0-9_]*?(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|KEY))\1(\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,}]+)/gi,
+    (_m, quote, key, separator) => quote + key + quote + separator + '<redacted>',
+  )
+  // 'curl -u user:password' and '--user=user:password' carry the secret after a
+  // flag rather than after '=' or ':', so the rule above misses them.
+  // No \b in front of a flag: '-' is not a word character, so a boundary can
+  // never sit between the space and the dash. That was why 'curl -u a:b' kept
+  // leaking after the rule was added.
+  s = s.replace(/(^|[\s"'])(-u|--user)(\s+|=)([^\s:@]+):(\S+)/g, '$1$2$3$4:<redacted>')
+  // '--password secret' and '--token=secret'.
+  s = s.replace(/(^|[\s"'])(--?(?:password|passwd|passphrase|token|secret))(\s+|=)(\S+)/gi, '$1$2$3<redacted>')
   // PEM blocks
   s = s.replace(/-----BEGIN [\s\S]*?-----END [^-]*-----/g, '<redacted-pem>')
   // HTTP authorization headers. 'Authorization: Bearer <token>' and

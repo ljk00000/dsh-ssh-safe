@@ -33,17 +33,25 @@ export class OutputBudget {
 
   /**
    * Append to an accumulator, drawing from the shared budget.
+   *
+   * Returns the part that was kept, so a second consumer of the same stream
+   * (the interleaving timeline exec() renders) can be bounded by the same
+   * budget. It used to return the state object and the timeline was built from
+   * the raw chunks, which is how maxOutputChars=4000 still produced a 337k
+   * character result: the cap applied to the string nobody rendered.
+   *
    * @param {{text: string, truncated: boolean}} state
    * @param {string} chunk
+   * @returns {string} the accepted portion of chunk ('' once the budget is gone)
    */
   append(state, chunk) {
     const text = String(chunk ?? '')
-    if (text.length === 0) return state
+    if (text.length === 0) return ''
     const room = this.remaining
     if (room <= 0) {
       state.truncated = true
       this.truncated = true
-      return state
+      return ''
     }
     const take = text.length > room ? text.slice(0, room) : text
     state.text += take
@@ -52,7 +60,7 @@ export class OutputBudget {
       state.truncated = true
       this.truncated = true
     }
-    return state
+    return take
   }
 }
 

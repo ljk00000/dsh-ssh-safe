@@ -56,6 +56,17 @@ async function run({ cap = 100000, chunks = [], errChunks = [], code = 0 }) {
   return await promise
 }
 
+// maxOutputChars looked enforced and was not: the accumulators obeyed the cap
+// while the timeline -- the thing ssh_exec actually renders -- collected every
+// chunk. A command printing 337k characters came back as 337k characters with
+// a "[output truncated]" note on the end.
+test('the timeline obeys the same cap as the accumulators', async () => {
+  const r = await run({ cap: 10, chunks: ['abcdefgh'], errChunks: ['ijklmnop'] })
+  const stored = r.timeline.reduce((n, entry) => n + entry.text.length, 0)
+  assert.ok(stored <= 10, 'timeline holds ' + stored + ' chars, cap was 10')
+  assert.equal(r.truncated, true)
+})
+
 test('stdout is returned', async () => {
   const r = await run({ chunks: ['hello'] })
   assert.equal(r.stdout, 'hello')

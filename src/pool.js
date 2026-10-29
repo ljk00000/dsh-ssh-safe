@@ -526,13 +526,16 @@ export class SshPool {
         stream = s
         s.on('data', (d) => {
           const text = Buffer.isBuffer(d) ? d.toString('utf8') : String(d)
-          timeline.push({ stream: 'out', text })
-          budget.append(out, text)
+          // The timeline is what the caller renders, so it has to draw from the
+          // same budget as the accumulators. Pushing every chunk and letting the
+          // budget cap only the unused strings bypassed maxOutputChars entirely.
+          const kept = budget.append(out, text)
+          if (kept) timeline.push({ stream: 'out', text: kept })
         })
         s.stderr.on('data', (d) => {
           const text = Buffer.isBuffer(d) ? d.toString('utf8') : String(d)
-          timeline.push({ stream: 'err', text })
-          budget.append(err, text)
+          const kept = budget.append(err, text)
+          if (kept) timeline.push({ stream: 'err', text: kept })
         })
         s.on('close', (code) => {
           settle({
