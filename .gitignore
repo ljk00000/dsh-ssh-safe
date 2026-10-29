@@ -11,5 +11,8 @@ credentials.json
 _msg.txt
 _*.mjs
 
+# local end-to-end harness (needs a live host and real credentials)
+scratch/
+
 # npm artefacts: this project installs with pnpm
 package-lock.json

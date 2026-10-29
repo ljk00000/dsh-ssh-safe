@@ -389,17 +389,31 @@ export class SshPool {
       keepaliveCountMax: 3,
     }
 
-    if (auth.kind === 'session-password' || auth.kind === 'env-password') {
-      connectConfig.password = auth.password
-    } else if (auth.kind === 'env-key') {
+    // Map whatever credentialFor() resolved onto ssh2's options.
+    //
+    // The previous chain named four kinds explicitly (session-password,
+    // env-password, env-key, agent) and silently dropped every other one. A
+    // password stored in the credential file -- the documented way to keep a
+    // changing password out of the config -- therefore produced a connect
+    // attempt with NO authentication at all, which surfaces only as the
+    // bare "All configured authentication methods failed". Key material from
+    // the settings form or the credential file was dropped the same way.
+    // Keying on the resolved value instead of on the kind makes a new source
+    // usable here the moment credentialFor() learns to produce it.
+    if (auth.keyPath) {
       connectConfig.privateKey = readFileSync(expandHome(auth.keyPath))
       if (auth.passphrase) connectConfig.passphrase = auth.passphrase
-    } else if (auth.kind === 'agent') {
+    } else if (auth.password) {
+      connectConfig.password = auth.password
+    } else if (auth.agent) {
       // The agent holds the key; ssh2 asks it to sign and we never see it.
       connectConfig.agent = auth.agent
     }
 
-    const ClientClass = await loadClient()
+    // Tests inject a stand-in here: without a seam the auth mapping below was
+    // never executed by any test, which is how a password from the credential
+    // file went to ssh2 as no authentication at all.
+    const ClientClass = this.deps && this.deps.clientClass ? this.deps.clientClass : await loadClient()
 
     return new Promise((resolve, reject) => {
       const client = new ClientClass()
@@ -589,7 +603,7 @@ export class SshPool {
     })
   }
 
-  /** @param {string} alias @param {string} remotePath @param {{timeoutMs?: number, sessionPassword?: string}} [opts] */
+  /** @param {string} alias @param {string} remotePath @param {{timeoutMs?: number, sessionPassword?: string, createDirs?: boolean}} [opts] */
   async writeFile(alias, remotePath, content, opts = {}) {
     this.beginOp(alias)
     try {
@@ -603,14 +617,15 @@ export class SshPool {
    * @param {string} alias
    * @param {string} remotePath
    * @param {string|Buffer} content
-   * @param {{sessionPassword?: string, timeoutMs?: number}} [inline]
+   * @param {{sessionPassword?: string, timeoutMs?: number, createDirs?: boolean}} [inline]
    */
-  async #writeFileOn(alias, remotePath, content, { sessionPassword, timeoutMs } = {}) {
+  async #writeFileOn(alias, remotePath, content, { sessionPassword, timeoutMs, createDirs } = {}) {
     // See readFile: reject a bad path before touching the network.
     normalizeRemotePath(remotePath)
     const client = await this.connect(alias, { sessionPassword })
     return await writeRemoteFile(client, remotePath, content, {
       timeoutMs: pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)),
+      createDirs: createDirs === true,
     })
   }
 

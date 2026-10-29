@@ -385,8 +385,13 @@ export async function apply(ctx, config) {
       for (const alias of aliases) {
         const m = machineDefinition(alias, { machines: cfg.machines, dshHome })
         const need = expectedEnv(alias)
-        const authKind = m.password
-          ? 'password (' + m.sources.password + ')'
+        // machineDefinition() never carries the password itself (it may need
+        // decrypting), so test the SOURCE. Testing m.password meant the line
+        // said "NONE" for a machine whose password was sitting in the
+        // credential file.
+        const pwSource = m.sources.password
+        const authKind = pwSource && pwSource !== 'none'
+          ? 'password (' + pwSource + ')'
           : m.keyPath
             ? (lean
                 ? 'private key (' + m.sources.keyPath + ', path hidden)'
@@ -515,10 +520,16 @@ export async function apply(ctx, config) {
         truncated: r.truncated,
         ms: Date.now() - startedAt,
       })
-      // Render the two streams in the order they actually arrived. The old
-      // all-stdout-then-all-stderr layout made compiler errors and progress
-      // output hard to follow, because their position relative to stdout was
-      // lost.
+      // Render the two streams in the order the chunks arrived.
+      //
+      // Caveat, measured against a real host: ssh2 exposes stdout and stderr as
+      // two independent Readables and does NOT preserve their relative order.
+      // 'echo one; echo two >&2; echo three' arrives as ["one\nthree\n"] and
+      // ["two\n"], so stderr can look like it came last. The timeline is
+      // therefore an ordering hint, not a transcript; ordering inside each
+      // stream is exact, ordering between them is whatever the library hands
+      // over. A PTY would merge them, at the cost of turning the whole thing
+      // into one stream with no exit-code boundary, so it is not used.
       const parts = []
       const timeline = Array.isArray(r.timeline) ? r.timeline : []
       if (timeline.length > 0) {
@@ -605,11 +616,13 @@ export async function apply(ctx, config) {
     name: 'ssh_write',
     description:
       'Write UTF-8 text to a file on the remote machine (create or overwrite). ' +
-      'Refuses to write more than maxFileBytes.',
+      'Refuses to write more than maxFileBytes. The parent directory must exist unless ' +
+      'createDirs: true is passed.',
     parameters: {
       machine: { type: 'string', description: 'Machine alias. Defaults to defaultMachine.' },
       path: { type: 'string', required: true, description: 'Absolute path on the remote host.' },
       content: { type: 'string', required: true, description: 'Full file content.' },
+      createDirs: { type: 'boolean', description: 'Create missing parent directories first. Default false, so a mistyped path does not silently build a tree.' },
       timeoutMs: { type: 'integer', description: 'Override the per-transfer deadline. 0 = configured value.' },
       password: { type: 'string', description: 'Only honoured when the profile sets allowSessionPassword: true.' },
       confirm: { type: 'boolean', description: 'Required when execGuard is "confirm".' },
@@ -631,12 +644,21 @@ export async function apply(ctx, config) {
       }
       const startedAt = Date.now()
       let r
+      const createDirs = optionalFlag(args.createDirs, 'createDirs')
       try {
         r = await pool.writeFile(alias, remotePath, content, {
           timeoutMs: optionalBudget(args.timeoutMs, 'timeoutMs'),
           sessionPassword: optionalText(args.password, 'password'),
+          createDirs,
         })
       } catch (err) {
+        const message = err && err.message ? err.message : String(err)
+        // A missing parent directory is the commonest write failure, and the
+        // server's own words ("No such file") do not say which half of the path
+        // is absent or how to fix it.
+        if (!createDirs && (/no such file/i.test(message) || err?.code === 2)) {
+          err.message = message + ' — the parent directory does not exist. Pass createDirs: true to create it.'
+        }
         audit.write({
           kind: 'write', machine: alias, path: remotePath, outcome: 'error',
           error: redact(err && err.message ? err.message : String(err)).slice(0, 200),
