@@ -76,6 +76,25 @@ export function loadCredentialFile(dshHome) {
   }
 }
 
+/**
+ * Read an own property and nothing from the prototype chain.
+ *
+ * 'machines.constructor' and 'credentials.__proto__' are not machines: a plain
+ * [] lookup returns Object.prototype for the former and runs the prototype
+ * setter for the latter, so an alias that collides with them would read
+ * invented fields instead of "not configured".
+ *
+ * @param {unknown} object
+ * @param {string} key
+ * @returns {Record<string, any>}
+ */
+function ownEntry(object, key) {
+  if (!object || typeof object !== 'object') return {}
+  if (!Object.hasOwn(object, key)) return {}
+  const value = /** @type {Record<string, any>} */ (object)[key]
+  return value && typeof value === 'object' ? value : {}
+}
+
 /** True when a value counts as present. 0 and false do. */
 function filled(value) {
   return value !== undefined && value !== null && value !== ''
@@ -101,8 +120,12 @@ function firstSet(candidates) {
  */
 export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
   const env = machineFromEnv(alias)
-  const cfg = (machines && machines[alias]) || {}
-  const file = (loadCredentialFile(dshHome) || {})[alias] || {}
+  // Own properties only. 'machines.constructor' and 'credentials.__proto__' are
+  // not machines: a plain [] lookup returns Object.prototype for the former and
+  // the prototype setter for the latter, so an alias that collides with them
+  // would read invented fields instead of "not configured".
+  const cfg = ownEntry(machines, alias)
+  const file = ownEntry(loadCredentialFile(dshHome), alias)
 
   const host = firstSet([['config', cfg.host], ['env', env.host], ['file', file.host]])
   const user = firstSet([
@@ -190,9 +213,9 @@ export function credentialFor(alias, {
   allowPlaintextPassword = false,
 } = {}) {
   const m = machineDefinition(alias, { machines, dshHome })
-  const cfg = (machines && machines[alias]) || {}
+  const cfg = ownEntry(machines, alias)
   const env = machineFromEnv(alias)
-  const file = (dshHome ? (loadCredentialFile(dshHome) || {})[alias] : {}) || {}
+  const file = dshHome ? ownEntry(loadCredentialFile(dshHome), alias) : {}
   /** @type {string[]} */
   const warnings = []
 

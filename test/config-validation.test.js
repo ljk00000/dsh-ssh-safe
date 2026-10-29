@@ -8,8 +8,8 @@ import { checkPipeline } from '../src/guard.js'
 // "confirm", so a safety switch could be silently OFF while the config showed
 // something that looked enabled.
 
-const { Config } = await import('../src/index.js').catch(() => ({ Config: null }))
-const hasHost = Config !== null
+const { Config, apply } = await import('../src/index.js').catch(() => ({ Config: null, apply: null }))
+const hasHost = Config !== null && typeof apply === 'function'
 
 test('an invalid hostKeyPolicy is rejected', { skip: !hasHost && 'needs the DSH host schemastery' }, () => {
   assert.throws(() => Config({ hostKeyPolicy: 'typo-strict' }))
@@ -77,4 +77,25 @@ test('a benign pipeline is allowed', () => {
 
 test('|| is not mistaken for a pipeline', () => {
   assert.equal(checkPipeline('make || echo failed').found, false)
+})
+
+// A misspelled setting name is the one typo that must not be silent:
+// schemastery passes unknown keys through, so 'execGurad: confirm' parsed,
+// displayed in the config, and governed nothing.
+test('a near-miss setting name is refused with a suggestion', { skip: !hasHost && 'needs the DSH host schemastery' }, async () => {
+  const tools = {}
+  await assert.rejects(
+    () => apply({ tools: { defineTool: (d) => { tools[d.name] = d } }, effect: () => {} }, { execGurad: 'confirm' }),
+    (err) => {
+      assert.match(err.message, /execGurad/)
+      assert.match(err.message, /execGuard/)
+      return true
+    }
+  )
+})
+
+test('a key that is nothing like a setting is left alone', { skip: !hasHost && 'needs the DSH host schemastery' }, async () => {
+  const tools = {}
+  await apply({ tools: { defineTool: (d) => { tools[d.name] = d } }, effect: () => {} }, { someFutureField: 1, $schema: 'x' })
+  assert.ok(tools.ssh_exec, 'the plugin still loaded')
 })

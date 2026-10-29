@@ -233,3 +233,19 @@ test('shutdown ends the process', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('an alias that collides with Object.prototype is refused, not silently dropped', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    for (const alias of ['__proto__', 'constructor', 'prototype']) {
+      const res = await call(base, token, '/api/save', { alias, host: 'h.example', user: 'u' })
+      assert.equal(res.status, 400, alias + ' must be refused')
+    }
+    const state = await call(base, token, '/api/state')
+    assert.deepEqual(state.body.machines, [], 'nothing was saved')
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

@@ -131,6 +131,15 @@ function loadSsh2() {
 }
 
 const aliasOf = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '')
+
+/**
+ * Names that collide with Object.prototype.
+ *
+ * Saving an alias of '__proto__' used to answer {"ok":true} and write nothing:
+ * 'store["__proto__"] = entry' assigns the prototype instead of a key, so the
+ * entry vanished while the page said it had been saved.
+ */
+const RESERVED_ALIASES = new Set(['__proto__', 'prototype', 'constructor'])
 const filled = (v) => v !== undefined && v !== null && v !== ''
 
 function readStore() {
@@ -424,6 +433,9 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/save') {
       const alias = aliasOf(body.alias)
       if (!alias) return sendJson(res, 400, { error: '别名不能为空' })
+      if (RESERVED_ALIASES.has(alias)) {
+        return sendJson(res, 400, { error: '别名 "' + alias + '" 与 JavaScript 内置属性冲突，无法保存，请换一个名字' })
+      }
       const store = readStore()
       const entry = { ...(store[alias] && typeof store[alias] === 'object' ? store[alias] : {}) }
       const warnings = []
@@ -476,6 +488,9 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/test') {
       const alias = aliasOf(body.alias)
       if (!alias) return sendJson(res, 400, { error: '别名不能为空' })
+      if (RESERVED_ALIASES.has(alias)) {
+        return sendJson(res, 400, { error: '别名 "' + alias + '" 与 JavaScript 内置属性冲突，请换一个名字' })
+      }
       return sendJson(res, 200, await testConnection(alias))
     }
 

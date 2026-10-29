@@ -203,6 +203,43 @@ export async function apply(ctx, config) {
   // A bad value now fails the load with a message naming the setting and its
   // allowed values. Refusing to start is correct here: a security plugin that
   // quietly interprets an unknown policy is worse than one that will not boot.
+  // Reject a setting whose name is a near-miss for a real one.
+  //
+  // schemastery passes unknown keys through untouched, so 'execGurad: confirm'
+  // parsed cleanly and then governed nothing: the guard stayed on 'allow' while
+  // the config displayed a line that looked like confirmation was on. A typo in
+  // a security setting is the one kind of typo that must not be quiet.
+  //
+  // Only a near-miss is refused. A key that is nothing like a real setting is
+  // left alone on purpose: the host may add metadata of its own, and refusing to
+  // load over an unknown field would be its own outage.
+  const knownKeys = Object.keys(Config.dict || {})
+  const near = (a, b) => {
+    if (Math.abs(a.length - b.length) > 2) return false
+    const row = Array.from({ length: b.length + 1 }, (_, i) => i)
+    for (let i = 1; i <= a.length; i++) {
+      let prev = row[0]
+      row[0] = i
+      for (let j = 1; j <= b.length; j++) {
+        const tmp = row[j]
+        row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1))
+        prev = tmp
+      }
+    }
+    return row[b.length] <= 2
+  }
+  const suspicious = Object.keys(config && typeof config === 'object' ? config : {})
+    .filter((key) => !key.startsWith('$') && !knownKeys.includes(key))
+    .map((key) => [key, knownKeys.find((known) => near(key.toLowerCase(), known.toLowerCase()))])
+    .filter(([, suggestion]) => suggestion)
+  if (suspicious.length > 0) {
+    throw new Error(
+      'dsh-ssh-safe: unknown setting "' + suspicious[0][0] + '" — did you mean "' + suspicious[0][1] + '"? ' +
+      'Fix the plugin config listed under "dsh-ssh-safe" in cordis.patch.yml. ' +
+      'A misspelled security setting would otherwise be ignored while looking enabled.'
+    )
+  }
+
   let cfg
   try {
     cfg = Config(config || {})
