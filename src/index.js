@@ -34,6 +34,7 @@ import {
 } from './machines.js'
 import { storePath } from './hostkey.js'
 import { checkCommand } from './guard.js'
+import { formatListing } from './format.js'
 import { AuditLog, summarize } from './audit.js'
 
 export const name = 'dsh-ssh-safe'
@@ -152,6 +153,13 @@ export const Config = z.object({
   keepaliveIntervalMs: z.number().step(1).min(0).default(20000),
   maxOutputChars: z.number().step(1).min(1024).default(200000),
   maxFileBytes: z.number().step(1).min(1024).default(1048576),
+  /**
+   * How many directory entries ssh_list renders. A directory of 200k files used
+   * to produce a 20 MB tool result; the cap keeps one listing from crowding out
+   * the rest of the conversation, and the count of omitted entries is reported.
+   * 0 means no limit.
+   */
+  maxListEntries: z.number().step(1).min(0).default(2000),
   reconnectCooldownMs: z.number().step(1).min(0).default(15000),
 
   /**
@@ -675,7 +683,11 @@ export async function apply(ctx, config) {
       // the thing being investigated.
       const body = args.raw === true ? r.content : redact(r.content)
       const header = r.truncated ? '[truncated at ' + r.bytes + ' bytes]\n' : ''
-      const note = args.raw === true ? '' : '\n[secrets masked; pass raw: true to see the file verbatim]'
+      // Only claim to have masked something when the text actually changed: a
+      // README read through the default path used to end with a warning that
+      // implied secrets had been found and hidden.
+      const masked = args.raw !== true && body !== r.content
+      const note = masked ? '\n[secrets masked; pass raw: true to see the file verbatim]' : ''
       return { text: header + body + note }
     },
   })
@@ -780,12 +792,7 @@ export async function apply(ctx, config) {
         kind: 'list', machine: alias, path: listing.path, outcome: 'ok',
         entries: listing.items.length, ms: Date.now() - startedAt,
       })
-      const items = listing.items
-      if (!items.length) return { text: '(empty directory: ' + listing.path + ')' }
-      const rows = items
-        .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1))
-        .map((it) => (it.dir ? 'd' : '-') + ' ' + String(it.size).padStart(10) + '  ' + (it.mtime || '') + '  ' + it.name)
-      return { text: listing.path + '\n' + rows.join('\n') }
+      return { text: formatListing(listing, cfg.maxListEntries) }
     },
   })
 
@@ -928,6 +935,7 @@ export async function apply(ctx, config) {
         ['keepaliveIntervalMs', cfg.keepaliveIntervalMs, '0 disables'],
         ['maxOutputChars', cfg.maxOutputChars, 'stdout + stderr together'],
         ['maxFileBytes', cfg.maxFileBytes, 'hard ceiling per transfer'],
+        ['maxListEntries', cfg.maxListEntries, 'rows per ssh_list; 0 = unlimited'],
         ['maxConnections', cfg.maxConnections, '0 = unlimited'],
         ['reconnectCooldownMs', cfg.reconnectCooldownMs, 'after a failure'],
         ['healthCheckIdleMs', cfg.healthCheckIdleMs, '0 disables the probe'],

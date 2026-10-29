@@ -243,13 +243,14 @@ DSH_SSH_PROD_KNOWN_HOSTS=~/.ssh/known_hosts.json
 | `ssh_machines` | 列出已配置的机器、认证方式、指纹信任状态（**不显示任何密钥**） |
 | `ssh_connect` | 建立或复用连接，返回主机指纹与远端 `uname` |
 | `ssh_exec` | 在远端执行命令，返回 stdout / stderr / 退出码 |
-| `ssh_read` | 读远端文件（UTF-8，按字节上限截断） |
-| `ssh_write` | 写远端文件（覆盖） |
-| `ssh_list` | 列远端目录 |
+| `ssh_read` | 读远端文件（UTF-8，按字节上限截断；默认对疑似密钥打码，`raw: true` 关闭） |
+| `ssh_write` | 写远端文件（覆盖）；父目录不存在时报错，`createDirs: true` 自动创建 |
+| `ssh_list` | 列远端目录（超过 `maxListEntries` 截断并说明略过多少条） |
 | `ssh_close` | 关闭连接（有命令在跑会拒绝，除非 `force: true`） |
 | `ssh_doctor` | 分级诊断：配置 / 凭据 / TCP / 主机密钥 / 认证 |
 | `ssh_audit` | 查看操作记录（需 `auditLog: true`） |
 | `ssh_config` | 查看运行时实际生效的配置 |
+| `ssh_credentials` | 查看凭据来源与优先级（只报来源，永不打印值） |
 
 ### 主机密钥校验
 
@@ -320,6 +321,8 @@ ssh_read { machine: "prod", path: "/opt/app/.env", raw: true }
 
 开启后可以用 `ssh_connect { machine: "prod", password: "..." }`。**代价**：密码会进入对话记录（transcript）。这就是为什么它默认关闭。
 
+会话密码是**最后顺位**：设置界面、凭据文件、环境变量都优先于它。如果其中任意一个已提供，传进来的密码不会被使用，调用结果会附一行 `[note]` 说明——避免“存着的旧密码登录成功”被误读成“新密码生效”。
+
 ### 可选：执行前确认
 
 ```yaml
@@ -378,6 +381,7 @@ pnpm approve-builds --all
 | `keepaliveIntervalMs` | `20000` | SSH keepalive，`0` 关闭 |
 | `maxOutputChars` | `200000` | stdout + stderr 合计上限 |
 | `maxFileBytes` | `1048576` | 单次传输字节上限 |
+| `maxListEntries` | `2000` | `ssh_list` 单次输出的行数上限，`0` 不限制 |
 | `reconnectCooldownMs` | `15000` | 失败后冷却，期间可用 `force: true` 绕过 |
 | `healthCheckIdleMs` | `300000` | 空闲多久后复用前先探活，`0` 关闭 |
 | `defaultMachine` | `''` | 工具调用省略 `machine` 时使用的别名 |
@@ -475,10 +479,14 @@ Restart DeepSeek Harness — environment variables are read at process start.
 | `ssh_machines` | Configured machines, auth kind, fingerprint trust (never shows key material) |
 | `ssh_connect` | Open/reuse a connection; reports fingerprint and remote `uname` |
 | `ssh_exec` | Run a command; returns stdout, stderr, exit code |
-| `ssh_read` | Read a remote file (UTF-8, byte-capped) |
-| `ssh_write` | Write a remote file (overwrite) |
-| `ssh_list` | List a remote directory |
+| `ssh_read` | Read a remote file (UTF-8, byte-capped; secret-shaped text masked unless `raw: true`) |
+| `ssh_write` | Write a remote file (overwrite); `createDirs: true` creates missing parents |
+| `ssh_list` | List a remote directory (capped by `maxListEntries`) |
 | `ssh_close` | Close connections |
+| `ssh_doctor` | Stage-by-stage diagnosis, including a real authentication attempt |
+| `ssh_audit` | Recent operations (requires `auditLog: true`) |
+| `ssh_config` | The configuration actually in effect |
+| `ssh_credentials` | Credential sources and precedence (never values) |
 
 ### Host key verification
 
@@ -504,6 +512,11 @@ Off by default. Enable it in the profile plugin config:
 
 Then `ssh_connect { machine: "prod", password: "..." }` works. The trade-off:
 the password enters the conversation transcript. That is why it is off.
+
+A session password is the **last resort**: the settings form, the credential
+file and the environment all outrank it. If one of those is present the supplied
+password is not used, and the call says so with a `[note]` line rather than
+letting a stale stored credential look like a successful login.
 
 ### Opt-in: confirm before exec
 

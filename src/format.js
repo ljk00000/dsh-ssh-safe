@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ljk00000
+//
+// Part of dsh-ssh-safe. See LICENSE.
+// dsh-ssh-safe — rendering helpers that do not need a connection.
+//
+// These lived inline in the tool bodies, where the only way to test them was to
+// open an SSH session. A directory listing of 200k files produced a 20 MB tool
+// result and there was no seam to pin the ceiling.
+
+/**
+ * Escape the control characters a filename may legally contain.
+ *
+ * A name with a newline in it used to split the rendered row in two, so one
+ * entry looked like two and the second half looked like unlisted output.
+ *
+ * @param {unknown} name
+ * @returns {string}
+ */
+function printable(name) {
+  return String(name ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t')
+    .replace(/[\u0000-\u001f\u007f]/g, (c) => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+}
+
+/**
+ * Render a directory listing.
+ *
+ * @param {{path: string, items: Array<{name: string, size: number, dir: boolean, mtime?: string|null}>}} listing
+ * @param {number} [limit] maximum rows; 0 or absent means no limit
+ * @returns {string}
+ */
+export function formatListing(listing, limit = 0) {
+  const items = Array.isArray(listing?.items) ? listing.items : []
+  const path = String(listing?.path || '.')
+  if (items.length === 0) return '(empty directory: ' + path + ')'
+
+  // Directories first, then by name. Sorting before the cap keeps the visible
+  // rows stable instead of depending on readdir's order.
+  const sorted = items.slice().sort((a, b) =>
+    a.dir === b.dir ? String(a.name).localeCompare(String(b.name)) : a.dir ? -1 : 1)
+
+  const max = Number(limit) > 0 ? Number(limit) : 0
+  const shown = max > 0 ? sorted.slice(0, max) : sorted
+  const omitted = sorted.length - shown.length
+
+  const rows = shown.map((it) =>
+    (it.dir ? 'd' : '-') + ' ' + String(it.size).padStart(10) + '  ' + (it.mtime || '') + '  ' + printable(it.name))
+
+  const tail = omitted > 0
+    ? '\n… ' + omitted + ' more entr' + (omitted === 1 ? 'y' : 'ies') + ' not shown (maxListEntries = ' + max + ')'
+    : ''
+
+  return path + '\n' + rows.join('\n') + tail
+}

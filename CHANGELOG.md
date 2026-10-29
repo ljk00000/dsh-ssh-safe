@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.6.0 — 2026-10-30
+
+Everything below was found by driving the eleven tools against a live host and
+by fuzzing the guard and the redactor, then kept by a test.
+
+### Fixed — the plugin did not actually connect
+- **A stored password was never sent to ssh2.** `SshPool#open` mapped credential
+  kinds with an if/else chain that named four of them; the kinds produced by the
+  settings form and the credential file fell through, so the connection carried
+  no authentication and failed with the bare "All configured authentication
+  methods failed". The DPAPI password path — the whole point of the settings
+  page — had never worked. The mapping now keys on the resolved value and lives
+  in one place (`src/connect.js`), shared with the page.
+- **SFTP sessions leaked until the server refused new channels.** Each
+  read/write/list opened a session and never closed it; sshd counts sessions per
+  connection (10 by default), so the eleventh operation failed with
+  "(SSH) Channel open failure".
+- **Closing a session could kill the process.** ssh2 reports an abandoned
+  request on the stream, so removing the stream's listeners before closing made
+  it an unhandled `error` event. Reading a missing file crashed DSH.
+- **`maxOutputChars` bounded a string nobody rendered.** The accumulators obeyed
+  the cap while the timeline `ssh_exec` prints collected every chunk: with a
+  4,000 character cap, 337,842 characters came back.
+
+### Fixed — silent misconfiguration
+- **A misspelled setting was ignored.** `execGurad: confirm` parsed, appeared in
+  the config, and governed nothing. A key within edit distance 2 of a real one
+  now fails the load and names the intended spelling.
+- **A shadowed session password said nothing.** A session password is the last
+  resort, so passing one while a stored credential exists has no effect. The
+  call now prints a `[note]` saying so.
+- **`ssh_machines` printed `auth: NONE`** for a machine whose password was
+  sitting in the credential file.
+- **A dead second resolver.** `credentials.resolveAuth()` was called by nothing
+  but its own tests, so the agent fallback was "covered" in code no user could
+  reach.
+
+### Fixed — safety rails
+- `rm -rf /;` slipped past the guard: the canonical form ended at the slash and
+  the pattern required whitespace after it.
+- `mkfs.ext4 ./disk.img` was refused: the pattern asked for the word mkfs, not
+  for a device.
+- Redaction missed JSON (`{"password": "hunter2"}`) and flag-style secrets
+  (`curl -u admin:hunter2`), and over-matched prose (`secretary: hello`).
+- The page compared its token with `===` and accepted the query-string token on
+  every API route; the API now requires the header and the comparison is
+  constant-time.
+- The page accepted `__proto__` as an alias, answered `{"ok":true}`, and saved
+  nothing.
+
+### Added
+- `ssh_write` takes `createDirs: true`; without it a missing parent is an error
+  that names the path instead of the bare "No such file".
+- `maxListEntries` (default 2,000) caps `ssh_list`; the omitted count is shown.
+  Control characters in names are escaped so one entry cannot forge a row.
+- `ssh_read` only claims to have masked secrets when redaction changed
+  something.
+- `test/guard-corpus.test.js` (62 cases against the shipped defaults),
+  `test/connect.test.js`, `test/format.test.js`, `test/auth-wiring.test.js`,
+  `test/sftp-cleanup.test.js`.
+
+### Tests
+325 tests (320 pass, 5 skip on this platform), typecheck clean.
+
 ## 0.5.0 — 2026-10-28
 
 ### Added
