@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1 — 2026-10-30
+
+### Fixed
+- `AuditLog.write` trusted its callers to summarise first: a raw 5,000
+  character command produced a 5,102 byte record, and rotation only checks the
+  size before appending, so a handful of records could land past the cap. Every
+  string field is clamped to 300 characters, objects are replaced with
+  `[object]` instead of being serialised, and a record cannot rewrite its own
+  timestamp.
+
 ## 0.6.0 — 2026-10-30
 
 Everything below was found by driving the eleven tools against a live host and

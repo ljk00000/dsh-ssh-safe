@@ -19,10 +19,41 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameS
 import path from 'node:path'
 
 /** Default cap so a long-running session cannot fill the disk. */
+const DEFAULT_MAX_BYTES = 4 * 1024 * 1024
+
 /** How many rotated generations to keep beside the live log. */
 const ROTATED_GENERATIONS = 4
 
-const DEFAULT_MAX_BYTES = 4 * 1024 * 1024
+/** Hard cap on any single string field in a record. */
+const MAX_FIELD_CHARS = 300
+
+/**
+ * Bound a record's fields before it is written.
+ *
+ * The callers already summarise commands, but the log must not depend on that:
+ * a caller that passed a raw 5,000 character command wrote a 5,102 byte line,
+ * and rotation only looks at the file size *before* appending, so a handful of
+ * such records lands past the cap. Non-string objects are replaced rather than
+ * serialised, so nothing nested can grow a line either.
+ *
+ * @param {object} record
+ * @returns {Record<string, unknown>}
+ */
+function clampRecord(record) {
+  /** @type {Record<string, unknown>} */
+  const out = {}
+  for (const [key, value] of Object.entries(record && typeof record === 'object' ? record : {})) {
+    if (value === undefined || typeof value === 'function') continue
+    if (typeof value === 'string') {
+      out[key] = value.length > MAX_FIELD_CHARS ? value.slice(0, MAX_FIELD_CHARS) + '…' : value
+    } else if (value === null || typeof value === 'number' || typeof value === 'boolean') {
+      out[key] = value
+    } else {
+      out[key] = '[object]'
+    }
+  }
+  return out
+}
 
 /**
  * Trim a command to one readable line for the log.
@@ -61,8 +92,9 @@ export class AuditLog {
       mkdirSync(path.dirname(this.file), { recursive: true })
       this.#rotateIfNeeded()
       const line = JSON.stringify({
+        ...clampRecord(record),
+        // Authoritative: a record must not be able to rewrite its timestamp.
         at: new Date().toISOString(),
-        ...record,
       })
       appendFileSync(this.file, line + '\n', { encoding: 'utf8' })
       // After the write: the file must exist before its mode can be set.
@@ -94,7 +126,7 @@ export class AuditLog {
     }
   }
 
-  /** Rotate to .1 when the file exceeds the cap, keeping one previous file. */
+  /** Rotate when the file exceeds the cap, keeping ROTATED_GENERATIONS generations. */
   #rotateIfNeeded() {
     let size = 0
     try { size = statSync(this.file).size } catch { return }

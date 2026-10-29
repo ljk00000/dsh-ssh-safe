@@ -60,3 +60,31 @@ test('the log file is readable only by its owner where POSIX modes apply', () =>
     }
   } finally { rmSync(d, { recursive: true, force: true }) }
 })
+
+// audit.write trusted its callers to pre-summarise. A raw 5,000 character
+// command produced a 5,102 byte record even though summarize() exists, and
+// rotation only checks the size *before* appending.
+test('a record is bounded no matter what the caller passes', () => {
+  const d = dir()
+  try {
+    const log = new AuditLog(d, { enabled: true })
+    log.write({ kind: 'exec', machine: 'a', command: 'x'.repeat(5000) })
+    log.write({ kind: 'exec', machine: 'a', command: 'ok', nested: { deep: 'y'.repeat(5000) }, absent: undefined })
+    const recs = log.recent(10)
+    assert.equal(recs.length, 2)
+    assert.ok(recs[0].command.length <= 301, 'long command clamped, got ' + recs[0].command.length)
+    assert.equal(recs[1].nested, '[object]', 'objects are not serialised into the record')
+    assert.equal('absent' in recs[1], false)
+  } finally { rmSync(d, { recursive: true, force: true }) }
+})
+
+test('a record cannot rewrite its own timestamp', () => {
+  const d = dir()
+  try {
+    const log = new AuditLog(d, { enabled: true })
+    log.write({ kind: 'exec', at: '1999-01-01T00:00:00.000Z', command: 'x' })
+    const [rec] = log.recent(1)
+    assert.notEqual(rec.at, '1999-01-01T00:00:00.000Z')
+    assert.match(rec.at, /^20\d\d-/)
+  } finally { rmSync(d, { recursive: true, force: true }) }
+})
