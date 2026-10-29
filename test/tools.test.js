@@ -37,14 +37,19 @@ function capture(config = {}, env = {}) {
 
 const textOf = (result) => String(typeof result === 'string' ? result : result?.text ?? '')
 
-test('apply registers all ten tools', () => {
+test('apply registers every documented tool and nothing else', () => {
   const { tools, restore } = capture()
   try {
     const expected = [
       'ssh_machines', 'ssh_connect', 'ssh_exec', 'ssh_read', 'ssh_write',
       'ssh_list', 'ssh_close', 'ssh_doctor', 'ssh_audit', 'ssh_config',
+      'ssh_credentials',
     ]
     for (const name of expected) assert.ok(tools[name], 'missing tool: ' + name)
+    // A count as well as a list: ssh_credentials was added to the plugin while
+    // this test kept checking ten names, so nothing failed when the eleventh
+    // arrived unannounced.
+    assert.deepEqual(Object.keys(tools).sort(), expected.slice().sort())
   } finally { restore() }
 })
 

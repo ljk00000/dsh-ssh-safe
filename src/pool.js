@@ -248,7 +248,12 @@ export class SshPool {
     // Only a digest is kept. Storing the password itself would leave a usable
     // secret resident in the pool for the life of the process, where a heap
     // dump or a careless error message could expose it.
-    const wantCredential = typeof sessionPassword === 'string' && sessionPassword.length > 0
+    // A session password the profile does not allow is ignored by
+    // credentialFor(), so it must not be part of the identity either: otherwise
+    // a caller that types a different (unused) password forces a needless
+    // reconnect, and the pool claims to hold a credential it never used.
+    const sessionAllowed = this.config.allowSessionPassword === true
+    const wantCredential = sessionAllowed && typeof sessionPassword === 'string' && sessionPassword.length > 0
       ? 'session:' + createHash('sha256').update(sessionPassword).digest('hex').slice(0, 16)
       : 'configured'
 

@@ -331,6 +331,30 @@ export async function apply(ctx, config) {
     }
   }
 
+  /**
+   * Warnings from the credential resolver, for the caller that supplied a
+   * password. A session password is the last resort, so passing one while a
+   * stored credential exists has no effect — and used to say nothing at all,
+   * which reads as "my new password worked". Re-resolving here (the resolver
+   * caches the decrypted value) keeps the note specific to this call instead of
+   * inheriting whatever the pooled connection was opened with.
+   */
+  const credentialWarnings = (alias, sessionPassword) => {
+    if (!sessionPassword) return []
+    try {
+      const auth = credentialFor(alias, {
+        machines: cfg.machines,
+        dshHome,
+        sessionPassword,
+        allowSessionPassword: cfg.allowSessionPassword === true,
+        allowPlaintextPassword: cfg.allowPlaintextPassword === true,
+      })
+      return Array.isArray(auth.warnings) ? auth.warnings : []
+    } catch {
+      return []
+    }
+  }
+
   const trustedLine = (m) => {
     // A per-machine knownHosts override goes through the same ~ expansion the
     // pool uses; without it a "~/.ssh/x.json" value is read as a literal path.
@@ -472,6 +496,9 @@ export async function apply(ctx, config) {
         '\nHost key: ' + (entry.fingerprint || 'NOT VERIFIED (policy: ' + cfg.hostKeyPolicy + ')') +
         '\nPool: ' + stats.live + ' live' + (stats.limit > 0 ? ' / ' + stats.limit + ' max' : ' (no limit)') +
         (cfg.hostKeyPolicy === 'off' ? '\n\nWARNING: hostKeyPolicy is "off" — this connection is not protected against a man-in-the-middle.' : '') +
+        credentialWarnings(alias, optionalText(args.password, 'password'))
+          .map((warning) => '\n[note] ' + warning)
+          .join('') +
         '\n(Tip: ssh_doctor verifies the command channel and authentication end to end.)' }
     },
   })
@@ -555,6 +582,9 @@ export async function apply(ctx, config) {
       if (r.truncated) parts.push('[output truncated at maxOutputChars]')
       if (r.timedOut) parts.push('[timed out after ' + (budget || cfg.commandTimeoutMs) + 'ms]')
       parts.push('[exit ' + (r.code === null ? 'unknown' : r.code) + ']')
+      for (const warning of credentialWarnings(alias, optionalText(args.password, 'password'))) {
+        parts.push('[note] ' + warning)
+      }
       return { text: redact(parts.join('\n')) }  },
   })
 

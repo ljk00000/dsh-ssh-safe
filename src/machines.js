@@ -196,9 +196,24 @@ export function credentialFor(alias, {
   /** @type {string[]} */
   const warnings = []
 
+  // A session password is the LAST resort: the settings form, the credential
+  // file and the environment all win. Supplying one while a stored credential
+  // exists therefore has no effect, which reads as "my new password worked"
+  // when it was never tried. Say so instead of letting the caller believe it.
+  const sessionOffered = allowSessionPassword === true && filled(sessionPassword)
+  const warnShadowedSession = () => {
+    if (!sessionOffered) return
+    warnings.push(
+      'a session password was supplied, but a stored credential was used instead ' +
+      '(session passwords are the last resort). Update or remove the stored credential ' +
+      'to use the one supplied with this call.'
+    )
+  }
+
   // 1. settings form (plaintext in the DSH config file)
   if (filled(cfg.password)) {
     if (allowPlaintextPassword) {
+      warnShadowedSession()
       return { kind: 'config-password', password: String(cfg.password), machine: m, warnings }
     }
     warnings.push(
@@ -210,6 +225,7 @@ export function credentialFor(alias, {
   // 2. encrypted secret in the credential file
   if (filled(file.passwordDpapi)) {
     try {
+      warnShadowedSession()
       return { kind: 'file-dpapi', password: decryptDpapi(file.passwordDpapi), machine: m, warnings }
     } catch (err) {
       // A blob written by another Windows account, or a corrupted one, cannot be
@@ -225,6 +241,7 @@ export function credentialFor(alias, {
   // 3. plaintext secret in the credential file
   if (filled(file.password)) {
     if (allowPlaintextPassword) {
+      warnShadowedSession()
       return { kind: 'file-password', password: String(file.password), machine: m, warnings }
     }
     warnings.push(
@@ -235,11 +252,13 @@ export function credentialFor(alias, {
 
   // 4. environment: memory only, nothing written
   if (filled(env.password)) {
+    warnShadowedSession()
     return { kind: 'env-password', password: env.password, machine: m, warnings }
   }
 
   // 5. key file
   if (m.keyPath) {
+    warnShadowedSession()
     return {
       kind: m.sources.keyPath + '-key',
       keyPath: m.keyPath,

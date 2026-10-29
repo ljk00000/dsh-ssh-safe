@@ -101,6 +101,36 @@ test('an env password still reaches ssh2', async () => {
   }
 })
 
+test('a session password the profile forbids does not change connection identity', async () => {
+  // credentialFor() ignores a session password when allowSessionPassword is
+  // false, but the pool still folded it into the cache key. Two calls that
+  // differed only in the (unused) password therefore forced a needless
+  // reconnect, and the pool claimed to hold a credential it never used.
+  const dshHome = home()
+  const sink = []
+  let created = 0
+  class Counting extends RecordingClient {
+    constructor() { super(sink); created += 1 }
+  }
+  const pool = new SshPool(
+    { maxConnections: 4, hostKeyPolicy: 'off', reconnectCooldownMs: 0, allowSessionPassword: false },
+    { dshHome, clientClass: Counting }
+  )
+  process.env.DSH_SSH_IDBOX_HOST = 'id.invalid'
+  process.env.DSH_SSH_IDBOX_USER = 'u'
+  process.env.DSH_SSH_IDBOX_PASSWORD = 'stored'
+  try {
+    await pool.connect('idbox', { sessionPassword: 'first-ignored' })
+    await pool.connect('idbox', { sessionPassword: 'second-ignored' })
+    assert.equal(created, 1, 'the live connection must be reused')
+    assert.equal(sink[0].password, 'stored')
+  } finally {
+    delete process.env.DSH_SSH_IDBOX_HOST
+    delete process.env.DSH_SSH_IDBOX_USER
+    delete process.env.DSH_SSH_IDBOX_PASSWORD
+  }
+})
+
 test('a machine with no credentials at all is refused before connecting', async () => {
   const dshHome = home()
   const sink = []

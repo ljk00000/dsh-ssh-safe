@@ -85,7 +85,7 @@ on close or after ten idle minutes. No CDN, no telemetry, one local file.
 - README documents the three settings it was missing.
 
 ### Added
-- `test/tools.test.js`: drives all ten registered tools through a fake ctx and
+- `test/tools.test.js`: drives all eleven registered tools through a fake ctx and
   asserts on their output. The defects above all lived where no test looked.
 - `test/sftp.test.js`: 15 tests for the transfer module, including the error and
   deadline branches that had never executed.

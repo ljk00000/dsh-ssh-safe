@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { envNames, machineFromEnv, resolveAuth, redact, redactObject, expectedEnv } from '../src/credentials.js'
+import { envNames, machineFromEnv, redact, redactObject, expectedEnv } from '../src/credentials.js'
 
 test('envNames maps an alias to variable names', () => {
   const n = envNames('prod')
@@ -33,28 +33,12 @@ test('machineFromEnv reports nothing when the environment is empty', () => {
   assert.deepEqual(m.present, [])
 })
 
-test('resolveAuth prefers env password, then env key, then session password', () => {
-  const env = { DSH_SSH_A_HOST: 'h', DSH_SSH_A_USER: 'u', DSH_SSH_A_PASSWORD: 'pw' }
-  const saved = process.env
-  try {
-    process.env.DSH_SSH_A_HOST = 'h'
-    process.env.DSH_SSH_A_USER = 'u'
-    process.env.DSH_SSH_A_PASSWORD = 'pw'
-    assert.equal(resolveAuth('a', { sessionPassword: 'other', allowSessionPassword: true }).kind, 'env-password')
-  } finally { process.env = saved }
-})
-
-test('resolveAuth refuses a session password unless explicitly allowed', () => {
-  const saved = process.env
-  try {
-    process.env.DSH_SSH_B_HOST = 'h'
-    process.env.DSH_SSH_B_USER = 'u'
-    delete process.env.DSH_SSH_B_PASSWORD
-    delete process.env.DSH_SSH_B_KEY_PATH
-    assert.equal(resolveAuth('b', { sessionPassword: 'pw', allowSessionPassword: false }).kind, 'none')
-    assert.equal(resolveAuth('b', { sessionPassword: 'pw', allowSessionPassword: true }).kind, 'session-password')
-  } finally { process.env = saved }
-})
+// The two tests that lived here exercised resolveAuth(), a resolver that no
+// tool called. They also "restored" the environment with `process.env = saved`,
+// which assigns the same object back and restores nothing, so the variables
+// they set leaked into every later test in the file. The resolver is gone; the
+// behaviour they described is covered by machines.test.js and agent.test.js
+// against credentialFor().
 
 test('redact strips env-var assignments and PEM bodies', () => {
   assert.match(redact('DSH_SSH_PROD_PASSWORD=hunter2'), /<redacted>/)

@@ -13,6 +13,10 @@
 //   3. Nothing here is ever included in an error message, a tool result, or a
 //      system prompt. Every function returns a redacted shape instead.
 //   4. This module performs no network I/O of its own.
+//   5. Resolution itself lives in machines.js (credentialFor). An older
+//      resolveAuth() here read the environment only, was used by nothing but
+//      its own tests, and made the tests look like coverage of a path the
+//      product never took.
 
 /** Environment variable names, per machine alias. */
 export function envNames(alias) {
@@ -75,10 +79,6 @@ export function expectedEnv(alias) {
 }
 
 /**
- * Assemble the auth object for ssh2 connect().
- * sessionPassword is used only when explicitly permitted by config.
- */
-/**
  * Whether an SSH agent is reachable.
  *
  * An agent is the safest credential source: the private key stays in the agent
@@ -88,25 +88,6 @@ export function expectedEnv(alias) {
 export function agentSocket(env = process.env) {
   const sock = env.SSH_AUTH_SOCK
   return typeof sock === 'string' && sock.length > 0 ? sock : ''
-}
-
-/**
- * @param {string} alias
- * @param {{sessionPassword?: string, allowSessionPassword?: boolean, useAgent?: boolean}} [options]
- */
-export function resolveAuth(alias, { sessionPassword, allowSessionPassword, useAgent } = {}) {
-  const m = machineFromEnv(alias)
-  if (m.password) return { kind: 'env-password', password: m.password, machine: m }
-  if (m.keyPath) return { kind: 'env-key', keyPath: m.keyPath, passphrase: m.keyPassphrase, machine: m }
-  if (allowSessionPassword && typeof sessionPassword === 'string' && sessionPassword.length > 0) {
-    return { kind: 'session-password', password: sessionPassword, machine: m }
-  }
-  // Agent last: it needs no secret from us at all.
-  if (useAgent !== false) {
-    const sock = agentSocket()
-    if (sock) return { kind: 'agent', agent: sock, machine: m }
-  }
-  return { kind: 'none', machine: m }
 }
 
 /**
