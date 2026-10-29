@@ -36,6 +36,15 @@ import { storePath } from './hostkey.js'
 import { checkCommand } from './guard.js'
 import { formatListing } from './format.js'
 import { AuditLog, summarize } from './audit.js'
+import {
+  findWorkspace,
+  readMarker,
+  remoteDir,
+  remoteRoot,
+  remoteTitle,
+  removeRemoteDir,
+  writeRemoteWorkspace,
+} from './remote-workspace.js'
 
 export const name = 'dsh-ssh-safe'
 export const inject = ['tools']
@@ -796,6 +805,114 @@ export async function apply(ctx, config) {
     },
   })
 
+  // ── ssh_workspace ─────────────────────────────────────────────────────
+  /**
+   * A DSH workspace is a local directory, so a remote host becomes one by
+   * creating a placeholder directory that stands for it and registering that
+   * directory. The placeholder holds an AGENTS.md that tells the agent this
+   * directory is a pointer to a remote machine and that every file or command
+   * operation must go through the ssh_* tools -- which the harness already
+   * loads as project instructions, so no prompt API is involved.
+   */
+  ctx.tools.defineTool({
+    name: 'ssh_workspace',
+    description:
+      'Create, list or remove a remote workspace: a sidebar workspace whose working directory is bound to ' +
+      'one SSH machine. Starting a session inside it loads instructions that route every file and command ' +
+      'operation through the ssh_* tools. Holds no credential; only a placeholder directory and AGENTS.md.',
+    parameters: {
+      action: { type: 'string', description: 'list (default) | create | remove' },
+      machine: { type: 'string', description: 'Machine alias. Defaults to defaultMachine for create/remove.' },
+      deleteFiles: { type: 'boolean', description: 'remove: also delete the placeholder directory. Files on the remote host are never touched.' },
+    },
+    output: textOut,
+    async execute(args) {
+      const action = String(args.action === undefined || args.action === null ? 'list' : args.action).toLowerCase()
+      // The workspace registry is a host service, not a tool: a profile that
+      // does not mount workspaces (headless) must still be able to create the
+      // placeholder, so a missing registry is a reported limitation rather than
+      // a failure.
+      const registry = typeof ctx.get === 'function' ? ctx.get('workspaceRegistry') : undefined
+
+      if (action === 'list') {
+        const aliases = [...knownAliases({ machines: cfg.machines, dshHome })].sort()
+        if (aliases.length === 0) return { text: '没有配置任何机器。先用设置界面或凭据文件添加一台，再创建远程工作区。' }
+        const rows = aliases.map((alias) => {
+          const m = machineDefinition(alias, { machines: cfg.machines, dshHome })
+          const dir = remoteDir(dshHome, alias)
+          const marker = readMarker(dshHome, alias)
+          const workspace = findWorkspace(registry, dir)
+          const state = workspace
+            ? '已注册为工作区「' + workspace.title + '」'
+            : marker
+              ? '有占位目录，但未注册（用 action: "create" 注册）'
+              : '未创建（用 action: "create" 创建）'
+          return '• ' + alias + '  ' + (m.username || '?') + '@' + (m.host || '?') + ':' + (m.port || 22) +
+            '\n    ' + state +
+            (existsSync(dir) ? '\n    ' + dir : '')
+        })
+        return { text:
+          '远程工作区：\n' + rows.join('\n') +
+          '\n\n根目录: ' + remoteRoot(dshHome) +
+          (registry ? '' : '\n注意：当前 profile 没有 workspace 服务，只能创建目录，无法注册到侧栏。') }
+      }
+
+      const alias = normalizeAlias(args.machine || cfg.defaultMachine || '')
+      if (!alias) throw new Error('action "' + action + '" 需要 machine: "<alias>"（或先设置 defaultMachine）。')
+
+      const dir = remoteDir(dshHome, alias)
+
+      if (action === 'create') {
+        const m = machineDefinition(alias, { machines: cfg.machines, dshHome })
+        if (!m.host || !m.username) {
+          const need = expectedEnv(alias)
+          throw new Error(
+            '机器 "' + alias + '" 还没有主机或用户：至少需要 ' + need.required.join(', ') +
+            '。先用设置界面或凭据文件补齐，再创建远程工作区。'
+          )
+        }
+        const { created } = writeRemoteWorkspace(dshHome, alias, m)
+        let registered = ''
+        if (registry && typeof registry.create === 'function') {
+          try {
+            const workspace = await registry.create(dir, remoteTitle(alias))
+            registered = '已注册到侧栏工作区：「' + (workspace && workspace.title || remoteTitle(alias)) + '」'
+          } catch (err) {
+            registered = '目录已就绪，但注册失败：' + String(err && err.message ? err.message : err).slice(0, 200)
+          }
+        } else {
+          registered = '当前 profile 没有 workspace 服务：目录已就绪，请在「工作区 → 打开文件夹」里手动选择它。'
+        }
+        return { text:
+          (created ? '已创建远程工作区' : '已刷新远程工作区') + '\n' +
+          '  别名   ' + alias + '\n' +
+          '  目录   ' + dir + '\n' +
+          '  绑定   ' + m.username + '@' + m.host + ':' + (m.port || 22) + '\n' +
+          '  ' + registered + '\n\n' +
+          '下一步：在侧栏的这个工作区里新开会话。该会话会自动读到 AGENTS.md，' +
+          '所有文件与命令操作都会走 ssh_* 工具（machine: "' + alias + '"）。\n' +
+          '（侧栏若没立刻刷新，按 F5 重载页面。）' }
+      }
+
+      if (action === 'remove') {
+        const workspace = findWorkspace(registry, dir)
+        let removed = '没有注册记录'
+        if (workspace && registry && typeof registry.delete === 'function') {
+          const ok = await registry.delete(workspace.id)
+          removed = ok ? '已从侧栏移除「' + workspace.title + '」' : '注册记录已不存在'
+        }
+        let files = '占位目录保留：' + dir
+        if (args.deleteFiles === true) {
+          removeRemoteDir(dshHome, alias)
+          files = '占位目录已删除'
+        }
+        return { text: '远程工作区 ' + alias + '\n  ' + removed + '\n  ' + files +
+          '\n  远端主机上的文件没有被动过。' }
+      }
+
+      throw new Error('action 只能是 list、create 或 remove（收到 ' + JSON.stringify(args.action) + '）。')
+    },
+  })
 
   // ── ssh_audit ─────────────────────────────────────────────────────────
   ctx.tools.defineTool({

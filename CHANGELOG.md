@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0 — 2026-10-30
+
+### Added — remote workspaces
+- `ssh_workspace` creates a sidebar workspace bound to one SSH machine. A DSH
+  workspace is a local directory, so a remote host gets a placeholder directory
+  (`~/.dsh/dsh-ssh-safe/remotes/<alias>`) registered through
+  `ctx.workspaceRegistry`; it appears in the sidebar as `远程 · <alias>`.
+- The placeholder carries an `AGENTS.md` that the harness loads as project
+  instructions: this directory only points at the remote host, and every file or
+  command operation goes through `ssh_*` with `machine: "<alias>"`. Re-running
+  `create` refreshes it after an endpoint change.
+- `remove` unregisters without deleting the directory; `deleteFiles: true` also
+  removes it. Files on the remote host are never touched.
+- The instructions never carry a credential: they name the environment variable
+  and the DPAPI store instead.
+
 ## 0.6.1 — 2026-10-30
 
 ### Fixed

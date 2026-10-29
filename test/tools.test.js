@@ -43,7 +43,7 @@ test('apply registers every documented tool and nothing else', () => {
     const expected = [
       'ssh_machines', 'ssh_connect', 'ssh_exec', 'ssh_read', 'ssh_write',
       'ssh_list', 'ssh_close', 'ssh_doctor', 'ssh_audit', 'ssh_config',
-      'ssh_credentials',
+      'ssh_credentials', 'ssh_workspace',
     ]
     for (const name of expected) assert.ok(tools[name], 'missing tool: ' + name)
     // A count as well as a list: ssh_credentials was added to the plugin while

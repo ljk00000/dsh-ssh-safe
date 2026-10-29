@@ -251,6 +251,35 @@ DSH_SSH_PROD_KNOWN_HOSTS=~/.ssh/known_hosts.json
 | `ssh_audit` | 查看操作记录（需 `auditLog: true`） |
 | `ssh_config` | 查看运行时实际生效的配置 |
 | `ssh_credentials` | 查看凭据来源与优先级（只报来源，永不打印值） |
+| `ssh_workspace` | 创建 / 列出 / 移除**远程工作区**：侧栏里一个绑定到某台 SSH 主机的工作区 |
+
+### 远程工作区（侧栏）
+
+DSH 的工作区是一个**本地目录**：注册表按路径归组会话，agent 的工作目录就是它。
+远端主机没有本地目录，所以本插件用一个**占位目录**代表它：
+
+```
+~/.dsh/dsh-ssh-safe/remotes/<alias>/
+  AGENTS.md                    ← agent 自动读取的说明
+  .dsh-remote-workspace.json   ← 别名、主机、端口、生成时间
+```
+
+把这个目录注册成工作区，它就会出现在左侧「工作区」列表里（标题是 `远程 · <alias>`）。
+在这个工作区里新开会话时，DSH 会自动把 `AGENTS.md` 当作项目指令加载；指令告诉模型：
+这个目录只是指针，所有文件与命令操作都必须走 `ssh_*` 工具并带上 `machine: "<alias>"`。
+
+```
+ssh_workspace { action: "create", machine: "gpu" }   # 创建并注册
+ssh_workspace { }                                     # 列出状态
+ssh_workspace { action: "remove", machine: "gpu" }    # 从侧栏移除（保留占位目录）
+ssh_workspace { action: "remove", machine: "gpu", deleteFiles: true }
+```
+
+创建后侧栏若没立刻刷新，按 F5 重载页面。占位目录里**没有任何凭据**，也没有远端文件；
+主机或端口变了（例如换了个端口）再执行一次 `create` 即可刷新 `AGENTS.md`。
+
+需要说清楚的边界：这是**绑定**，不是挂载。本地 `pwsh` / `read` / `write` 仍然只看得到本机，
+它们不会因为会话在这个工作区里就变成远端执行——这正是 `AGENTS.md` 要反复强调的原因。
 
 ### 主机密钥校验
 
@@ -487,6 +516,41 @@ Restart DeepSeek Harness — environment variables are read at process start.
 | `ssh_audit` | Recent operations (requires `auditLog: true`) |
 | `ssh_config` | The configuration actually in effect |
 | `ssh_credentials` | Credential sources and precedence (never values) |
+| `ssh_workspace` | Create, list or remove a **remote workspace**: a sidebar workspace bound to one SSH machine |
+
+### Remote workspaces (sidebar)
+
+A DSH workspace is a **local directory**: the registry groups sessions by path and
+the agent's working directory is that path. A remote host has no local directory,
+so the plugin uses a placeholder directory to stand for it:
+
+```
+~/.dsh/dsh-ssh-safe/remotes/<alias>/
+  AGENTS.md                    ← instructions the agent loads automatically
+  .dsh-remote-workspace.json   ← alias, host, port, when it was generated
+```
+
+Registering that directory makes it a normal workspace in the sidebar, titled
+`远程 · <alias>`. A session started there loads `AGENTS.md` as project
+instructions, and those instructions say the directory is only a pointer: every
+file or command operation goes through the `ssh_*` tools with
+`machine: "<alias>"`.
+
+```
+ssh_workspace { action: "create", machine: "gpu" }   # create and register
+ssh_workspace { }                                     # show status
+ssh_workspace { action: "remove", machine: "gpu" }    # unregister, keep the directory
+ssh_workspace { action: "remove", machine: "gpu", deleteFiles: true }
+```
+
+Reload the page (F5) if the sidebar has not picked up the new workspace. The
+placeholder holds no credential and no remote file; re-run `create` after an
+endpoint change to refresh `AGENTS.md`.
+
+The boundary worth stating: this is a **binding**, not a mount. Local
+`pwsh` / `read` / `write` still see only this machine — they do not become
+remote just because the session lives in that workspace, which is exactly why
+`AGENTS.md` repeats the rule.
 
 ### Host key verification
 
