@@ -257,7 +257,8 @@ async function testConnection(alias) {
     }, 20000)
 
     client.on('ready', () => {
-      say('认证', 'ok', auth.passwordSource === 'none' ? '已认证' : '已认证（来源：' + auth.passwordSource + '）')
+      const source = String(auth.kind || 'none').replace(/-password$|-key$/, '')
+      say('认证', 'ok', source === 'none' ? '已认证' : '已认证（凭据来源：' + source + '）')
       client.exec('echo dsh-gui-ok', (err, stream) => {
         if (err) {
           clearTimeout(timer)
