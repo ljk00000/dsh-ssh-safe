@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { request as httpRequest } from 'node:http'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -244,6 +245,102 @@ test('an alias that collides with Object.prototype is refused, not silently drop
     }
     const state = await call(base, token, '/api/state')
     assert.deepEqual(state.body.machines, [], 'nothing was saved')
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+test('a request for another Host is refused', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    // fetch() overwrites Host from the URL, so this needs the raw http client.
+    const status = await new Promise((resolve, reject) => {
+      const req = httpRequest({
+        host: '127.0.0.1',
+        port: Number(new URL(base).port),
+        path: '/api/state',
+        headers: { host: 'evil.example', 'x-gui-token': token },
+      }, (res) => { res.resume(); resolve(res.statusCode) })
+      req.on('error', reject)
+      req.end()
+    })
+    assert.equal(status, 421, 'a Host header that is not this machine must be refused')
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('saving a machine stores the password encrypted, never in plaintext', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    const saved = await call(base, token, '/api/save', {
+      alias: 'box', host: '10.0.0.9', port: 2222, user: 'root', password: 'plain-text-secret',
+    })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    assert.equal(saved.body.ok, true)
+
+    const file = path.join(home, 'dsh-ssh-safe', 'credentials.json')
+    const raw = readFileSync(file, 'utf8')
+    assert.match(raw, /passwordDpapi/)
+    assert.ok(!raw.includes('plain-text-secret'), 'the password must not be stored in plaintext')
+
+    const state = await call(base, token, '/api/state')
+    const box = state.body.machines.find((m) => m.alias === 'box')
+    assert.ok(box, 'the machine should be listed')
+    assert.equal(box.passwordSource, 'file-dpapi')
+    assert.ok(!JSON.stringify(state.body).includes('plain-text-secret'), 'state must not carry the password')
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('save validates the alias and the port', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    assert.equal((await call(base, token, '/api/save', { alias: '', host: 'h' })).status, 400)
+    assert.equal((await call(base, token, '/api/save', { alias: '__proto__', host: 'h' })).status, 400)
+    assert.equal((await call(base, token, '/api/save', { alias: 'p', host: 'h', port: 70000 })).status, 400)
+    assert.equal((await call(base, token, '/api/save', { alias: 'p', host: 'h', port: 'abc' })).status, 400)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('delete removes an entry and state follows', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    await call(base, token, '/api/save', { alias: 'gone', host: '10.0.0.10' })
+    const before = await call(base, token, '/api/state')
+    assert.ok(before.body.machines.some((m) => m.alias === 'gone'))
+
+    const deleted = await call(base, token, '/api/delete', { alias: 'gone' })
+    assert.equal(deleted.status, 200)
+    const after = await call(base, token, '/api/state')
+    assert.ok(!after.body.machines.some((m) => m.alias === 'gone'))
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('unknown routes are 404 and malformed bodies are 400', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    assert.equal((await call(base, token, '/api/nope')).status, 404)
+    const bad = await fetch(base + '/api/save', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-gui-token': token },
+      body: '{not json',
+    })
+    assert.equal(bad.status, 400, 'a malformed body is the caller error')
   } finally {
     child.kill()
     rmSync(home, { recursive: true, force: true })

@@ -92,7 +92,11 @@ function readSecret(question) {
 }
 
 const args = parseArgs(process.argv.slice(2))
-const alias = String(args.alias || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+// Same rule as the GUI and the tools: lower-cased, and a dot, underscore or
+// hyphen survives. Stripping them stored credentials under a different key
+// than the one 'ssh_exec --machine prod-1' looks up, so the password was
+// written and then never found.
+const alias = String(args.alias || '').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '')
 if (!alias) {
   console.error('Usage: node scripts/set-password.mjs --alias <name> [--host h] [--port p] [--user u]')
   console.error('                                              [--key-path p] [--key-passphrase]')

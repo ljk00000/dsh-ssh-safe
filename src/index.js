@@ -196,13 +196,26 @@ export const Config = z.object({
     // '/' alone, or '/' followed by a glob: 'rm -rf /' and 'rm -rf /*' both
     // destroy the filesystem, so the target must be '/' and not the start of
     // a longer path.
-    'rm\\s+-rf\\s+/(?:\\s|$|\\*)',
+    '(?:^|[\\s;&|()])rm\\s+-[rf]{1,2}\\s+/+(?:\\*|\\.{1,2})?(?:\\s|$|[)])',
+    // The home directory is the other root-shaped target: 'rm -rf ~' is the
+    // same accident at a different path.
+    '(?:^|[\\s;&|()])rm\\s+-[rf]{1,2}\\s+(?:~|\\$(?:\\{HOME\\}|HOME))/?(?:\\s|$|[)])',
+    // 'cd / && rm -rf *' deletes the root one level at a time. The rule above
+    // cannot see it: the slash belongs to the cd, not to the rm. Only the
+    // root-targeting form is refused, so 'cd /tmp && rm -rf *' still works.
+    '\\bcd\\s+(?:/+|~|\\$(?:\\{HOME\\}|HOME))\\s*(?:&&|;|\\|\\|)\\s*(?:(?:sudo|doas|env|nohup)\\s+)?(?:-{1,2}\\S+(?:\\s+\\S+)?\\s+)*(?:[\\w./-]*/)?rm\\s+-[a-z]*r[a-z]*\\s+(?:\\./)?\\*',
     // Only a device is a disk. 'mkfs.ext4 ./disk.img' builds a filesystem in a
     // file, which is ordinary work for loopback mounts and swap images.
     '\\bmkfs(?:\\.\\w+)?\\b[^\n]*\\s/dev/',
     '\\bdd\\s+if=.*\\bof=/dev/[sn]',
+    // 'find / -delete' walks the whole tree and deletes every file; the same
+    // run through -exec rm is the spelled-out version.
+    '\\bfind\\s+/+(?:\\s|$)[^\\n]*-delete\\b',
+    '\\bfind\\s+/+(?:\\s|$)[^\\n]*-exec\\s+(?:[\\w./-]*/)?rm\\b',
     ':\\(\\)\\s*\\{\\s*:\\|:\\s*&\\s*\\};:',
-    '\\b(?:shutdown|reboot|halt|poweroff)\\b',
+    // Only at a command position. The bare word anywhere refused ordinary work:
+    // 'grep -c shutdown /etc/hostname' and 'echo reboot' were both blocked.
+    '(?:^|[;&|]+\\s*|\\(\\s*)(?:(?:sudo|doas|nohup|nice|setsid|command|exec|env|time)\\s+(?:-{1,2}\\S+(?:\\s+\\S+)?\\s+)*)*(?:timeout\\s+\\S+\\s+)?(?:systemctl\\s+(?:-\\S+\\s+)*)?(?:shutdown|reboot|halt|poweroff)\\b',
   ]),
 })
 
@@ -1351,7 +1364,7 @@ export async function apply(ctx, config) {
         }
         if (!result.closed) return { text: 'No live connection for ' + alias }
         return { text: result.confirmed
-          ? 'Closed ' + alias
+          ? 'Closed: ' + alias
           : 'Requested close for ' + alias + ' but the peer did not confirm; the entry was reset so the next call reconnects.' }
       }
       const result = await pool.closeAll({ force })

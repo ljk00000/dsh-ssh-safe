@@ -372,13 +372,14 @@ ssh_read { machine: "prod", path: "/opt/app/.env", raw: true }
 
 ### 危险命令拦截
 
-默认拒绝这些模式（可配置）：
+默认拒绝这些模式（可配置，共 9 条）：
 
-- `rm -rf /`
-- `mkfs.*`
-- `dd if=... of=/dev/sd*`
-- fork 炸弹
-- `shutdown` / `reboot` / `halt` / `poweroff`
+- `rm -rf /` 及其变体：`//`、`/*`、`/.`、`/..`
+- `rm -rf ~` / `rm -rf $HOME`（家目录顶层）
+- `cd /`（或 `cd ~`）之后紧跟 `rm -rf *`——斜杠在 cd 里，第一条看不见
+- `find /` 配合 `-delete` 或 `-exec rm`
+- `mkfs.*`、`dd if=... of=/dev/sd*`、fork 炸弹
+- `shutdown` / `reboot` / `halt` / `poweroff`，且只在**命令位置**匹配（`grep -c shutdown 日志` 不再被误拦）
 
 **注意**：这是防手滑的安全带，不是安全边界。shell 总有别的路径可达。
 
@@ -425,7 +426,7 @@ pnpm approve-builds --all
 | `useCredentialFile` | `true` | 每次连接读取凭据文件，改密码免重启 |
 | `healthCheckTimeoutMs` | `3000` | 探活探测的截止时间 |
 | `pipeToShell` | `refuse` | `refuse` 拦截管道进解释器；`allow` 放行 |
-| `denyPatterns` | 5 条 | 危险命令拦截（安全带，不是边界） |
+| `denyPatterns` | 9 条 | 危险命令拦截（安全带，不是边界） |
 
 ### 它不做什么
 
@@ -612,8 +613,16 @@ on its own initiative.
 
 ### Denied command patterns
 
-`rm -rf /`, `mkfs.*`, `dd ... of=/dev/sd*`, fork bombs, and
-`shutdown`/`reboot`/`halt`/`poweroff` are refused by default.
+Nine patterns ship by default:
+
+- `rm -rf /` and its spellings `//`, `/*`, `/.`, `/..`
+- `rm -rf ~` / `rm -rf $HOME` (the top of the home directory)
+- `cd /` (or `cd ~`) followed by `rm -rf *` — the slash lives in the `cd`, so
+  the first rule cannot see it
+- `find /` with `-delete` or `-exec rm`
+- `mkfs.*`, `dd if=... of=/dev/sd*`, fork bombs
+- `shutdown`/`reboot`/`halt`/`poweroff`, matched only in **command position**
+  (`grep -c shutdown syslog` is no longer refused)
 
 A safety rail against catastrophic typos — **not** a security boundary.
 

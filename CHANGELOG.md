@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.7.4 — 2026-10-31
+
+Found by driving the guard against a real host and by building a loopback SSH
+server so the pool and the tool bodies are exercised without one.
+
+### Fixed — the guard
+- **`cd / && rm -rf *` was not refused, and it ran.** The root rule only looked
+  at the target of the `rm`; here the slash belongs to the `cd`, so nothing
+  matched. A second rule now refuses `cd /`/`cd ~`/`cd $HOME` followed by a
+  recursive `rm` of a glob, including the `/bin/rm`, `sudo -u …`, `env` and
+  `nohup` spellings.
+- **`rm -rf //` slipped through** the same rule: the pattern wanted whitespace,
+  end-of-string or `*` directly after a single slash. Multiple slashes, `/.`
+  and `/..` are covered now.
+- **`rm -rf ~` / `rm -rf $HOME` are refused**, at the top of the home directory
+  only — `rm -rf ~/build` still works.
+- **`find / -delete` and `find / -exec rm`** are refused; subdirectory finds are
+  untouched.
+- **The shutdown rule refused the bare word anywhere.** `grep -c shutdown
+  /var/log/syslog` and `echo reboot` were blocked. It now matches only at a
+  command position, with `sudo`/`doas`/`nohup`/`nice`/`timeout`/`systemctl`
+  prefixes.
+
+### Fixed — credentials
+- **`set-password --alias prod-1` stored the password under `prod1`.** The
+  script stripped `-` and `.` while the plugin and the GUI kept them, so the
+  password was written and then never found ("no credentials"). All three now
+  use the same rule.
+
+### Fixed — the credential page
+- A malformed JSON body answered 500 and an oversized one answered 500; they are
+  the caller's mistake, so they answer 400 and 413.
+
+### Changed
+- `ssh_close` says `Closed: <alias>` in both the single and the all form.
+
+### Added — tests
+- A loopback SSH server (ssh2 `Server`) drives the real client: auth, host-key
+  change rejection, cooldown, timeout, signal, output cap, busy close and LRU
+  eviction (11 tests), plus the twelve tool bodies end to end including the
+  audit trail (15 tests).
+- The credential page's endpoints: Host-header refusal, save/delete, alias and
+  port validation, 404/400 (5 tests).
+- `set-password` rotation and alias handling (3 tests).
+
 ## 0.7.3 — 2026-10-31
 
 ### Fixed

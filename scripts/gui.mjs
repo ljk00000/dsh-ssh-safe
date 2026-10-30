@@ -352,11 +352,21 @@ function readBody(req) {
     let data = ''
     req.on('data', (chunk) => {
       data += chunk
-      if (data.length > 64 * 1024) { reject(new Error('body too large')); req.destroy() }
+      if (data.length > 64 * 1024) {
+        // 413, not 500: the caller sent too much, the server did nothing wrong.
+        const error = new Error('body too large')
+        error.statusCode = 413
+        reject(error)
+        req.destroy()
+      }
     })
     req.on('end', () => {
       if (!data) return resolve({})
-      try { resolve(JSON.parse(data)) } catch { reject(new Error('invalid JSON')) }
+      try { resolve(JSON.parse(data)) } catch {
+        const error = new Error('invalid JSON')
+        error.statusCode = 400
+        reject(error)
+      }
     })
     req.on('error', reject)
   })
@@ -502,7 +512,10 @@ const server = createServer(async (req, res) => {
 
     sendJson(res, 404, { error: 'not found' })
   } catch (err) {
-    sendJson(res, 500, { error: String((err && err.message) || err).slice(0, 200) })
+    // A malformed request is the caller's mistake (400/413); anything else is
+    // this server's (500). Both still answer, so the page can show why.
+    const status = err && Number.isInteger(err.statusCode) ? err.statusCode : 500
+    sendJson(res, status, { error: String((err && err.message) || err).slice(0, 200) })
   }
 })
 
