@@ -335,3 +335,32 @@ test('a connection closed mid-command is reported as incomplete', async () => {
     await pool.closeAll({ force: true })
   }
 })
+test('the idle probe keeps a healthy connection', async () => {
+  const pool = poolFor({ t: machineFor('t', srv.port) }, { healthCheckIdleMs: 20 })
+  try {
+    await pool.exec('t', 'echo one', {})
+    const first = pool.entry('t').client
+    await new Promise((r) => setTimeout(r, 80))
+    const result = await pool.exec('t', 'echo two', {})
+    assert.match(result.stdout, /two/)
+    assert.equal(pool.entry('t').client, first, 'a live connection must be reused')
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})
+
+test('the idle probe replaces a connection the server dropped', async () => {
+  const pool = poolFor({ t: machineFor('t', srv.port) }, { healthCheckIdleMs: 20 })
+  try {
+    await pool.exec('t', 'echo one', {})
+    const first = pool.entry('t').client
+    srv.killClients()
+    await new Promise((r) => setTimeout(r, 80))
+
+    const result = await pool.exec('t', 'echo two', {})
+    assert.match(result.stdout, /two/, 'the call must recover')
+    assert.notEqual(pool.entry('t').client, first, 'the dead client must be replaced')
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})

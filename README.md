@@ -403,6 +403,18 @@ pnpm approve-builds --all
 否则 `node_modules` 的 store 标记会被改写，之后 `dsh plugin` 会报 `ERR_PNPM_UNEXPECTED_STORE`。
 
 
+### 开发与测试
+
+- `npm test` —— 全部离线测试（近 500 个，不需要任何主机）
+- `npm run typecheck` —— `tsc --noEmit`
+- `npm run test:loopback` —— 在本机起一个内存中的 SSH/SFTP 服务端，把
+  `test/integration.test.js` 那几条「真主机」用例跑一遍
+- `DSH_SSH_TEST_TARGET=<别名> npm test` —— 对着真实主机跑同一组用例
+  （照常设置 `DSH_SSH_<别名>_HOST` / `_USER` / `_PASSWORD` 或 `_KEY_PATH`）
+
+loopback 服务端不执行命令、不碰磁盘，只按脚本回包——它验证的是客户端这一半：
+握手、主机密钥、exec 通道、SFTP 读写与超时。
+
 ### 配置默认值一览
 
 | 配置项 | 默认 | 作用 |
@@ -631,6 +643,19 @@ pathological input cannot make the check quadratic. A real command is far
 shorter than that window.
 
 A safety rail against catastrophic typos — **not** a security boundary.
+
+### Tests
+
+- `npm test` — the whole offline suite (close to 500 tests; no host needed)
+- `npm run typecheck` — `tsc --noEmit`
+- `npm run test:loopback` — starts an in-memory SSH/SFTP server on this machine
+  and runs the "real host" cases in `test/integration.test.js` against it
+- `DSH_SSH_TEST_TARGET=<alias> npm test` — the same cases against a real host
+  (with `DSH_SSH_<ALIAS>_HOST` / `_USER` / `_PASSWORD` or `_KEY_PATH` set as usual)
+
+The loopback server runs no process and touches no disk; it answers from a
+script. It proves the client half — handshake, host key, exec channel, SFTP
+reads and writes, deadlines.
 
 ### Not included
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.11 — 2026-10-31
+
+### Added
+- **`npm run test:loopback`.** `test/integration.test.js` — the four cases that
+  talk to a real sshd — now also run against the in-memory SSH/SFTP server, so
+  the "can this client still speak to a server" check no longer waits for a
+  machine to be available. The real-host form still works:
+  `DSH_SSH_TEST_TARGET=<alias> npm test`.
+- That runner was written with `spawnSync` first: the server lives in the same
+  process, so blocking the event loop stopped it answering the child it had just
+  started, and every case timed out at the connect deadline. `spawn` with an
+  awaited exit fixed it; the comment in the file says why.
+
+### Added — tests
+- The idle health probe: a live connection is reused, a connection the server
+  dropped is replaced, both with the probe enabled rather than disabled.
+
 ## 0.7.10 — 2026-10-31
 
 ### Fixed
