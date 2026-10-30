@@ -107,9 +107,14 @@ export function redact(text) {
   // the closing quote sat between the key and the colon. A quoted key, a quoted
   // value and a value containing spaces are all common in the config files this
   // redaction exists to protect.
+  // The key run is anchored on a non-word character (or the start of the
+  // text), which is what keeps this linear: without the anchor the lazy
+  // [A-Za-z0-9_]*? was retried at every position of a long run of word
+  // characters, and a 200k-character single-line output took 33 seconds to
+  // redact. See the timing test in test/redact-coverage.test.js.
   s = s.replace(
-    /(["']?)([A-Za-z0-9_]*?(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|KEY))\1(\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,}]+)/gi,
-    (_m, quote, key, separator) => quote + key + quote + separator + '<redacted>',
+    /(^|[^\w])(["']?)([A-Za-z0-9_]*?(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|KEY))\2(\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,}]+)/gi,
+    (_m, lead, quote, key, separator) => lead + quote + key + quote + separator + '<redacted>',
   )
   // 'curl -u user:password' and '--user=user:password' carry the secret after a
   // flag rather than after '=' or ':', so the rule above misses them.
@@ -130,7 +135,9 @@ export function redact(text) {
   // name. The token is consumed greedily so trailing '=' padding is included.
   s = s.replace(/\b(basic|bearer)\s+([A-Za-z0-9+/=._~-]{8,})/gi, '$1 <redacted>')
   // Credentials inside a URL: scheme://user:password@host.
-  s = s.replace(/([a-z][a-z0-9+.-]*:\/\/)([^\s:@/]+):([^\s@/]+)@/gi, '$1$2:<redacted>@')
+  // Anchored and bounded for the same reason as the key rule: an unbounded
+  // [a-z0-9+.-]* scheme run was retried from every position of a long line.
+  s = s.replace(/(^|[^\w])([a-z][a-z0-9+.-]{0,31}:\/\/)([^\s:@/]+):([^\s@/]+)@/gi, '$1$2$3:<redacted>@')
   // bare long secrets are left alone on purpose: guessing wrong shreds output.
   return s
 }

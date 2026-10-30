@@ -338,6 +338,12 @@ ssh_read { machine: "prod", path: "/opt/app/.env", raw: true }
     maxConnections: 8    # 0 = 不限制
 ```
 
+### 并发
+
+十二个工具都声明了自己可以并发执行：每次调用走独立的 SSH 通道，连接池按别名复用。
+所以在同一台机器上同时跑两个命令、或者一边跑命令一边读文件都不会互相排队。
+（少了这个声明，DSH 会把工具当作独占资源：一条 3 秒的命令会让另一条 0.2 秒的命令也等 3 秒。）
+
 ### 可选：允许在会话里传密码
 
 默认关闭。开启方式（在 profile 的插件配置里）：
@@ -519,6 +525,14 @@ Restart DeepSeek Harness — environment variables are read at process start.
 | `ssh_config` | The configuration actually in effect |
 | `ssh_credentials` | Credential sources and precedence (never values) |
 | `ssh_workspace` | Create, list or remove a **remote workspace**: a sidebar workspace bound to one SSH machine |
+
+### Concurrency
+
+All twelve tools declare themselves concurrency-safe: every call owns its own SSH
+channel and the pool reuses one connection per alias, so two commands on the same
+machine, or a command and a read, run at the same time instead of queueing.
+Without that declaration the harness treats a tool as an exclusive resource — one
+3-second command made an unrelated 0.2-second command wait 3 seconds.
 
 ### Remote workspaces (sidebar)
 

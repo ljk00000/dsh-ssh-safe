@@ -60,6 +60,38 @@ function remoteError(err, target) {
   return wrapped
 }
 
+/**
+ * Say which kind of path was handed to the wrong operation.
+ *
+ * OpenSSH answers "Failure" for reading a directory and "No such file" for
+ * readdir on a regular file; neither names the actual problem, so the caller
+ * reads it as a bug in the plugin. One stat on the error path is enough to
+ * report "it is a directory" or "it is a file".
+ *
+ * @param {any} sftp session
+ * @param {string} target normalised remote path
+ * @param {'file'|'dir'} expected what the operation needed
+ * @returns {Promise<Error|null>} a better error, or null to keep the original
+ */
+async function kindMismatch(sftp, target, expected) {
+  if (typeof sftp.stat !== 'function') return null
+  let attrs
+  try { attrs = await callSftp(sftp, 'stat', target) } catch { return null }
+  if (!attrs || typeof attrs.isDirectory !== 'function') return null
+  const isDir = attrs.isDirectory()
+  if (expected === 'file' && isDir) {
+    const e = /** @type {Error & {code?: string}} */ (new Error('not a file: ' + target + ' (it is a directory; use ssh_list)'))
+    e.code = 'EISDIR'
+    return e
+  }
+  if (expected === 'dir' && !isDir) {
+    const e = /** @type {Error & {code?: string}} */ (new Error('not a directory: ' + target + ' (it is a file; use ssh_read)'))
+    e.code = 'ENOTDIR'
+    return e
+  }
+  return null
+}
+
 /** Promisify an ssh2 sftp method's node-style callback. */
 function callSftp(sftp, method, ...args) {
   return new Promise((resolve, reject) => {
@@ -162,21 +194,39 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs }
     try {
       stream = sftp.createReadStream(target)
     } catch (err) {
-      return settle(null, remoteError(err, target))
+      return kindMismatch(sftp, target, 'file').then(
+        (better) => settle(null, better || remoteError(err, target)),
+        () => settle(null, remoteError(err, target)),
+      )
     }
 
-    const finish = () => settle({
-      content: collector.toString(),
-      truncated: collector.truncated,
-      bytes: collector.bytes,
-      path: target,
-    })
+    // Once the stream has failed, 'close' still fires without an error, and it
+    // used to win the race against the asynchronous explanation below: the read
+    // resolved with empty content for a path that is a directory. A pending
+    // explanation now suppresses the success path.
+    let explain = null
+    const finish = () => {
+      if (explain) return
+      settle({
+        content: collector.toString(),
+        truncated: collector.truncated,
+        bytes: collector.bytes,
+        path: target,
+      })
+    }
 
     stream.on('data', (chunk) => {
       collector.push(chunk)
       if (collector.truncated) finish()
     })
-    stream.on('error', (e) => settle(null, remoteError(e, target)))
+    const fail = (e) => {
+      if (explain) return
+      explain = kindMismatch(sftp, target, 'file').then(
+        (better) => settle(null, better || remoteError(e, target)),
+        () => settle(null, remoteError(e, target)),
+      )
+    }
+    stream.on('error', fail)
     stream.on('end', finish)
     stream.on('close', finish)
   })
@@ -231,11 +281,26 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
     try {
       stream = sftp.createWriteStream(target)
     } catch (err) {
-      return settle(null, remoteError(err, target))
+      return kindMismatch(sftp, target, 'file').then(
+        (better) => settle(null, better || remoteError(err, target)),
+        () => settle(null, remoteError(err, target)),
+      )
     }
 
-    const done = () => settle({ bytes: payload.length, path: target })
-    stream.on('error', (e) => settle(null, remoteError(e, target)))
+    // Same race as in readRemoteFile: a failed write still emits 'close', so
+    // the success path has to stand down while the error is being explained.
+    let explain = null
+    const done = () => {
+      if (explain) return
+      settle({ bytes: payload.length, path: target })
+    }
+    stream.on('error', (e) => {
+      if (explain) return
+      explain = kindMismatch(sftp, target, 'file').then(
+        (better) => settle(null, better || remoteError(e, target)),
+        () => settle(null, remoteError(e, target)),
+      )
+    })
     stream.on('close', done)
     stream.on('finish', done)
     try { stream.end(payload) } catch (err) {
@@ -276,7 +341,14 @@ export async function listRemoteDir(client, remotePath, { timeoutMs }) {
 
     try {
       sftp.readdir(target, (err, items) => {
-        if (err) return settle(null, remoteError(err, target))
+        if (err) {
+          // readdir on a regular file fails with the server's ENOENT text,
+          // which reads as "the path does not exist" for a path that does.
+          return kindMismatch(sftp, target, 'dir').then(
+            (better) => settle(null, better || remoteError(err, target)),
+            () => settle(null, remoteError(err, target)),
+          )
+        }
         settle({
           path: target,
           items: items.map((it) => ({

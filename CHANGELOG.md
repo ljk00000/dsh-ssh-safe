@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.2 — 2026-10-31
+
+Found by driving the twelve tools against a live host on 0.2.1-rc.5.
+
+### Fixed
+- **A long single-line output took 33 seconds to return.** Every result passes
+  through `redact()` before it reaches the model. Its key rule started with an
+  unanchored lazy `[A-Za-z0-9_]*?` and its URL rule with an unanchored
+  unbounded scheme run, so both were retried from every position of a line made
+  of word characters — quadratic in the line length. `cat` of a 100 KB file
+  with no newline took 8.3 s; 200 KB hit the 30 s command timeout. Both rules
+  now anchor on a non-word character (or the start of the text), and a 400 KB
+  line redacts in 2 ms. Verified live: the same command dropped to 0.35 s.
+- **"No such file" for a path that exists.** `ssh_list` on a regular file
+  repeated sshd's ENOENT, which reads as "the path is gone". `ssh_read` of a
+  directory and `ssh_write` onto one said only `Failure`. All three now stat
+  the path on the error path and say `not a directory: … (it is a file)` or
+  `not a file: … (it is a directory)`.
+
+### Changed
+- **Nested calls run in parallel again.** Without an `isConcurrencySafe`
+  declaration the harness treats every tool as exclusive, so a 3-second command
+  blocked an unrelated 200 ms one — measured 3.4 s where 0.2 s was expected.
+  Each call owns its own SSH channel and the pool keys state per alias, so all
+  twelve tools now declare it safe.
+
 ## 0.7.1 — 2026-10-30
 
 ### Fixed — the plugin did not activate on DSH 0.2.1

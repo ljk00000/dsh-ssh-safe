@@ -53,6 +53,26 @@ test('a word that merely contains a secret word is not a secret', () => {
   }
 })
 
+test('a long single line is redacted in linear time', () => {
+  // ssh_exec hands every result through redact(). The key rule used to start
+  // its key run with an unanchored lazy quantifier, and the URL rule used an
+  // unanchored unbounded scheme run, so both were retried from every position
+  // of a line made of word characters: a 200k-character one-line output took
+  // 33 seconds to redact before it was returned. Nothing about that is fixed
+  // by the caller; the rules themselves have to scan once.
+  const flat = 'a'.repeat(200000)
+  const started = Date.now()
+  assert.equal(redact(flat), flat)
+  const elapsed = Date.now() - started
+  assert.ok(elapsed < 250, 'redact took ' + elapsed + 'ms for a 200k one-line string')
+
+  // The same shape still has to catch a secret at the end of the line.
+  const withSecret = 'a'.repeat(200000) + ' PASSWORD=hunter2'
+  const out = redact(withSecret)
+  assert.ok(!out.includes('hunter2'), 'secret at the end of a long line must be redacted')
+  assert.ok(out.includes('<redacted>'))
+})
+
 test('ordinary text is left untouched', () => {
   for (const plain of [
     'no secret here at all',

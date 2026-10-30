@@ -467,6 +467,12 @@ export async function apply(ctx, config) {
       'Call this first when you do not know which aliases exist.',
     parameters: {},
     output: textOut,
+    // Every call owns its own SSH channel, so two calls never share one; the
+    // pool keys state per alias and connects once per alias. Without this the
+    // harness treats the tool as exclusive and runs nested calls one at a
+    // time: a three-second command on one machine made an unrelated 200ms
+    // command on the same or another machine wait for it.
+    isConcurrencySafe: () => true,
     async execute() {
       const aliases = new Set()
       if (cfg.defaultMachine) aliases.add(normalizeAlias(cfg.defaultMachine))
@@ -546,6 +552,12 @@ export async function apply(ctx, config) {
       password: { type: 'string', description: 'Only honoured when the profile sets allowSessionPassword: true.' },
     },
     output: textOut,
+    // Every call owns its own SSH channel, so two calls never share one; the
+    // pool keys state per alias and connects once per alias. Without this the
+    // harness treats the tool as exclusive and runs nested calls one at a
+    // time: a three-second command on one machine made an unrelated 200ms
+    // command on the same or another machine wait for it.
+    isConcurrencySafe: () => true,
     async execute(args) {
       const alias = machineFor(args)
       const startedAt = Date.now()
@@ -600,6 +612,12 @@ export async function apply(ctx, config) {
       password: { type: 'string', description: 'Only honoured when the profile sets allowSessionPassword: true.' },
     },
     output: textOut,
+    // Every call owns its own SSH channel, so two calls never share one; the
+    // pool keys state per alias and connects once per alias. Without this the
+    // harness treats the tool as exclusive and runs nested calls one at a
+    // time: a three-second command on one machine made an unrelated 200ms
+    // command on the same or another machine wait for it.
+    isConcurrencySafe: () => true,
     async execute(args) {
       const alias = machineFor(args)
       const command = requireText(args.command, 'command')
@@ -687,6 +705,12 @@ export async function apply(ctx, config) {
       confirm: { type: 'boolean', description: 'Required when execGuard is "confirm".' },
     },
     output: textOut,
+    // Every call owns its own SSH channel, so two calls never share one; the
+    // pool keys state per alias and connects once per alias. Without this the
+    // harness treats the tool as exclusive and runs nested calls one at a
+    // time: a three-second command on one machine made an unrelated 200ms
+    // command on the same or another machine wait for it.
+    isConcurrencySafe: () => true,
     async execute(args) {
       const alias = machineFor(args)
       guardWrite(optionalFlag(args.confirm, 'confirm'))
@@ -747,6 +771,12 @@ export async function apply(ctx, config) {
       confirm: { type: 'boolean', description: 'Required when execGuard is "confirm".' },
     },
     output: textOut,
+    // Every call owns its own SSH channel, so two calls never share one; the
+    // pool keys state per alias and connects once per alias. Without this the
+    // harness treats the tool as exclusive and runs nested calls one at a
+    // time: a three-second command on one machine made an unrelated 200ms
+    // command on the same or another machine wait for it.
+    isConcurrencySafe: () => true,
     async execute(args) {
       guardWrite(optionalFlag(args.confirm, 'confirm'))
       const alias = machineFor(args)
@@ -804,6 +834,12 @@ export async function apply(ctx, config) {
       password: { type: 'string', description: 'Only honoured when the profile sets allowSessionPassword: true.' },
     },
     output: textOut,
+    // Every call owns its own SSH channel, so two calls never share one; the
+    // pool keys state per alias and connects once per alias. Without this the
+    // harness treats the tool as exclusive and runs nested calls one at a
+    // time: a three-second command on one machine made an unrelated 200ms
+    // command on the same or another machine wait for it.
+    isConcurrencySafe: () => true,
     async execute(args) {
       const alias = machineFor(args)
       const rawPath = args.path === undefined || args.path === null || args.path === '' ? '.' : args.path
@@ -855,6 +891,12 @@ export async function apply(ctx, config) {
       deleteFiles: { type: 'boolean', description: 'remove: also delete the placeholder directory. Files on the remote host are never touched.' },
     },
     output: textOut,
+    // Every call owns its own SSH channel, so two calls never share one; the
+    // pool keys state per alias and connects once per alias. Without this the
+    // harness treats the tool as exclusive and runs nested calls one at a
+    // time: a three-second command on one machine made an unrelated 200ms
+    // command on the same or another machine wait for it.
+    isConcurrencySafe: () => true,
     async execute(args) {
       const action = String(args.action === undefined || args.action === null ? 'list' : args.action).toLowerCase()
       // The workspace registry is a host service, not a tool: a profile that
@@ -954,6 +996,12 @@ export async function apply(ctx, config) {
       limit: { type: 'integer', description: 'How many records to show (default 20, max 200).' },
     },
     output: textOut,
+    // Every call owns its own SSH channel, so two calls never share one; the
+    // pool keys state per alias and connects once per alias. Without this the
+    // harness treats the tool as exclusive and runs nested calls one at a
+    // time: a three-second command on one machine made an unrelated 200ms
+    // command on the same or another machine wait for it.
+    isConcurrencySafe: () => true,
     async execute(args) {
       const requested = args.limit === undefined || args.limit === null ? 20 : Number(args.limit)
       if (!Number.isFinite(requested)) {
@@ -1004,6 +1052,12 @@ export async function apply(ctx, config) {
       'password rotation to confirm the plugin is reading the new one.',
     parameters: {},
     output: textOut,
+    // Every call owns its own SSH channel, so two calls never share one; the
+    // pool keys state per alias and connects once per alias. Without this the
+    // harness treats the tool as exclusive and runs nested calls one at a
+    // time: a three-second command on one machine made an unrelated 200ms
+    // command on the same or another machine wait for it.
+    isConcurrencySafe: () => true,
     async execute() {
       const aliases = knownAliases({ machines: cfg.machines, dshHome })
       if (cfg.defaultMachine && !aliases.includes(normalizeAlias(cfg.defaultMachine))) {
@@ -1062,6 +1116,12 @@ export async function apply(ctx, config) {
       'what a file says. Secrets are never included.',
     parameters: {},
     output: textOut,
+    // Every call owns its own SSH channel, so two calls never share one; the
+    // pool keys state per alias and connects once per alias. Without this the
+    // harness treats the tool as exclusive and runs nested calls one at a
+    // time: a three-second command on one machine made an unrelated 200ms
+    // command on the same or another machine wait for it.
+    isConcurrencySafe: () => true,
     async execute() {
       const stats = pool.connectionStats()
       const rows = [
@@ -1130,6 +1190,12 @@ export async function apply(ctx, config) {
       machine: { type: 'string', description: 'Machine alias. Defaults to defaultMachine.' },
     },
     output: textOut,
+    // Every call owns its own SSH channel, so two calls never share one; the
+    // pool keys state per alias and connects once per alias. Without this the
+    // harness treats the tool as exclusive and runs nested calls one at a
+    // time: a three-second command on one machine made an unrelated 200ms
+    // command on the same or another machine wait for it.
+    isConcurrencySafe: () => true,
     async execute(args) {
       const alias = machineFor(args)
       const m = machineDefinition(alias, { machines: cfg.machines, dshHome })
@@ -1265,6 +1331,12 @@ export async function apply(ctx, config) {
       force: { type: 'boolean', description: 'Close even if a command is still running on that connection.' },
     },
     output: textOut,
+    // Every call owns its own SSH channel, so two calls never share one; the
+    // pool keys state per alias and connects once per alias. Without this the
+    // harness treats the tool as exclusive and runs nested calls one at a
+    // time: a three-second command on one machine made an unrelated 200ms
+    // command on the same or another machine wait for it.
+    isConcurrencySafe: () => true,
     async execute(args) {
       const alias = normalizeAlias(args.machine || '')
       const force = optionalFlag(args.force, 'force')
