@@ -47,6 +47,19 @@ export function exitLine(result) {
 }
 
 /**
+ * '1 byte' / '2 bytes'. A written one-character file used to read
+ * 'Wrote 1 bytes', which makes an otherwise careful message look careless.
+ *
+ * @param {number} count
+ * @param {string} noun a noun with regular plural
+ * @returns {string}
+ */
+export function plural(count, noun) {
+  const n = Number(count) || 0
+  return n + ' ' + noun + (n === 1 ? '' : 's')
+}
+
+/**
  * Render a directory listing.
  *
  * @param {{path: string, items: Array<{name: string, size: number, dir: boolean, mtime?: string|null}>}} listing

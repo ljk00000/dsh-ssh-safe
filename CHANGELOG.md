@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.9 — 2026-10-31
+
+### Fixed
+- **"Wrote 1 bytes" and "[truncated at 1 bytes]".** Writing a one-character file
+  is ordinary work, and the message made the whole result look careless. One
+  byte now reads "1 byte"; the audit trail's count says "1 entry" for a single
+  entry too.
+
 ## 0.7.8 — 2026-10-31
 
 ### Fixed

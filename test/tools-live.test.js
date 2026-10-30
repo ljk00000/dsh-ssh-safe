@@ -210,3 +210,11 @@ test('ssh_list of an empty directory says so', async () => {
 test('ssh_read of a missing file reports the path', async () => {
   await assert.rejects(() => run('ssh_read', { path: '/srv/absent.txt' }), /no such file/i)
 })
+test('a single byte is described as "1 byte"', async () => {
+  srv.vfs.putDir('/tmp')
+  const wrote = await run('ssh_write', { path: '/tmp/one-byte.txt', content: 'x' })
+  assert.match(wrote, /Wrote 1 byte to \/tmp\/one-byte\.txt/, wrote)
+  srv.vfs.putFile('/tmp/two-bytes.txt', 'xy')
+  const read = await run('ssh_read', { path: '/tmp/two-bytes.txt', maxBytes: 1 })
+  assert.match(read, /\[truncated at 1 byte\]/, read)
+})

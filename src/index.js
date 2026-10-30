@@ -35,7 +35,7 @@ import {
 } from './machines.js'
 import { storePath } from './hostkey.js'
 import { checkCommand } from './guard.js'
-import { exitLine, formatListing } from './format.js'
+import { exitLine, formatListing, plural } from './format.js'
 import { AuditLog, summarize } from './audit.js'
 import {
   findWorkspace,
@@ -765,7 +765,7 @@ export async function apply(ctx, config) {
       // to redact. raw: true opts out for the cases where the masked value is
       // the thing being investigated.
       const body = args.raw === true ? r.content : redact(r.content)
-      const header = r.truncated ? '[truncated at ' + r.bytes + ' bytes]\n' : ''
+      const header = r.truncated ? '[truncated at ' + plural(r.bytes, 'byte') + ']\n' : ''
       // Only claim to have masked something when the text actually changed: a
       // README read through the default path used to end with a warning that
       // implied secrets had been found and hidden.
@@ -810,7 +810,7 @@ export async function apply(ctx, config) {
       const content = args.content
       const bytes = Buffer.byteLength(content)
       if (bytes > cfg.maxFileBytes) {
-        throw new Error('Refusing to write ' + bytes + ' bytes (maxFileBytes = ' + cfg.maxFileBytes + ').')
+        throw new Error('Refusing to write ' + plural(bytes, 'byte') + ' (maxFileBytes = ' + cfg.maxFileBytes + ').')
       }
       const startedAt = Date.now()
       let r
@@ -840,7 +840,7 @@ export async function apply(ctx, config) {
         kind: 'write', machine: alias, path: r.path, outcome: 'ok', bytes: r.bytes,
         ms: Date.now() - startedAt,
       })
-      return { text: 'Wrote ' + r.bytes + ' bytes to ' + r.path }
+      return { text: 'Wrote ' + plural(r.bytes, 'byte') + ' to ' + r.path }
     },
   })
 
@@ -1052,7 +1052,7 @@ export async function apply(ctx, config) {
         // renderer dropped every one of them.
         const detail = []
         if (r.bytes !== undefined) detail.push(r.bytes + 'B')
-        if (r.entries !== undefined) detail.push(r.entries + ' entries')
+        if (r.entries !== undefined) detail.push(r.entries + (r.entries === 1 ? ' entry' : ' entries'))
         if (r.truncated) detail.push('truncated')
         if (r.redacted === true) detail.push('redacted')
         if (r.ms !== undefined) detail.push(r.ms + 'ms')
