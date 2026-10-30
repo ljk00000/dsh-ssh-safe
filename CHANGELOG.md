@@ -17,6 +17,10 @@
 - A command killed at its deadline keeps the stdout and stderr it had already
   printed, and does not show the tail that never arrived.
 - The alias that was evicted mid-command reconnects on its next call.
+- A per-machine host key policy overrides the global one in both directions,
+  checked against a host that is genuinely unrecorded ('localhost' is a
+  different known_hosts id from '127.0.0.1', which is what made the first
+  version of this test pass for the wrong reason).
 
 ## 0.7.13 — 2026-10-31
 

@@ -387,3 +387,23 @@ test('the alias that was evicted reconnects on its next call', async () => {
     await pool.closeAll({ force: true })
   }
 })
+test('a per-machine host-key policy overrides the global one', async () => {
+  // 'localhost' is a different known_hosts id from '127.0.0.1:<port>', so this
+  // host is unrecorded however many earlier tests touched the pool.
+  const pool = poolFor({ t: machineFor('t', srv.port, { host: 'localhost', hostKeyPolicy: 'off' }) }, { hostKeyPolicy: 'strict' })
+  try {
+    const r = await pool.exec('t', 'echo policy', {})
+    assert.match(r.stdout, /policy/, 'policy off on the machine must beat strict globally')
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})
+
+test('a per-machine policy of strict still refuses an unrecorded host', async () => {
+  const pool = poolFor({ t: machineFor('t', srv.port, { host: 'localhost', hostKeyPolicy: 'strict' }) }, { hostKeyPolicy: 'off' })
+  try {
+    await assert.rejects(() => pool.exec('t', 'echo nope', {}), /Unknown host|host key/i)
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})
