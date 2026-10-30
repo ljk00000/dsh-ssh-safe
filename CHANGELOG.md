@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.12 — 2026-10-31
+
+### Fixed
+- **A failing workspace service took the whole answer with it.**
+  `ssh_workspace { action: "list" }` threw "registry unavailable" and lost the
+  machine list and its placeholder directories, none of which had anything to
+  do with the registry. The listing now reports the service error as one line
+  and still shows everything it can read.
+- **`action: "remove"` could report "no record" for a registry it could not
+  read.** "Not registered" and "cannot ask" are different answers; the second
+  used to leave a stale workspace in the sidebar while saying it was gone. It
+  now refuses to act and says nothing was changed.
+
+### Added — tests
+- A failing registry: listing survives, removal refuses, and `findWorkspace`
+  returns null instead of throwing.
+
 ## 0.7.11 — 2026-10-31
 
 ### Added

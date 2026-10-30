@@ -195,3 +195,36 @@ test('an unknown action is refused with the accepted ones', async () => {
     )
   } finally { restore() }
 })
+// A workspace service that is down must not take down the answer: the alias
+// list and the placeholder directories have nothing to do with it.
+const brokenRegistry = () => ({
+  list() { throw new Error('service down') },
+  async create() { return {} },
+  async delete() { return true },
+})
+
+test('a failing workspace service still leaves a usable listing', async () => {
+  const { tools, restore } = await toolsFor({ DSH_SSH_GPU_HOST: 'h.example', DSH_SSH_GPU_USER: 'root' }, brokenRegistry())
+  try {
+    const text = TEXT_OF(await tools.ssh_workspace.execute({ action: 'list' }, {}))
+    assert.match(text, /无法读取工作区服务/, text)
+    assert.match(text, /service down/)
+    assert.match(text, /gpu/, 'the machine must still be listed')
+  } finally { restore() }
+})
+
+test('remove refuses to guess when the service cannot be read', async () => {
+  const { tools, dshHome, restore } = await toolsFor({ DSH_SSH_GPU_HOST: 'h.example', DSH_SSH_GPU_USER: 'root' }, brokenRegistry())
+  try {
+    await tools.ssh_workspace.execute({ action: 'create', machine: 'gpu' }, {})
+    await assert.rejects(
+      () => tools.ssh_workspace.execute({ action: 'remove', machine: 'gpu' }, {}),
+      /读取工作区服务失败，未做任何改动/,
+    )
+    assert.equal(existsSync(remoteDir(dshHome, 'gpu')), true, 'nothing may be deleted')
+  } finally { restore() }
+})
+
+test('findWorkspace tolerates a registry that throws', () => {
+  assert.equal(findWorkspace(brokenRegistry(), 'C:\\x'), null)
+})

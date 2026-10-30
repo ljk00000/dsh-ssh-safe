@@ -39,6 +39,7 @@ import { exitLine, formatListing, plural } from './format.js'
 import { AuditLog, summarize } from './audit.js'
 import {
   findWorkspace,
+  listWorkspaces,
   readMarker,
   remoteDir,
   remoteRoot,
@@ -929,6 +930,10 @@ export async function apply(ctx, config) {
       // a failure.
       const registry = typeof ctx.get === 'function' ? ctx.get('workspaceRegistry') : undefined
 
+      // Read the registry once, and never let its failure take the answer with
+      // it: the aliases and their placeholder directories have nothing to do
+      // with whether the workspace service is answering.
+      const registryRead = listWorkspaces(registry)
       if (action === 'list') {
         const aliases = [...knownAliases({ machines: cfg.machines, dshHome })].sort()
         if (aliases.length === 0) return { text: '没有配置任何机器。先用设置界面或凭据文件添加一台，再创建远程工作区。' }
@@ -936,12 +941,14 @@ export async function apply(ctx, config) {
           const m = machineDefinition(alias, { machines: cfg.machines, dshHome })
           const dir = remoteDir(dshHome, alias)
           const marker = readMarker(dshHome, alias)
-          const workspace = findWorkspace(registry, dir)
-          const state = workspace
-            ? '已注册为工作区「' + workspace.title + '」'
-            : marker
-              ? '有占位目录，但未注册（用 action: "create" 注册）'
-              : '未创建（用 action: "create" 创建）'
+          const workspace = findWorkspace({ list: () => registryRead.items }, dir)
+          const state = registryRead.error
+            ? '无法读取工作区服务，无法判断是否已注册（' + registryRead.error + '）'
+            : workspace
+              ? '已注册为工作区「' + workspace.title + '」'
+              : marker
+                ? '有占位目录，但未注册（用 action: "create" 注册）'
+                : '未创建（用 action: "create" 创建）'
           return '• ' + alias + '  ' + (m.username || '?') + '@' + (m.host || '?') + ':' + (m.port || 22) +
             '\n    ' + state +
             (existsSync(dir) ? '\n    ' + dir : '')
@@ -990,7 +997,13 @@ export async function apply(ctx, config) {
       }
 
       if (action === 'remove') {
-        const workspace = findWorkspace(registry, dir)
+        // Removing a registration needs a trustworthy read: "no record" and
+        // "cannot read the registry" must not look alike, or a stale workspace
+        // stays in the sidebar while the tool reports it gone.
+        if (registryRead.error) {
+          throw new Error('读取工作区服务失败，未做任何改动：' + registryRead.error)
+        }
+        const workspace = findWorkspace({ list: () => registryRead.items }, dir)
         let removed = '没有注册记录'
         if (workspace && registry && typeof registry.delete === 'function') {
           const ok = await registry.delete(workspace.id)

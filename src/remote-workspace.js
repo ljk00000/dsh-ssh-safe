@@ -135,13 +135,34 @@ export function writeRemoteWorkspace(dshHome, alias, machine = {}) {
  * mount workspaces (headless, or a tui without the plugin).
  */
 export function findWorkspace(registry, dir) {
-  if (!registry || typeof registry.list !== 'function') return null
+  const { items } = listWorkspaces(registry)
   const wanted = String(dir).toLowerCase()
-  for (const workspace of registry.list()) {
+  for (const workspace of items) {
     const path = String(workspace && workspace.path || '').toLowerCase()
     if (path === wanted) return workspace
   }
   return null
+}
+
+/**
+ * Read the registry's workspaces without letting a host service failure escape.
+ *
+ * The workspace registry is DSH's, not this plugin's: it can be unavailable
+ * while the page (or a headless profile) is perfectly healthy. Listing the
+ * remote workspaces used to throw "registry unavailable" and lose the whole
+ * answer, including the placeholder directories that had nothing to do with it.
+ *
+ * @param {any} registry
+ * @returns {{items: any[], error: string}}
+ */
+export function listWorkspaces(registry) {
+  if (!registry || typeof registry.list !== 'function') return { items: [], error: '' }
+  try {
+    const items = registry.list()
+    return { items: Array.isArray(items) ? items : [], error: '' }
+  } catch (err) {
+    return { items: [], error: String(err && err.message ? err.message : err).slice(0, 200) }
+  }
 }
 
 /** Remove the placeholder directory entirely. */
