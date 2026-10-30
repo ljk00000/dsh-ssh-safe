@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // Every other suite tests a module in isolation. None of them called apply()
 // and asserted on what a tool actually returns, which is why three defects
@@ -428,5 +429,33 @@ test('ssh_credentials lists every source in the order actually used', async () =
     }
     assert.match(text, /a usable password always outranks a key/)
     assert.doesNotMatch(text, /\n\n  encryption/, 'no blank line inside the header')
+  } finally { restore() }
+})
+test('the defaults in the README table match the defaults in the code', async () => {
+  // A default that drifts silently makes the documentation a trap: someone tunes
+  // maxFileBytes to 2 MB because the README said 1 MB, and it was already 1 MB.
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  const readme = readFileSync(path.join(here, '..', 'README.md'), 'utf8')
+  const { tools, restore } = capture({})
+  try {
+    const actual = {}
+    for (const line of String((await tools['ssh_config'].execute({})).text).split('\n')) {
+      const match = line.match(/^  (\w+)\s+(.*?)(?:\s{2,}#|$)/)
+      if (match) actual[match[1]] = match[2].trim().replace(/^"|"$/g, '')
+    }
+    let checked = 0
+    for (const line of readme.split('\n')) {
+      const row = line.match(/^\|\s*`([A-Za-z]+)`\s*\|\s*`?([^|`]+?)`?\s*\|/)
+      if (!row) continue
+      const [, key, documented] = row
+      // Only literal defaults: the three collection settings have display forms
+      // ('{}', '' , '9 条') that are not the value itself.
+      if (!/^\d+$/.test(documented) && !/^(true|false)$/.test(documented) && !/^"[a-z]+"$/.test(documented)) continue
+      assert.ok(key in actual, 'README documents ' + key + ' but ssh_config does not report it')
+      assert.equal(actual[key], documented.replace(/^"/, '').replace(/"$/, ''),
+        'README says ' + key + ' = ' + documented + ', the code says ' + actual[key])
+      checked++
+    }
+    assert.ok(checked >= 15, 'expected to compare most settings, compared ' + checked)
   } finally { restore() }
 })

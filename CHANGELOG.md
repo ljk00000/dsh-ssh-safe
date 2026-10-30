@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.47 — 2026-10-31
+
+### Added — tests
+- **The README's settings table is now checked against the code.** All 23
+  documented defaults were correct when this test was written, which is exactly
+  why nothing would have noticed the day one of them changed: someone tunes
+  `maxFileBytes` to 2 MB because the README said 1 MB, and the README is the
+  stale half. Proven by changing the Config default to 2097152 and watching the
+  test fail with `README says maxFileBytes = 1048576, the code says 2097152`.
+- Every registered tool is named in the README, and the README names no tool that
+  does not exist.
+
+### Verified, no change needed
+- The three README rows that differ from `ssh_config` are display forms, not
+  wrong values: `defaultMachine` `''` vs `(none)`, `machines` `{}` vs
+  `0 defined`, `denyPatterns` `9 条` vs `9 pattern(s)`.
+
 ## 0.7.46 — 2026-10-31
 
 ### Fixed
