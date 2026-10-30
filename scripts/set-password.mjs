@@ -120,7 +120,17 @@ if (existsSync(file)) {
 
 const entry = { ...(store[alias] && typeof store[alias] === 'object' ? store[alias] : {}) }
 if (args.host) entry.host = String(args.host)
-if (args.port) entry.port = Number(args.port)
+if (args.port !== undefined) {
+  // 'abc' used to be stored as null and '70000' as-is: JSON turns NaN into
+  // null, the resolver falls back to 22, and the account ends up trying to
+  // reach a port nobody asked for. The page validates this; so should the CLI.
+  const port = Number(args.port)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    console.error('--port must be an integer between 1 and 65535 (received ' + JSON.stringify(args.port) + ')')
+    process.exit(2)
+  }
+  entry.port = port
+}
 if (args.user) entry.user = String(args.user)
 if (args['key-path']) entry.keyPath = String(args['key-path'])
 

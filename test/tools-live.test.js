@@ -218,3 +218,15 @@ test('a single byte is described as "1 byte"', async () => {
   const read = await run('ssh_read', { path: '/tmp/two-bytes.txt', maxBytes: 1 })
   assert.match(read, /\[truncated at 1 byte\]/, read)
 })
+test('a refused command is recorded with the machine it targeted', async () => {
+  await assert.rejects(() => run('ssh_exec', { command: 'rm -rf /' }), /Command refused/)
+  const file = path.join(home, 'dsh-ssh-safe', 'audit.ndjson')
+  const records = readFileSync(file, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+  const refused = records.filter((r) => r.kind === 'refused')
+  assert.ok(refused.length > 0, 'the refusal must be recorded')
+  assert.equal(refused[refused.length - 1].machine, 't', 'the record must name the machine')
+  assert.match(String(refused[refused.length - 1].pattern), /rm/)
+
+  const text = await run('ssh_audit', { limit: 50 })
+  assert.match(text, / t refused /, 'the renderer must show it: ' + text.slice(0, 400))
+})

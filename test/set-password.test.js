@@ -70,3 +70,21 @@ test('a second write for the same alias replaces the first', { skip: !dpapiAvail
     rmSync(home, { recursive: true, force: true })
   }
 })
+test('an unusable port is refused instead of stored as null', { skip: !dpapiAvailable() && 'DPAPI unavailable' }, () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-swp-'))
+  try {
+    for (const port of ['abc', '70000', '-5', '22.5', '0']) {
+      const result = runSetPassword(home, ['--alias', 'p', '--host', 'h', '--user', 'u', '--password', 'pw', '--port', port])
+      assert.equal(result.status, 2, 'port ' + port + ' must be refused: ' + result.stdout)
+      assert.match(result.stderr, /--port must be an integer between 1 and 65535/)
+    }
+    assert.ok(!existsSync(path.join(home, 'dsh-ssh-safe', 'credentials.json')), 'nothing may be written')
+
+    const good = runSetPassword(home, ['--alias', 'p', '--host', 'h', '--user', 'u', '--password', 'pw', '--port', '2222'])
+    assert.equal(good.status, 0, good.stderr)
+    const store = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
+    assert.equal(store.p.port, 2222)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.10 — 2026-10-31
+
+### Fixed
+- **A refused command's audit record did not say which machine it targeted.**
+  The record carried the command, the matched pattern and the reason, and the
+  operator's first question — "on which box?" — had no answer. It does now.
+- **`set-password --port abc` stored `null`.** JSON turns `NaN` into `null`, the
+  resolver falls back to 22, and the account ends up trying a port nobody asked
+  for. `70000`, `-5`, `22.5` and `0` were stored verbatim. The helper now
+  refuses anything that is not an integer in 1–65535, the way the page already
+  did.
+
+### Added — tests
+- `test/doctor-live.test.js`: the seven failure stages of `ssh_doctor` (missing
+  host, no credential, missing key file, unreachable port, wrong password,
+  unknown host key, changed host key) were only checked by grepping the source;
+  they now run against the loopback server.
+- The credential page reads machines out of the profile's
+  `cordis.patch.yml`: covered, including an empty host and the warning that the
+  settings form outranks the file.
+
 ## 0.7.9 — 2026-10-31
 
 ### Fixed

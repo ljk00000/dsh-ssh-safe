@@ -387,7 +387,7 @@ export async function apply(ctx, config) {
     return alias
   }
 
-  const guard = (command, confirmed) => {
+  const guard = (command, confirmed, machine) => {
     if (cfg.execGuard === 'confirm' && confirmed !== true) {
       throw new Error('execGuard is "confirm": pass confirm: true to run this command.')
     }
@@ -397,6 +397,9 @@ export async function apply(ctx, config) {
     if (verdict.blocked) {
       audit.write({
         kind: 'refused',
+        // Which machine it was aimed at is the first thing an operator asks
+        // about a refused command; the record used to leave it out.
+        machine,
         command: summarize(command),
         pattern: verdict.pattern,
         reason: verdict.reason,
@@ -635,7 +638,7 @@ export async function apply(ctx, config) {
       const alias = machineFor(args)
       const command = requireText(args.command, 'command')
       const budget = optionalBudget(args.timeoutMs, 'timeoutMs')
-      guard(command, optionalFlag(args.confirm, 'confirm'))
+      guard(command, optionalFlag(args.confirm, 'confirm'), alias)
       const startedAt = Date.now()
       let r
       try {

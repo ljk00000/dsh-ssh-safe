@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { request as httpRequest } from 'node:http'
 import { startServer } from './helpers/local-ssh-server.js'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -463,6 +464,60 @@ test('an authenticated call keeps the page alive', async () => {
     assert.equal(early, 'alive', 'the page must still be running after the touches')
   } finally {
     try { child.kill() } catch {}
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+test('machines from the settings form are listed and outrank the file', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    hostKeyPolicy: tofu',
+    '    machines:',
+    '      formbox:',
+    '        host: 10.1.2.3',
+    '        port: 2200',
+    '        user: root',
+    '      emptybox:',
+    '        host: ""',
+    '- id: some-other-plugin',
+    '  config: {}',
+  ].join('\n'))
+  const { child, base, token } = await start(home)
+  try {
+    const state = await call(base, token, '/api/state')
+    const box = state.body.machines.find((m) => m.alias === 'formbox')
+    assert.ok(box, 'settings machines must be listed: ' + JSON.stringify(state.body.machines))
+    assert.equal(box.host, '10.1.2.3')
+    assert.equal(box.port, 2200)
+    assert.equal(box.username, 'root')
+    assert.equal(box.fromSettings, true)
+    const empty = state.body.machines.find((m) => m.alias === 'emptybox')
+    assert.equal(empty.host, '', 'an empty host stays empty rather than becoming a string')
+
+    // Saving a different host must warn that the settings form wins.
+    const saved = await call(base, token, '/api/save', { alias: 'formbox', host: '10.9.9.9', user: 'admin' })
+    assert.equal(saved.status, 200)
+    assert.ok(saved.body.warnings.some((w) => w.includes('设置界面')), JSON.stringify(saved.body))
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a settings file with no plugin entry is simply ignored', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), '- id: unrelated\n  config: {}\n')
+  const { child, base, token } = await start(home)
+  try {
+    const state = await call(base, token, '/api/state')
+    assert.deepEqual(state.body.machines, [])
+  } finally {
+    child.kill()
     rmSync(home, { recursive: true, force: true })
   }
 })
