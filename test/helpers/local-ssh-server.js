@@ -57,6 +57,15 @@ export function startServer({ port = 0, user = 'tester', password = 'test-pass',
             const n = Number((command.match(/big\s+(\d+)/) || [])[1] || 1000)
             return finish(0, 'x'.repeat(n))
           }
+          if (/^crlf\b/.test(command)) {
+            return finish(0, 'line one\r\nline two\r\n')
+          }
+          if (/^binary\b/.test(command)) {
+            stream.write(Buffer.from([0xff, 0xfe, 0x00, 0x41]))
+            stream.exit(0)
+            stream.end()
+            return
+          }
           if (/^stderr\b/.test(command)) {
             stream.stderr.write('an error line\n')
             return finish(0, 'ok\n')

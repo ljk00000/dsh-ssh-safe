@@ -161,3 +161,19 @@ test('the file and workspace tools answer through their schema', async () => {
     assert.doesNotMatch(text, /INVALID_ARGS|must be of type|unexpected property/i, name + ': ' + text.slice(0, 200))
   }
 })
+test('non-ASCII output survives the channel', async () => {
+  const text = await run('ssh_exec', { command: 'echo 中文🙂' })
+  assert.match(text, /中文🙂/, 'utf-8 must round-trip through the channel collector')
+})
+
+test('CRLF output is passed through without splitting lines', async () => {
+  const text = await run('ssh_exec', { command: 'crlf' })
+  assert.match(text, /line one/)
+  assert.match(text, /line two/)
+})
+
+test('invalid utf-8 bytes do not crash the tool', async () => {
+  const text = await run('ssh_exec', { command: 'binary' })
+  assert.ok(text.length >= 0, 'a result is still returned')
+  assert.match(text, /\[exit 0\]/, 'the exit line must still be rendered')
+})
