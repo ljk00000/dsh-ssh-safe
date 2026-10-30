@@ -193,3 +193,17 @@ test('a user name holding @ explains that the host does not belong there', async
   const plain = connectFailure(authError, { host: '10.0.0.5', port: 22, username: 'tester' })
   assert.doesNotMatch(plain.message, /the user contains/)
 })
+test('machineInventory: alias hides the address in the error too', async () => {
+  // Every failure message said "Could not connect to root@10.9.8.7:22", which is
+  // the sentence most likely to end up in a shared transcript.
+  const { connectFailure } = await import('../src/pool.js')
+  const err = new Error('Timed out while waiting for handshake')
+  const machine = { alias: 'prod', host: '10.9.8.7', port: 22, username: 'root' }
+  const masked = connectFailure(err, machine, { lean: true })
+  assert.doesNotMatch(masked.message, /10\.9\.8\.7/)
+  assert.doesNotMatch(masked.message, /root@/)
+  assert.match(masked.message, /machine "prod" \(address hidden\)/)
+
+  const full = connectFailure(err, machine)
+  assert.match(full.message, /root@10\.9\.8\.7:22/, 'the default still names the target')
+})

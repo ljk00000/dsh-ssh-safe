@@ -93,20 +93,30 @@ export function formatHost(host) {
  * port is not sshd" is what decides the next step.
  *
  * @param {unknown} err
- * @param {{host?: string, port?: number, username?: string}} [m]
+ * @param {{host?: string, port?: number, username?: string, alias?: string}} [m]
+ * @param {{lean?: boolean}} [options] hide the address when machineInventory is 'alias'
  * @returns {Error}
  */
-export function connectFailure(err, m) {
+export function connectFailure(err, m, { lean = false } = {}) {
   const raw = redact(err && /** @type {any} */ (err).message ? /** @type {any} */ (err).message : String(err))
+  // The socket error itself carries the address: "connect ECONNREFUSED
+  // 127.0.0.1:1". Masking only the prefix left that in the message (and in the
+  // audit record) under machineInventory: 'alias'.
+  const shown = lean ? hideAddress(raw, m) : raw
   // Already decorated, or already explains itself: the host key store writes a
   // complete sentence naming the host, the fingerprint and the way out, and the
   // ssh_doctor line above it already carries the target.
   if (/^(Could not connect to |Refusing to retry )/.test(raw)) return new Error(raw)
   if (/^(Unknown host|Host key verification failed|Host key changed|HOST KEY CHANGED)/i.test(raw)) return new Error(raw)
+  // machineInventory: 'alias' keeps the topology out of the conversation. The
+  // success paths honoured it; every failure message still said
+  // "root@10.9.8.7:22", which is where a transcript is most likely to be shared.
   const target = m && m.host
-    // user@::1:22 reads as host "::1:22"; bracketing is how ssh prints an IPv6
-    // literal, and it is the only thing that makes the port unambiguous.
-    ? (m.username ? m.username + '@' : '') + formatHost(m.host) + ':' + (m.port || 22)
+    ? lean
+      ? 'machine "' + (m.alias || 'unknown') + '" (address hidden)'
+      // user@::1:22 reads as host "::1:22"; bracketing is how ssh prints an IPv6
+      // literal, and it is the only thing that makes the port unambiguous.
+      : (m.username ? m.username + '@' : '') + formatHost(m.host) + ':' + (m.port || 22)
     : 'the remote host'
   /** @type {Array<[RegExp, string]>} */
   const hints = [
@@ -122,7 +132,26 @@ export function connectFailure(err, m) {
     ? hostShapeHint(m && m.host)
     : /authentication methods failed|Permission denied/i.test(raw) ? userShapeHint(m && m.username) : ''
   const advice = [hint ? hint[1] : '', extra].filter(Boolean).join('; ')
-  return new Error('Could not connect to ' + target + ': ' + raw + (advice ? ' (' + advice + ')' : ''))
+  return new Error('Could not connect to ' + target + ': ' + shown + (advice ? ' (' + advice + ')' : ''))
+}
+
+/**
+ * Replace a host (and host:port) inside a message with a placeholder.
+ *
+ * Word-ish boundaries so a one-letter host cannot mangle the sentence around it.
+ *
+ * @param {string} text
+ * @param {{host?: string, port?: number}} [m]
+ * @returns {string}
+ */
+function hideAddress(text, m) {
+  const host = String((m && m.host) || '')
+  if (!host) return text
+  const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const port = String((m && m.port) || 22)
+  let out = String(text)
+  out = out.replace(new RegExp('(?<![A-Za-z0-9.-])' + escapeRegExp(host) + ':' + port + '(?![A-Za-z0-9.-])', 'g'), '<host hidden>')
+  return out.replace(new RegExp('(?<![A-Za-z0-9.-])' + escapeRegExp(host) + '(?![A-Za-z0-9.-])', 'g'), '<host hidden>')
 }
 
 /**
@@ -610,7 +639,7 @@ export class SshPool {
         if (settled) return
         settled = true
         try { client.end() } catch {}
-        reject(connectFailure(err, m))
+        reject(connectFailure(err, m, { lean: this.config.machineInventory === 'alias' }))
       }
 
       client.on('error', fail)

@@ -483,3 +483,30 @@ test('no tool output echoes the configured password', async () => {
     rmSync(home2, { recursive: true, force: true })
   }
 })
+test('machineInventory: alias hides the address in a failed connection too', async () => {
+  const tools2 = {}
+  const home3 = mkdtempSync(path.join(tmpdir(), 'dsh-lean2-'))
+  process.env.DSH_HOME = home3
+  await apply({ tools: { register: (d) => { tools2[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    defaultMachine: 'dead',
+    machineInventory: 'alias',
+    hostKeyPolicy: 'tofu',
+    connectTimeoutMs: 1000,
+    allowPlaintextPassword: true,
+    // 127.0.0.1 with nothing listening: the failure message is the one under test.
+    machines: { dead: { host: '127.0.0.1', port: 1, user: 'root', password: 'p' } },
+  })
+  try {
+    await assert.rejects(
+      () => tools2.ssh_exec.execute({ command: 'echo hi' }, {}),
+      (err) => {
+        assert.doesNotMatch(err.message, /127\.0\.0\.1/, 'the address must not appear: ' + err.message)
+        assert.match(err.message, /machine "dead" \(address hidden\)/)
+        return true
+      },
+    )
+  } finally {
+    await tools2.ssh_close.execute({ force: true }, {})
+    rmSync(home3, { recursive: true, force: true })
+  }
+})

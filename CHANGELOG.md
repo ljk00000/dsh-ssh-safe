@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.44 — 2026-10-31
+
+### Fixed
+- **`machineInventory: alias` leaked the address in every failure message.**
+  The success paths were masked in 0.7.32, but a failed connection said
+  `Could not connect to root@10.9.8.7:22: ...` -- and that sentence was written
+  to the audit log too. A sweep of twelve tool surfaces found six leaks
+  (`ssh_connect`, `ssh_exec`, `ssh_read`, `ssh_write`, `ssh_list`, `ssh_audit`).
+  They now read `Could not connect to machine "box" (address hidden): ...`, and
+  the address inside the socket error itself (`connect ECONNREFUSED
+  127.0.0.1:1`) is replaced too.
+
+### Added — tests
+- The masked and unmasked `connectFailure` shapes.
+- A live failure under `alias`: no address anywhere in the message.
+
 ## 0.7.43 — 2026-10-31
 
 ### Fixed
