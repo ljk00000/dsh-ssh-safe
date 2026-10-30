@@ -1,4 +1,5 @@
 import ssh2 from 'ssh2'
+import { attachSftp, createVfs } from './sftp-vfs.js'
 
 const { Server, utils } = ssh2
 
@@ -21,6 +22,7 @@ const { Server, utils } = ssh2
  */
 export function startServer({ port = 0, user = 'tester', password = 'test-pass', key = null } = {}) {
   const hostKey = key || utils.generateKeyPairSync('ed25519').private
+  const vfs = createVfs()
   const clients = new Set()
   const server = new Server({ hostKeys: [hostKey] }, (client) => {
     clients.add(client)
@@ -32,6 +34,12 @@ export function startServer({ port = 0, user = 'tester', password = 'test-pass',
     client.on('ready', () => {
       client.on('session', (accept) => {
         const session = accept()
+        // Listen for the subsystem rather than the 'sftp' event: the latter
+        // hands back ssh2's own SFTP parser, while a plain subsystem channel is
+        // a raw stream this helper can speak the protocol on.
+        session.on('subsystem', (acceptSubsystem, _reject, info) => {
+          if (info && info.name === 'sftp') attachSftp(acceptSubsystem(), vfs)
+        })
         session.on('exec', (acceptExec, _rejectExec, info) => {
           const stream = acceptExec()
           const command = String(info.command || '')
@@ -81,6 +89,7 @@ export function startServer({ port = 0, user = 'tester', password = 'test-pass',
       resolve({
         port: server.address().port,
         key: hostKey,
+        vfs,
         clientCount: () => clients.size,
         // Sever established sessions the way a network drop would: the server
         // stops answering while the listening socket stays up.

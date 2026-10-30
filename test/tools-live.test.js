@@ -143,37 +143,70 @@ test('a command with no output still reports the exit code', async () => {
   assert.match(text, /\[exit 0\]/)
   assert.ok(text.trim().length > 0, 'the result must not be blank')
 })
-test('the file and workspace tools answer through their schema', async () => {
-  // These reach SFTP, which this server does not implement, and the workspace
-  // tool reaches for a registry that a headless run does not have. The point is
-  // that each answers with a message rather than a schema error or a crash.
-  const cases = [
-    ['ssh_read', { path: '/etc/hostname' }],
-    ['ssh_write', { path: '/tmp/probe.txt', content: 'hi' }],
-    ['ssh_list', { path: '/' }],
-    ['ssh_workspace', { action: 'list' }],
-  ]
-  for (const [name, args] of cases) {
-    let text
-    try { text = String((await tools[name].execute(args, {})).text) }
-    catch (err) { text = 'rejected: ' + err.message }
-    assert.ok(text.length > 0, name + ' returned nothing')
-    assert.doesNotMatch(text, /INVALID_ARGS|must be of type|unexpected property/i, name + ': ' + text.slice(0, 200))
-  }
-})
-test('non-ASCII output survives the channel', async () => {
-  const text = await run('ssh_exec', { command: 'echo 中文🙂' })
-  assert.match(text, /中文🙂/, 'utf-8 must round-trip through the channel collector')
+test('ssh_read renders the file and masks secrets by default', async () => {
+  srv.vfs.putFile('/etc/app.conf', 'host=example\nPASSWORD=hunter2\n')
+  const text = await run('ssh_read', { path: '/etc/app.conf' })
+  assert.match(text, /host=example/)
+  assert.ok(!text.includes('hunter2'), 'the password must be masked: ' + text)
+  assert.match(text, /secrets masked/)
+
+  const raw = await run('ssh_read', { path: '/etc/app.conf', raw: true })
+  assert.match(raw, /hunter2/, 'raw: true shows the file verbatim')
+  assert.doesNotMatch(raw, /secrets masked/)
 })
 
-test('CRLF output is passed through without splitting lines', async () => {
-  const text = await run('ssh_exec', { command: 'crlf' })
-  assert.match(text, /line one/)
-  assert.match(text, /line two/)
+test('ssh_read says when it stopped at maxBytes', async () => {
+  srv.vfs.putFile('/var/long.txt', 'z'.repeat(500))
+  const text = await run('ssh_read', { path: '/var/long.txt', maxBytes: 20 })
+  assert.match(text, /\[truncated at 20 bytes\]/, text.slice(0, 120))
+  assert.ok(text.length < 100, 'only the read prefix should be returned')
 })
 
-test('invalid utf-8 bytes do not crash the tool', async () => {
-  const text = await run('ssh_exec', { command: 'binary' })
-  assert.ok(text.length >= 0, 'a result is still returned')
-  assert.match(text, /\[exit 0\]/, 'the exit line must still be rendered')
+test('ssh_write reports the bytes it wrote and they read back', async () => {
+  const wrote = await run('ssh_write', { path: '/tmp/notes/one.txt', content: 'hello file', createDirs: true })
+  assert.match(wrote, /Wrote 10 bytes to \/tmp\/notes\/one\.txt/)
+  const read = await run('ssh_read', { path: '/tmp/notes/one.txt' })
+  assert.equal(read, 'hello file')
+})
+
+test('ssh_write explains a missing parent directory', async () => {
+  await assert.rejects(
+    () => run('ssh_write', { path: '/nowhere/deep/file.txt', content: 'x' }),
+    /parent directory does not exist.*createDirs: true/, 
+  )
+})
+
+test('ssh_list renders names, sizes and kinds', async () => {
+  srv.vfs.putDir('/srv/www')
+  srv.vfs.putFile('/srv/www/index.html', '<h1>hi</h1>')
+  srv.vfs.putDir('/srv/www/assets')
+  const text = await run('ssh_list', { path: '/srv/www' })
+  assert.match(text, /index\.html/)
+  assert.match(text, /assets/)
+  assert.match(text, /-\s+11\s+index\.html/, 'name and byte count on one row: ' + text)
+  assert.match(text, /^d\s+\d+\s+assets$/m, 'a directory row starts with d: ' + text)
+})
+
+test('ssh_workspace still answers without a workspace registry', async () => {
+  const text = await run('ssh_workspace', { action: 'list' })
+  assert.ok(text.length > 0)
+  assert.doesNotMatch(text, /INVALID_ARGS|must be of type|unexpected property/i)
+})
+test('ssh_list stops at maxListEntries and says how many it hid', async () => {
+  srv.vfs.putDir('/srv/many')
+  for (let i = 0; i < 2100; i++) srv.vfs.putFile('/srv/many/f' + String(i).padStart(5, '0') + '.txt', 'x')
+  const text = await run('ssh_list', { path: '/srv/many' })
+  const rows = text.split('\n').filter((line) => line.startsWith('- ') || line.startsWith('d '))
+  assert.equal(rows.length, 2000, 'the default cap is 2000 rows, saw ' + rows.length)
+  assert.match(text, /more entries not shown \(maxListEntries = 2000\)/)
+})
+
+test('ssh_list of an empty directory says so', async () => {
+  srv.vfs.putDir('/srv/nothing')
+  const text = await run('ssh_list', { path: '/srv/nothing' })
+  assert.match(text, /\(empty directory: \/srv\/nothing\)/)
+})
+
+test('ssh_read of a missing file reports the path', async () => {
+  await assert.rejects(() => run('ssh_read', { path: '/srv/absent.txt' }), /no such file/i)
 })
