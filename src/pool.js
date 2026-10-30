@@ -489,10 +489,20 @@ export class SshPool {
     // per-kind chain dropped every source it did not name (notably a password
     // from the credential file), which produced a connect attempt carrying no
     // authentication at all.
-    const connectConfig = connectOptions(m, auth, {
-      readyTimeout: pick(this.config.connectTimeoutMs, 15000),
-      keepaliveInterval: pick(this.config.keepaliveIntervalMs, 20000),
-    })
+    let connectConfig
+    try {
+      connectConfig = connectOptions(m, auth, {
+        readyTimeout: pick(this.config.connectTimeoutMs, 15000),
+        keepaliveInterval: pick(this.config.keepaliveIntervalMs, 20000),
+      })
+    } catch (err) {
+      // A key that cannot be read is a configuration problem, not a network
+      // one: say which machine and which file, and do not start a cooldown.
+      throw noCooldown(new Error(
+        'Machine "' + alias + '" cannot use its credential: ' +
+        redact(err && /** @type {any} */ (err).message ? /** @type {any} */ (err).message : String(err))
+      ))
+    }
 
     // Tests inject a stand-in here: without a seam the auth mapping below was
     // never executed by any test, which is how a password from the credential

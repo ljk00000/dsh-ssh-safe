@@ -342,3 +342,25 @@ test('ssh_doctor does not sever a command that started while it was running', as
   assert.match(String(executed.text), /slept 1/, 'the command must survive the diagnosis: ' + String(executed.text))
   assert.doesNotMatch(String(executed.text), /connection closed before the command reported an exit status/)
 })
+test('a write that never opened does not claim the file was damaged', async () => {
+  // The partial-write note belongs to a transfer that actually sent bytes.
+  // An open failure (missing parent, or a path component that is a file) wrote
+  // nothing, and saying otherwise sends the caller hunting for damage.
+  await assert.rejects(
+    () => run('ssh_write', { path: '/var/missing/x.txt', content: 'y' }),
+    (err) => {
+      assert.match(err.message, /parent directory does not exist/)
+      assert.doesNotMatch(err.message, /partially written/)
+      return true
+    },
+  )
+  srv.vfs.putFile('/var/file.txt', 'x')
+  await assert.rejects(
+    () => run('ssh_write', { path: '/var/file.txt/child.txt', content: 'y', createDirs: true }),
+    (err) => {
+      assert.match(err.message, /createDirs could not create the parent path/)
+      assert.doesNotMatch(err.message, /partially written/)
+      return true
+    },
+  )
+})

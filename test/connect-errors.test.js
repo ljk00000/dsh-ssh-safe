@@ -111,3 +111,21 @@ test('an untrusted host key points at trustHostKey', async () => {
     await srv.close()
   }
 })
+test('an unreadable key file names the machine and does not start a cooldown', async () => {
+  const p = pool({ box: { host: '127.0.0.1', port: 22, user: 'deploy', keyPath: '/definitely/not/here' } })
+  try {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await assert.rejects(
+        () => p.connect('box', {}),
+        (err) => {
+          assert.match(err.message, /Machine "box" cannot use its credential/, 'attempt ' + attempt)
+          assert.match(err.message, /ENOENT/)
+          assert.doesNotMatch(err.message, /Refusing to retry/, 'a config error must not start the cooldown')
+          return true
+        },
+      )
+    }
+  } finally {
+    await p.closeAll({ force: true })
+  }
+})

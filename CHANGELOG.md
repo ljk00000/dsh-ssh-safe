@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.24 — 2026-10-31
+
+### Fixed
+- **A write that never opened claimed the file was damaged.** The
+  "may be truncated or partially written" note from 0.7.16 was added to every
+  write error, including open failures where nothing was sent. It is now added
+  only when bytes actually went out (`stream.bytesWritten > 0`).
+- **`createDirs` failures suggested the wrong fix.** With `createDirs: true`
+  and a path component that is a file, the answer was still "the parent
+  directory does not exist. Pass createDirs: true" -- advice the caller had
+  already taken. That case now says `createDirs could not create the parent
+  path; is part of it a file?`.
+- **An unreadable private key surfaced as a bare ENOENT.** It now reads
+  `Machine "x" cannot use its credential: ENOENT: ... open '<path>'`, and -- like
+  the other configuration errors -- does not start the reconnect cooldown.
+
+### Added — tests
+- Four write-error shapes: no partial-write note when nothing was written, and
+  the createDirs wording.
+- The unreadable-key message, twice in a row, without a cooldown.
+
 ## 0.7.23 — 2026-10-31
 
 ### Fixed

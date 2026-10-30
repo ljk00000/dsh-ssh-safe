@@ -309,7 +309,11 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
       // than the caller asked for. Saying so is the difference between "retry"
       // and "someone deleted half this file".
       const note = (err) => {
-        if (err && typeof err.message === 'string' && !/partially written/.test(err.message)) {
+        // Only when bytes actually went out. An open failure (missing parent, a
+        // path that is not a file) wrote nothing, and claiming a truncated file
+        // sends the caller looking for damage that is not there.
+        const wrote = Number(stream && stream.bytesWritten) > 0
+        if (wrote && err && typeof err.message === 'string' && !/partially written/.test(err.message)) {
           err.message += ' — the file may be truncated or partially written'
         }
         return err

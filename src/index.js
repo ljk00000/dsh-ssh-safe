@@ -836,8 +836,12 @@ export async function apply(ctx, config) {
         // A missing parent directory is the commonest write failure, and the
         // server's own words ("No such file") do not say which half of the path
         // is absent or how to fix it.
-        if (!createDirs && (/no such file/i.test(message) || err?.code === 2)) {
-          err.message = message + ' — the parent directory does not exist. Pass createDirs: true to create it.'
+        if (/no such file/i.test(message) || err?.code === 2) {
+          err.message = message + (createDirs
+            // createDirs was already asked for: it only creates directories that
+            // are missing, and cannot replace a path component that is a file.
+            ? ' — createDirs could not create the parent path; is part of it a file?'
+            : ' — the parent directory does not exist. Pass createDirs: true to create it.')
         }
         audit.write({
           kind: 'write', machine: alias, path: remotePath, outcome: 'error',
