@@ -110,3 +110,69 @@ test('connectionStats reports the ceiling and the live set', async () => {
   assert.equal(stats.limit, 3)
   assert.deepEqual(stats.aliases.sort(), ['a', 'b'])
 })
+test('the idle probe leaves a busy connection alone', async () => {
+  // A probe that fails for an unrelated reason (the server is at MaxSessions,
+  // or slow to open a channel) closed the connection and took the running
+  // command with it.
+  class SilentClient extends FakeClient {
+    exec(_c, _cb) { /* never answers: the probe times out */ }
+  }
+  const pool = makePool(2)
+  pool.config.healthCheckIdleMs = 1
+  pool.config.healthCheckTimeoutMs = 10
+  const client = new SilentClient()
+  pool.entry('a').client = client
+  pool.beginOp('a')
+  await new Promise((r) => setTimeout(r, 5)) // older than healthCheckIdleMs
+
+  const returned = await pool.connect('a', {})
+  assert.equal(returned, client, 'a busy connection is handed back, not probed away')
+  assert.equal(pool.entry('a').client, client, 'and it stays pooled')
+  pool.endOp('a')
+})
+
+test('an idle probe still replaces a connection that is gone', async () => {
+  class DeadClient extends FakeClient {
+    exec(_c, cb) { cb(new Error('channel: not open'), null) }
+  }
+  const pool = makePool(2)
+  pool.config.healthCheckIdleMs = 1
+  pool.config.healthCheckTimeoutMs = 50
+  const dead = new DeadClient()
+  pool.entry('a').client = dead
+  pool.beginOp('a'); pool.endOp('a')
+  await new Promise((r) => setTimeout(r, 5))
+  // The reconnect must not hand back the dead client. It will fail on the
+  // network; what matters here is that the dead one is dropped first.
+  await pool.connect('a', {}).catch(() => {})
+  assert.notEqual(pool.entry('a').client, dead, 'the dead connection is dropped')
+})
+test('entry() does not refresh the idle clock, so the probe can fire', async () => {
+  // entry() used to set lastUsedAt on every access, and connect() asks entry()
+  // for the slot before reading that clock: idle time was always ~0, the health
+  // check never ran, and a dropped connection was noticed only when a command
+  // timed out. The old test passed vacuously because reusing a connection looks
+  // the same whether or not it was probed.
+  const pool = makePool(2)
+  const e = pool.entry('a')
+  e.lastUsedAt = 1234
+  pool.entry('a')
+  assert.equal(e.lastUsedAt, 1234, 'reading the slot must not mark it used')
+})
+
+test('the idle probe runs before a connection is reused', async () => {
+  class CountingClient extends FakeClient {
+    constructor() { super(); this.execs = 0 }
+    exec(command, cb) { this.execs++; super.exec(command, cb) }
+  }
+  const pool = makePool(2)
+  pool.config.healthCheckIdleMs = 1
+  pool.config.healthCheckTimeoutMs = 50
+  const client = new CountingClient()
+  pool.entry('a').client = client
+  await new Promise((r) => setTimeout(r, 5)) // older than healthCheckIdleMs
+
+  const returned = await pool.connect('a', {})
+  assert.equal(returned, client, 'a healthy connection is reused')
+  assert.equal(client.execs, 1, 'and it was actually probed first')
+})

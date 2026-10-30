@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.56 — 2026-10-31
+
+### Fixed
+- **The idle health check never ran.** `entry(alias)` set `lastUsedAt = Date.now()`
+  on every access, and `connect()` asks `entry()` for the slot before reading
+  that clock: the idle time was 0 on every call, so `healthCheckIdleMs` never
+  fired. A connection dropped by a NAT timeout or a firewall stayed in the pool
+  and the user found out when a command hit the 30 s timeout -- the exact failure
+  the probe was added to prevent (its comment says so). `lastUsedAt` is now set
+  when an operation is handed a connection, not when the slot is read.
+- **A probe could close a connection that was carrying work.** If the probe
+  failed for an unrelated reason (the server at its `MaxSessions` limit, or slow
+  to open a channel), the forced close took the running command with it -- the
+  same mistake the eviction ceiling made in 0.7.55. A busy alias is not probed
+  now; a dead connection announces itself to the operation using it.
+- **Every probe left a pending timer** for up to `healthCheckTimeoutMs`
+  (`Promise.race` does not clear the loser), which kept the event loop alive
+  after the answer was known.
+
+### Note
+- The existing test for the probe passed vacuously: reusing a connection looks
+  the same whether or not it was probed. The new tests count the probe's
+  `exec` calls instead.
+
+### Added — tests
+- Reading a pool slot does not mark it used, and the probe really runs before a
+  connection is reused.
+
 ## 0.7.55 — 2026-10-31
 
 ### Changed

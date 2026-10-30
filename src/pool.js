@@ -333,7 +333,12 @@ export class SshPool {
       e = fresh
       this.entries.set(alias, e)
     }
-    e.lastUsedAt = Date.now()
+    // Do NOT touch lastUsedAt here. connect() asks entry() for the slot and then
+    // reads lastUsedAt to decide whether to probe; refreshing it on access made
+    // the idle time zero on every call, so the health check never ran and a
+    // dropped connection was only noticed when a command timed out -- the exact
+    // failure the probe exists to avoid. Used at is set when an operation is
+    // handed a connection (connect) or one is established (#open).
     return e
   }
 
@@ -488,15 +493,22 @@ export class SshPool {
       // waiting for the command timeout to say so.
       const idleMs = Date.now() - (e.lastUsedAt || 0)
       const probeAfter = Number(this.config.healthCheckIdleMs) || 0
-      if (probeAfter > 0 && idleMs > probeAfter) {
+      // Never probe a connection that is carrying work: a probe that fails for
+      // an unrelated reason (the server is at MaxSessions, or slow to open a
+      // channel) closes the connection and takes the running command with it --
+      // the same mistake the eviction ceiling made. A dead connection announces
+      // itself to the operation using it.
+      if (probeAfter > 0 && idleMs > probeAfter && !this.isBusy(alias)) {
         const alive = await this.#probe(alias, e.client)
         if (!alive) {
           await this.closeOne(alias, { force: true })
           e.lastError = 'previous connection was dead; reconnecting'
         } else {
+          e.lastUsedAt = Date.now()
           return e.client
         }
       } else {
+        e.lastUsedAt = Date.now()
         return e.client
       }
     }
@@ -555,23 +567,30 @@ export class SshPool {
    * @returns {Promise<boolean>}
    */
   async #probe(alias, client) {
+    let timer
     try {
       const deadline = Number(this.config.healthCheckTimeoutMs) || 3000
       const result = await Promise.race([
         new Promise((resolve) => {
           try {
             client.exec('true', (err, stream) => {
+              // A stream that arrives after the deadline resolved this promise
+              // still has to be released.
               if (err) return resolve(false)
               try { stream.destroy() } catch {}
               resolve(true)
             })
           } catch { resolve(false) }
         }),
-        new Promise((resolve) => setTimeout(() => resolve(false), deadline)),
+        new Promise((resolve) => { timer = setTimeout(() => resolve(false), deadline) }),
       ])
       return result === true
     } catch {
       return false
+    } finally {
+      // Promise.race leaves the losing timer pending: every probe kept the
+      // event loop alive for up to healthCheckTimeoutMs after the answer.
+      if (timer) clearTimeout(timer)
     }
   }
 
