@@ -1150,13 +1150,21 @@ function assertKnownArgs(args, known, toolName) {
           const dir = remoteDir(dshHome, alias)
           const marker = readMarker(dshHome, alias)
           const workspace = findWorkspace({ list: () => registryRead.items }, dir)
+          // "create will register it" is only true where a workspace service
+          // exists. Without one (headless, tui) the old text sent the user to
+          // run a command that cannot do what the line promised.
+          const noService = !registry || typeof registry.list !== 'function'
           const state = registryRead.error
             ? '无法读取工作区服务，无法判断是否已注册（' + registryRead.error + '）'
             : workspace
               ? '已注册为工作区「' + workspace.title + '」'
-              : marker
-                ? '有占位目录，但未注册（用 action: "create" 注册）'
-                : '未创建（用 action: "create" 创建）'
+              : noService
+                ? marker
+                  ? '有占位目录（当前 profile 没有 workspace 服务，无法注册到侧栏）'
+                  : '未创建（当前 profile 没有 workspace 服务，只能生成目录）'
+                : marker
+                  ? '有占位目录，但未注册（用 action: "create" 注册）'
+                  : '未创建（用 action: "create" 创建）'
           const endpoint = lean
             ? '<host hidden>'
             : (m.username || '?') + '@' + (m.host || '?') + ':' + (m.port || 22)

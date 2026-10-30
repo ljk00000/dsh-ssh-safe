@@ -239,3 +239,15 @@ test('an unknown action is refused before the machine is looked at', async () =>
     )
   } finally { restore() }
 })
+test('without a workspace service the listing does not promise a registration', async () => {
+  // 'create' cannot register anything in a profile that mounts no workspace
+  // service (headless, tui), and 'create' says so. The listing still told the
+  // user to run it 'to register', which is the one thing that cannot work.
+  const { tools, restore } = await toolsFor({ DSH_SSH_GPU_HOST: 'h.example', DSH_SSH_GPU_USER: 'root' }, null)
+  try {
+    await tools.ssh_workspace.execute({ action: 'create', machine: 'gpu' }, {})
+    const text = TEXT_OF(await tools.ssh_workspace.execute({ action: 'list' }, {}))
+    assert.match(text, /没有 workspace 服务/, text)
+    assert.doesNotMatch(text, /用 action: "create" 注册/, text)
+  } finally { restore() }
+})

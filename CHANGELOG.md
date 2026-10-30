@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.51 — 2026-10-31
+
+### Fixed
+- **`ssh_workspace` told the user to run a command that cannot work.** In a
+  profile with no workspace service (headless, tui) the listing said
+  `有占位目录，但未注册（用 action: "create" 注册）` -- while `create` itself says
+  `当前 profile 没有 workspace 服务：目录已就绪`. The line now reports the
+  service being absent instead of promising a registration that is impossible:
+  `有占位目录（当前 profile 没有 workspace 服务，无法注册到侧栏）`.
+
+### Verified, no change needed
+- `ssh_close` distinguishes the three answers correctly: no connections at all,
+  a machine with none, and one that was live (`Closed: t`, then
+  `No live connection for t`).
+- `ssh_workspace create` reports create vs refresh, and its registration failure
+  is reported rather than swallowed.
+
+### Added — tests
+- The listing without a workspace service must not mention registering.
+
 ## 0.7.50 — 2026-10-31
 
 ### Fixed
