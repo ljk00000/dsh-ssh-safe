@@ -1352,9 +1352,14 @@ export async function apply(ctx, config) {
           say('connect', 'FAIL', message)
         }
       } finally {
-        // Restore the pre-diagnosis state.
+        // Restore the pre-diagnosis state -- but do not force it.
+        //
+        // Without force, closeOne refuses while an operation is in flight. A
+        // command that started while this diagnosis was running now owns that
+        // connection; force-closing here severed it, and the caller saw a
+        // dropped command with no idea that ssh_doctor was the cause.
         if (!wasConnected) {
-          await pool.closeOne(alias, { force: true })
+          await pool.closeOne(alias)
         }
       }
 

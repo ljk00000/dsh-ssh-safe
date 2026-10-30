@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.19 — 2026-10-31
+
+### Fixed
+- **`ssh_doctor` could sever a command it did not start.** The doctor connects,
+  probes, and closes what it opened -- with `force: true`, which also closes a
+  connection that a command started *while the diagnosis was running* had just
+  taken over. That command came back as "connection closed before the command
+  reported an exit status" with nothing pointing at the doctor. The cleanup now
+  uses the non-forcing close, which refuses while an operation is in flight; the
+  command that owns the connection keeps it.
+  The test fails against the old code with exactly that message, which is how
+  the race was confirmed rather than assumed.
+
+### Verified
+- Installing 0.7.10 into an isolated profile and then re-adding the working tree
+  upgrades cleanly: one dependency, one bundles entry, the new version on disk.
+  The temporary worktree was removed afterwards.
+
 ## 0.7.18 — 2026-10-31
 
 ### Fixed

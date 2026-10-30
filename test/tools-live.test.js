@@ -330,3 +330,15 @@ test('filenames that could forge a listing row are escaped', async () => {
   assert.match(text, /bell\\x07\.txt/)
   assert.doesNotMatch(text, /\u0007/, 'no raw control character may reach the caller')
 })
+test('ssh_doctor does not sever a command that started while it was running', async () => {
+  // The doctor connects, probes, and closes what it opened. If a command
+  // started in the meantime, force-closing took that command's channel with it
+  // and the caller saw a dropped result for no visible reason.
+  const [executed, diagnosed] = await Promise.all([
+    tools.ssh_exec.execute({ command: 'sleep 1' }, {}),
+    tools.ssh_doctor.execute({}, {}),
+  ])
+  assert.match(String(diagnosed.text), /\[ok\] authentication: command channel works/)
+  assert.match(String(executed.text), /slept 1/, 'the command must survive the diagnosis: ' + String(executed.text))
+  assert.doesNotMatch(String(executed.text), /connection closed before the command reported an exit status/)
+})
