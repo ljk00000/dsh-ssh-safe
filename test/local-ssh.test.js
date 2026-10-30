@@ -265,3 +265,48 @@ test('a timed-out command leaves the connection usable', async () => {
     await pool.closeAll({ force: true })
   }
 })
+test('two calls on a cold alias open one connection, not two', async () => {
+  const pool = poolFor({ t: machineFor('t', srv.port) })
+  try {
+    const before = srv.clientCount()
+    const [one, two] = await Promise.all([
+      pool.exec('t', 'sleep 0.2', {}),
+      pool.exec('t', 'echo second', {}),
+    ])
+    assert.match(one.stdout, /slept/)
+    assert.match(two.stdout, /second/)
+    assert.equal(srv.clientCount() - before, 1, 'the connect must be shared, not duplicated')
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})
+
+test('a five megabyte answer is capped, not buffered whole', async () => {
+  const pool = poolFor({ t: machineFor('t', srv.port) }, { maxOutputChars: 2048 })
+  try {
+    const r = await pool.exec('t', 'big 5000000', {})
+    assert.equal(r.truncated, true)
+    assert.ok(r.stdout.length <= 2048, 'collected ' + r.stdout.length)
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})
+
+test('fifty aliases under a ceiling of eight leave eight connections', async () => {
+  const machines = {}
+  const aliases = []
+  for (let i = 0; i < 50; i++) {
+    const alias = 'm' + i
+    aliases.push(alias)
+    machines[alias] = machineFor(alias, srv.port)
+  }
+  const pool = poolFor(machines, { maxConnections: 8 })
+  try {
+    for (const alias of aliases) await pool.exec(alias, 'echo ' + alias, {})
+    const live = [...pool.entries.values()].filter((e) => e.client).length
+    assert.equal(live, 8, 'the ceiling must hold, saw ' + live)
+    assert.ok(srv.clientCount() <= 12, 'the server should not see every alias, saw ' + srv.clientCount())
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})
