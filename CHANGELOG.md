@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.17 — 2026-10-31
+
+### Fixed
+- **A failed connection said only "read ECONNRESET".** With several machines
+  configured that names neither the machine nor the likely cause, and the
+  difference between "the password is wrong" and "that port is not sshd" is what
+  decides the next step. Handshake failures now read
+  `Could not connect to root@host:22: <reason> (<likely cause>)`, with hints for
+  a refused port, a closed connection, an unresolvable name, a missing SSH
+  banner, rejected credentials, and an untrusted host key.
+  Errors the host key store wrote itself are left alone: they already name the
+  host, the fingerprint and the way out, and ssh_doctor prints the target on the
+  line above.
+
+### Added — tests
+- The four shapes above, including a port that is not sshd, a wrong password,
+  a closed port and a strict-policy host key.
+- A directory of ten thousand entries is cut at `maxListEntries` (2000) with
+  "8000 more entries not shown", in well under the deadline.
+- Filenames containing a newline, a tab, a bell or 300 characters cannot forge
+  an extra listing row: control characters are escaped.
+
+### Fixed — tests
+- The SFTP test server answered READDIR with every entry in one packet, which
+  stalls at ten thousand entries (the client never finishes parsing). It now
+  chunks 32 at a time like a real server -- the large-listing path had never
+  actually run before.
+
 ## 0.7.16 — 2026-10-31
 
 ### Fixed

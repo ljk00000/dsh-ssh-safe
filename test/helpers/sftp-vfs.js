@@ -267,9 +267,14 @@ export function attachSftp(stream, vfs) {
       const handle = handles.get(Number(reader.string().toString('utf8')))
       if (!handle || handle.kind !== 'dir') return status(id, STATUS.FAILURE, 'bad handle')
       if (handle.sent) return status(id, STATUS.EOF)
-      handle.sent = true
-      const parts = [u32(handle.entries.length)]
-      for (const name of handle.entries) {
+      // Chunked like a real server. One packet per directory works for a
+      // handful of entries and stalls on ten thousand: the whole NAME packet
+      // has to fit the framing, and the client pays for parsing it in one go.
+      const next = handle.entries.slice(handle.index || 0, (handle.index || 0) + 32)
+      handle.index = (handle.index || 0) + next.length
+      handle.sent = next.length === 0
+      const parts = [u32(next.length)]
+      for (const name of next) {
         const child = vfs.normalize(handle.path === '/' ? '/' + name : handle.path + '/' + name)
         const stat = vfs.stat(child) || { dir: false, size: 0, mode: 0o100644, mtime: 0 }
         parts.push(str(name), str(name), attrsOf(stat))

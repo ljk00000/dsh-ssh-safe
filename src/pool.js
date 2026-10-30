@@ -63,6 +63,42 @@ function timerValue(value, fallback) {
 }
 
 /**
+ * Turn a handshake failure into something a caller can act on.
+ *
+ * ssh2 reports the bare socket/library error -- "read ECONNRESET", "Timed out
+ * while waiting for handshake", "All configured authentication methods failed".
+ * With several machines configured that names neither the machine nor the
+ * likely cause, and the difference between "the password is wrong" and "that
+ * port is not sshd" is what decides the next step.
+ *
+ * @param {unknown} err
+ * @param {{host?: string, port?: number, username?: string}} [m]
+ * @returns {Error}
+ */
+export function connectFailure(err, m) {
+  const raw = redact(err && /** @type {any} */ (err).message ? /** @type {any} */ (err).message : String(err))
+  // Already decorated, or already explains itself: the host key store writes a
+  // complete sentence naming the host, the fingerprint and the way out, and the
+  // ssh_doctor line above it already carries the target.
+  if (/^(Could not connect to |Refusing to retry )/.test(raw)) return new Error(raw)
+  if (/^(Unknown host|Host key verification failed|Host key changed|HOST KEY CHANGED)/i.test(raw)) return new Error(raw)
+  const target = m && m.host
+    ? (m.username ? m.username + '@' : '') + m.host + ':' + (m.port || 22)
+    : 'the remote host'
+  /** @type {Array<[RegExp, string]>} */
+  const hints = [
+    [/ECONNREFUSED/i, 'nothing is listening on that port'],
+    [/ECONNRESET/i, 'the server closed the connection during the handshake — the port may not be sshd'],
+    [/ENOTFOUND|EAI_AGAIN/i, 'the host name did not resolve'],
+    [/Timed out while waiting for handshake|ETIMEDOUT/i, 'no SSH banner arrived — the port may not speak SSH, or a firewall is dropping packets'],
+    [/All configured authentication methods failed|Permission denied/i, 'the server rejected the credentials — check the user, the key or password, and authorized_keys'],
+    [/Host key verification failed|Unknown host/i, 'the host key store does not trust this host; run ssh_connect with trustHostKey once'],
+  ]
+  const hint = hints.find(([pattern]) => pattern.test(raw))
+  return new Error('Could not connect to ' + target + ': ' + raw + (hint ? ' (' + hint[1] + ')' : ''))
+}
+
+/**
  * One pooled machine slot.
  *
  * @typedef {object} PoolEntry
@@ -436,7 +472,7 @@ export class SshPool {
         if (settled) return
         settled = true
         try { client.end() } catch {}
-        reject(new Error(redact(err && err.message ? err.message : String(err))))
+        reject(connectFailure(err, m))
       }
 
       client.on('error', fail)
