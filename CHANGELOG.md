@@ -16,6 +16,14 @@
   path the way sshd does.
 - Deleting the audit log -- or its whole directory -- while the plugin runs is
   recovered on the next write, and does not count as a failure.
+- Disconnecting mid-command settles that command at once (with the partial-output
+  warning) instead of waiting out its deadline -- at the pool and at the tool.
+- Two commands on one machine overlap instead of queueing: one connection
+  carries several channels.
+- 300 KB of output is cut at `maxOutputChars` and the cut is announced.
+- 75 ordinary commands (`rm -rf build`, `find . -name "*.tmp" -delete`,
+  `systemctl status`, `cd / && du -sh *` ...) pass the default deny patterns
+  unblocked: the rail must not cry wolf.
 
 ## 0.7.15 — 2026-10-31
 

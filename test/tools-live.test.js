@@ -273,3 +273,34 @@ test('a command killed at the deadline keeps what it had already printed', async
   assert.doesNotMatch(text, /finished/, 'the tail never arrived')
   assert.match(text, /\[timed out after 250ms\]/)
 })
+test('two commands on one machine run at the same time, not one after the other', async () => {
+  const started = Date.now()
+  const [a, b] = await Promise.all([
+    run('ssh_exec', { command: 'sleep 1' }),
+    run('ssh_exec', { command: 'echo quick' }),
+  ])
+  const elapsed = Date.now() - started
+  assert.match(a, /slept 1/)
+  assert.match(b, /quick/)
+  // One connection carries several channels; if the pool serialised them this
+  // would take two seconds.
+  assert.ok(elapsed < 1900, 'the two commands should overlap, took ' + elapsed + 'ms')
+})
+
+test('output beyond maxOutputChars is cut and the cut is announced', async () => {
+  // maxOutputChars is left at its 200000 default here.
+  const text = await run('ssh_exec', { command: 'big 300000' })
+  assert.match(text, /\[output truncated at maxOutputChars\]/)
+  assert.ok(text.length <= 200500, 'the tool must not return everything: ' + text.length)
+  assert.ok(text.length > 100000, 'it should still return most of the cap: ' + text.length)
+  assert.match(text, /\[exit 0\]|exit 0/)
+})
+test('ssh_close during a command settles it and says the output is partial', async () => {
+  const started = Date.now()
+  const running = tools.ssh_exec.execute({ command: 'sleep 5' }, {})
+  await new Promise((r) => setTimeout(r, 300))
+  await tools.ssh_close.execute({ force: true }, {})
+  const text = String((await running).text)
+  assert.ok(Date.now() - started < 3000, 'a disconnect must not wait out the command')
+  assert.match(text, /connection closed before the command reported an exit status/)
+})

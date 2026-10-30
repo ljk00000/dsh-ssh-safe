@@ -407,3 +407,18 @@ test('a per-machine policy of strict still refuses an unrecorded host', async ()
     await pool.closeAll({ force: true })
   }
 })
+test('closing a connection mid-command settles the command instead of hanging', async () => {
+  const pool = poolFor({ t: machineFor('t', srv.port) })
+  try {
+    const started = Date.now()
+    const running = pool.exec('t', 'sleep 5', {})
+    await new Promise((r) => setTimeout(r, 300))
+    const closed = await pool.closeOne('t', { force: true })
+    assert.equal(closed.closed, true)
+    const result = await running
+    assert.equal(result.dropped, true, 'the caller must know the output is partial')
+    assert.ok(Date.now() - started < 3000, 'it must not wait for the command: ' + (Date.now() - started) + 'ms')
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})
