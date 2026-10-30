@@ -326,3 +326,24 @@ test('a misspelled field in the credential file is reported against that file', 
     assert.doesNotMatch(clean, /unknown field/, 'username and passwordDpapi are valid file fields')
   } finally { restore() }
 })
+test('useCredentialFile: false hides the credential file and its machines', async () => {
+  const { tools, restore } = capture({
+    defaultMachine: 'real',
+    useCredentialFile: false,
+    machines: { real: { host: '127.0.0.1', port: 1, user: 'u', keyPath: '/tmp/k' } },
+  })
+  try {
+    // capture() gave us an isolated DSH_HOME; put a machine in the file the
+    // plugin was told not to read.
+    const dir = path.join(process.env.DSH_HOME, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, 'credentials.json'), JSON.stringify({
+      ghost: { host: '127.0.0.1', port: 1, user: 'u', password: 'p' },
+    }))
+    const inventory = String((await tools['ssh_machines'].execute({}, {})).text)
+    assert.doesNotMatch(inventory, /ghost/, 'a disabled file must not contribute machines')
+    assert.match(inventory, /real/)
+    const creds = String((await tools['ssh_credentials'].execute({}, {})).text)
+    assert.match(creds, /\[DISABLED\]/, 'the credential page must say the file is off')
+  } finally { restore() }
+})

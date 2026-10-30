@@ -50,6 +50,10 @@ export function credentialsTemplate() {
  * @returns {Record<string, object>} alias -> entry
  */
 export function loadCredentialFile(dshHome) {
+  // '' means the file is disabled (useCredentialFile: false). Joining it would
+  // read 'dsh-ssh-safe/credentials.json' relative to the process working
+  // directory -- a file the plugin was told to ignore, in a place nobody chose.
+  if (!dshHome) return {}
   const file = credentialsPath(dshHome)
   let text
   try {

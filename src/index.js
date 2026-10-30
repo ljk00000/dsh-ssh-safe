@@ -631,7 +631,7 @@ function assertKnownArgs(args, known, toolName) {
       if (cfg.defaultMachine) aliases.add(normalizeAlias(cfg.defaultMachine))
       // Config, credential file and environment: any of the three can define a
       // machine, so the inventory lists all of them.
-      for (const alias of knownAliases({ machines: cfg.machines, dshHome })) aliases.add(alias)
+      for (const alias of knownAliases({ machines: cfg.machines, dshHome: credentialHome })) aliases.add(alias)
       if (aliases.size === 0) {
         return { text:
           'No machines configured. Any one of these works:\n' +
@@ -1095,7 +1095,7 @@ function assertKnownArgs(args, known, toolName) {
       // with whether the workspace service is answering.
       const registryRead = listWorkspaces(registry)
       if (action === 'list') {
-        const aliases = [...knownAliases({ machines: cfg.machines, dshHome })].sort()
+        const aliases = [...knownAliases({ machines: cfg.machines, dshHome: credentialHome })].sort()
         if (aliases.length === 0) return { text: '没有配置任何机器。先用设置界面或凭据文件添加一台，再创建远程工作区。' }
         const rows = aliases.map((alias) => {
           const m = machineDefinition(alias, { machines: cfg.machines, dshHome: credentialHome })
@@ -1257,7 +1257,7 @@ function assertKnownArgs(args, known, toolName) {
     // command on the same or another machine wait for it.
     isConcurrencySafe: () => true,
     async execute() {
-      const aliases = knownAliases({ machines: cfg.machines, dshHome })
+      const aliases = knownAliases({ machines: cfg.machines, dshHome: credentialHome })
       if (cfg.defaultMachine && !aliases.includes(normalizeAlias(cfg.defaultMachine))) {
         aliases.push(normalizeAlias(cfg.defaultMachine))
       }

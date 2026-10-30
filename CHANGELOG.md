@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.30 — 2026-10-31
+
+### Fixed
+- **`useCredentialFile: false` did not hide the file's machines.** The setting
+  stopped the connection path from reading `credentials.json`, but
+  `ssh_machines`, `ssh_audit` and `ssh_workspace` still listed every alias in
+  it -- machines that could never connect, presented as if they were
+  configured. They now come only from the sources that are actually read.
+- **An empty credential home read a relative path.** `loadCredentialFile('')`
+  joined to `dsh-ssh-safe/credentials.json` relative to the process working
+  directory, so a stray directory there would have been read as configuration.
+  It now returns nothing, which is what "the file is disabled" means.
+
+### Added — tests
+- With `useCredentialFile: false`: the file's machine is not listed, the
+  settings machine is, and `ssh_credentials` marks the file disabled.
+
 ## 0.7.29 — 2026-10-31
 
 ### Fixed
