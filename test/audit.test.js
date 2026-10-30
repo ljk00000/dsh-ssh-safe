@@ -110,3 +110,20 @@ test('the log recovers when the file or its directory is deleted', () => {
     assert.equal(log.failures, 0, 'recovering is not a failure')
   } finally { rmSync(d, { recursive: true, force: true }) }
 })
+test('a line that parses to a non-object is reported, not passed on', () => {
+  // JSON.parse('null') succeeds. Handing the null to a renderer made ssh_audit
+  // throw a TypeError and take the whole review down with it.
+  const d = dir()
+  try {
+    const audit = new AuditLog(d, { enabled: true })
+    audit.write({ kind: 'exec', machine: 't', command: 'good' })
+    writeFileSync(path.join(d, 'audit.ndjson'), ['null', '42', '"text"', '[1,2]', ''].join('\n') + '\n', { flag: 'a' })
+    const records = audit.recent(10)
+    const objects = records.filter((r) => r && typeof r === 'object' && !r.malformed)
+    assert.equal(objects.length, 1, 'the real record survives: ' + JSON.stringify(records))
+    assert.equal(objects[0].command, 'good')
+    const malformed = records.filter((r) => r && r.malformed === true)
+    assert.equal(malformed.length, 4, 'null, number, string and array are all unreadable')
+    for (const record of malformed) assert.equal(typeof record.line, 'string')
+  } finally { rmSync(d, { recursive: true, force: true }) }
+})

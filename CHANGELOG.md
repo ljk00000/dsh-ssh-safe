@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.34 — 2026-10-31
+
+### Fixed
+- **One `null` line in `audit.ndjson` crashed `ssh_audit`.** The reader treated
+  "parses as JSON" as "is a record": `null` parses, and the renderer then read
+  `r.malformed` off `null` and threw a `TypeError` -- so a hand-edited or
+  half-written line took the whole history view down. Non-object lines (`null`,
+  `42`, `"text"`, `[1,2]`) are reported as `[unreadable record]` now, and the
+  renderer refuses to assume a record is an object.
+
+### Added — tests
+- `recent()` keeps the real record and marks all four non-object shapes
+  unreadable; `ssh_audit` renders them without throwing.
+
 ## 0.7.33 — 2026-10-31
 
 ### Fixed

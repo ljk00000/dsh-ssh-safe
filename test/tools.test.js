@@ -347,3 +347,18 @@ test('useCredentialFile: false hides the credential file and its machines', asyn
     assert.match(creds, /\[DISABLED\]/, 'the credential page must say the file is off')
   } finally { restore() }
 })
+test('ssh_audit survives a non-object line in the log file', async () => {
+  const { tools, restore } = capture({ auditLog: true })
+  try {
+    const dir = path.join(process.env.DSH_HOME, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, 'audit.ndjson'), [
+      'null',
+      '42',
+      JSON.stringify({ at: '2026-10-31T00:00:00.000Z', machine: 't', kind: 'exec', outcome: 'ok', command: 'echo ok' }),
+    ].join('\n') + '\n')
+    const text = String((await tools['ssh_audit'].execute({ limit: 10 }, {})).text)
+    assert.match(text, /\[unreadable record\] null/)
+    assert.match(text, /echo ok/)
+  } finally { restore() }
+})

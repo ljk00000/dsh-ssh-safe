@@ -1238,7 +1238,11 @@ function assertKnownArgs(args, known, toolName) {
       const records = audit.recent(limit)
       if (records.length === 0) return { text: 'No operations recorded yet.' }
       const rows = records.map((r) => {
-        if (r.malformed) return '[unreadable record] ' + r.line
+        // The audit module already filters non-objects, but a renderer must not
+        // be the place a bad file becomes a crash.
+        if (!r || typeof r !== 'object' || r.malformed) {
+          return '[unreadable record] ' + String(r && r.line ? r.line : '')
+        }
         const when = String(r.at || '').replace('T', ' ').slice(0, 19)
         const machine = r.machine ? ' ' + r.machine : ''
         const parts = [when, machine.trim(), r.kind || '?', r.outcome || '']

@@ -165,7 +165,16 @@ export class AuditLog {
         } catch { /* that generation may not exist */ }
       }
       return all.slice(-limit).map((line) => {
-        try { return JSON.parse(line) } catch { return { malformed: true, line: line.slice(0, 120) } }
+        try {
+          const parsed = JSON.parse(line)
+          // A log line is a record or nothing. 'null', a bare number or an array
+          // parses fine and then breaks the renderer: a single such line in
+          // audit.ndjson took ssh_audit down with a TypeError.
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+          return { malformed: true, line: line.slice(0, 120) }
+        } catch {
+          return { malformed: true, line: line.slice(0, 120) }
+        }
       })
     } catch {
       return []
