@@ -92,11 +92,28 @@ function readSecret(question) {
 }
 
 const args = parseArgs(process.argv.slice(2))
-// Same rule as the GUI and the tools: lower-cased, and a dot, underscore or
-// hyphen survives. Stripping them stored credentials under a different key
-// than the one 'ssh_exec --machine prod-1' looks up, so the password was
-// written and then never found.
-const alias = String(args.alias || '').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '')
+
+// Same rule as the GUI and the tools, enforced the same way: refuse an alias
+// that contains anything else. Stripping used to store the password under a
+// different name than the one 'ssh_exec --machine prod/x' looks up, so it was
+// written and then never found -- and the user was told it had been stored.
+// Keep this in step with every option the body reads (grep for "args[" / "args.").
+const KNOWN_OPTIONS = ['alias', 'host', 'port', 'user', 'key-path', 'key-passphrase', 'password',
+  'plaintext', 'dsh-home', 'help']
+for (const key of Object.keys(args)) {
+  if (!KNOWN_OPTIONS.includes(key)) {
+    console.error('Unknown option --' + key + '. Accepted: ' + KNOWN_OPTIONS.map((o) => '--' + o).join(', '))
+    process.exit(2)
+  }
+}
+const rawAlias = String(args.alias || '').trim().toLowerCase()
+const alias = rawAlias
+if (rawAlias && !/^[a-z0-9._-]+$/.test(rawAlias)) {
+  console.error('Alias "' + String(args.alias) + '" contains characters an alias cannot have.')
+  console.error('Use a-z, 0-9, dot, underscore or hyphen -- the name is not rewritten for you,')
+  console.error('because the password would then be stored under a name nothing looks up.')
+  process.exit(2)
+}
 if (!alias) {
   console.error('Usage: node scripts/set-password.mjs --alias <name> [--host h] [--port p] [--user u]')
   console.error('                                              [--key-path p] [--key-passphrase]')
@@ -119,7 +136,9 @@ if (existsSync(file)) {
 }
 
 const entry = { ...(store[alias] && typeof store[alias] === 'object' ? store[alias] : {}) }
-if (args.host) entry.host = String(args.host)
+// '--host "   "' stored an empty string: not wrong, but it printed "host" with
+// nothing after it and looked like a setting had been saved.
+if (args.host && String(args.host).trim()) entry.host = String(args.host).trim()
 if (args.port !== undefined) {
   // 'abc' used to be stored as null and '70000' as-is: JSON turns NaN into
   // null, the resolver falls back to 22, and the account ends up trying to
@@ -131,8 +150,8 @@ if (args.port !== undefined) {
   }
   entry.port = port
 }
-if (args.user) entry.user = String(args.user)
-if (args['key-path']) entry.keyPath = String(args['key-path'])
+if (args.user && String(args.user).trim()) entry.user = String(args.user).trim()
+if (args['key-path'] && String(args['key-path']).trim()) entry.keyPath = String(args['key-path']).trim()
 
 // --key-passphrase with no value means "prompt for it".
 if (typeof args['key-passphrase'] === 'string') {

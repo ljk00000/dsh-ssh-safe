@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.37 — 2026-10-31
+
+### Fixed
+- **`set-password --alias prod/x` stored the password under `prodx`.** The
+  script was still *stripping* characters the alias rule forbids, then reporting
+  "Stored for prodx" -- a password written under a name nothing ever looks up.
+  It now refuses the alias, names it, and says it will not be rewritten (the GUI
+  and the tools already did this; this was the last entrance using the old rule).
+- **An unknown option was ignored.** `--pasword secret` (typo) was dropped and
+  the run then failed with "nothing to store", pointing at the wrong thing. All
+  other options are refused by name, with the accepted list.
+- **`--host "   "` stored an empty host.** It printed "host" with nothing after
+  it, looking like a value had been saved. Whitespace-only host, user and key
+  path are skipped now.
+
+### Note
+- The first version of the option check omitted `--plaintext`; the existing
+  `--plaintext` test caught it before release.
+
+### Added — tests
+- A refused alias writes nothing; an unknown option is named; both exit 2.
+
 ## 0.7.36 — 2026-10-31
 
 ### Fixed

@@ -88,3 +88,28 @@ test('an unusable port is refused instead of stored as null', { skip: !dpapiAvai
     rmSync(home, { recursive: true, force: true })
   }
 })
+test('an alias with characters it cannot contain is refused, not rewritten', () => {
+  // It used to strip them: '--alias prod/x' stored the password as 'prodx',
+  // which nothing ever looks up -- and said it had been stored.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-swp-'))
+  try {
+    const result = runSetPassword(home, ['--alias', 'prod/x', '--password', 'secretpw'])
+    assert.equal(result.status, 2)
+    assert.match(result.stderr, /contains characters an alias cannot have/)
+    assert.match(result.stderr, /not rewritten/)
+    assert.equal(existsSync(path.join(home, 'dsh-ssh-safe', 'credentials.json')), false,
+      'a refused alias must not write anything')
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
+test('an unknown option is reported instead of ignored', () => {
+  // '--pasword secret' was silently dropped, so the run stored nothing and the
+  // only clue was a message about the missing password.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-swp-'))
+  try {
+    const result = runSetPassword(home, ['--alias', 'prod', '--pasword', 'secretpw'])
+    assert.equal(result.status, 2)
+    assert.match(result.stderr, /Unknown option --pasword/)
+    assert.match(result.stderr, /--key-passphrase/)
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
