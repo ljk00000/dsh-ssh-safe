@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.35 — 2026-10-31
+
+### Fixed
+- **A JSON array in `credentials.json` invented a machine named "0".** The file
+  is a map from alias to entry; `typeof []` is `"object"`, so the array's
+  indices became aliases and `[{"host":"9.9.9.9"}]` looked like a connectable
+  machine called "0". Array roots (and array entries) are ignored now, like any
+  other malformed file.
+- **Pasting the settings-form shape into the credential file was reported as a
+  typo.** `{"machines": {"prod": {...}}}` produced
+  `machine "machines" has an unknown field "prod" (did you mean "port"?)`, which
+  points at the wrong problem. It now says the file has a `machines` key and
+  should be keyed by alias directly.
+
+### Added — tests
+- Both shapes, through `ssh_machines`: no phantom machine, and the nested-map
+  message instead of the misspelling one.
+
 ## 0.7.34 — 2026-10-31
 
 ### Fixed

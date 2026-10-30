@@ -440,10 +440,28 @@ function unknownMachineFields(machines, only = '', where = 'settings form', allo
 
 /** Unknown fields in both configuration sources, for one machine or all. */
 function machineFieldProblems(only = '') {
-  return [
+  const file = loadCredentialFile(credentialHome)
+  // Copying the settings-form shape into the credential file is a natural
+  // mistake: the file is keyed by alias directly, and 'machines' then becomes a
+  // machine whose fields are other machines.
+  const nested = file.machines
+  const looksNested = nested && typeof nested === 'object' &&
+    Object.values(nested).some((entry) => entry && typeof entry === 'object')
+  const fileProblems = unknownMachineFields(file, only, 'credential file', CREDENTIAL_FIELDS)
+    // The nested message explains this entry; "unknown field prod (did you mean
+    // port?)" right above it only adds noise.
+    .filter((problem) => !(looksNested && problem.startsWith('machine "machines" in the credential file')))
+  const problems = [
     ...unknownMachineFields(cfg.machines, only, 'settings form', MACHINE_FIELDS),
-    ...unknownMachineFields(loadCredentialFile(credentialHome), only, 'credential file', CREDENTIAL_FIELDS),
+    ...fileProblems,
   ]
+  if (looksNested && !only) {
+    problems.push(
+      'the credential file has a "machines" key: it should be keyed by alias directly ' +
+      '({"prod": {...}}), not nested under "machines"'
+    )
+  }
+  return problems
 }
 
 function executionSignal(execution) {

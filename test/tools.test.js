@@ -362,3 +362,23 @@ test('ssh_audit survives a non-object line in the log file', async () => {
     assert.match(text, /echo ok/)
   } finally { restore() }
 })
+test('a credential file that is an array or nests under machines is explained', async () => {
+  const { tools, restore } = capture({ machines: { real: { host: '127.0.0.1', port: 1, user: 'u', keyPath: '/tmp/k' } } })
+  try {
+    const dir = path.join(process.env.DSH_HOME, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, 'credentials.json')
+
+    // An array is an object to typeof: its indices used to become machines.
+    writeFileSync(file, JSON.stringify([{ host: '9.9.9.9', user: 'u' }]))
+    let inventory = String((await tools['ssh_machines'].execute({}, {})).text)
+    assert.doesNotMatch(inventory, /• 0 /, 'an array must not become a machine named 0')
+
+    // The settings-form shape, pasted into the file.
+    writeFileSync(file, JSON.stringify({ machines: { prod: { host: '1.2.3.4', user: 'u' } } }))
+    inventory = String((await tools['ssh_machines'].execute({}, {})).text)
+    assert.match(inventory, /the credential file has a "machines" key/)
+    assert.match(inventory, /keyed by alias directly/)
+    assert.doesNotMatch(inventory, /unknown field "prod"/, 'the nested key is explained, not just misspelled')
+  } finally { restore() }
+})

@@ -68,9 +68,14 @@ export function loadCredentialFile(dshHome) {
   try {
     const parsed = JSON.parse(text)
     const data = {}
-    if (parsed && typeof parsed === 'object') {
+    // A JSON array is an object to typeof, and its indices became machines:
+    // '[{"host":...}]' produced a machine named "0" that looked connectable.
+    // The file is a map from alias to entry; anything else is not this format.
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       for (const [alias, entry] of Object.entries(parsed)) {
-        if (entry && typeof entry === 'object') data[String(alias).toLowerCase()] = entry
+        if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+          data[String(alias).toLowerCase()] = entry
+        }
       }
     }
     return data
