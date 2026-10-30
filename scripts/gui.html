@@ -234,8 +234,9 @@ document.getElementById("list").addEventListener("click", async (ev) => {
     }
     if (act === "delete") {
       if (!confirm("删除 " + alias + " 的凭据条目？")) return;
-      await api("/api/delete", { alias });
-      toast("已删除 " + alias);
+      const result = await api("/api/delete", { alias });
+      const warnings = (result && result.warnings) || [];
+      toast(warnings.length ? warnings[0] : "已删除 " + alias);
       await refresh();
       return;
     }

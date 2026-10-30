@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.38 — 2026-10-31
+
+### Fixed
+- **Deleting a machine the settings form defines looked like it worked.** The row
+  stayed on the page after "已删除" because the entry was never in the
+  credential file: the page cannot edit `cordis.patch.yml`. `/api/delete` now
+  reports `removed` and explains where the machine comes from -- settings only
+  ("要从这里移除请改设置"), both sources ("已删除凭据文件里的记录；...仍然可用"),
+  or nothing to delete.
+
+### Verified, no change needed
+- Workspace marker round trip: host names with spaces, quotes and CJK come back
+  unchanged from both the marker and `AGENTS.md`; an empty machine writes an
+  empty host rather than the string `undefined`; a string port is stored as a
+  number.
+- Cold-start concurrency: ten simultaneous first calls open exactly one
+  connection (all ten succeed), and five concurrent `ssh_connect` calls share it.
+
+### Added — tests
+- The three delete outcomes, through `/api/state` afterwards.
+
 ## 0.7.37 — 2026-10-31
 
 ### Fixed

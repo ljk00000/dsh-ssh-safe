@@ -612,11 +612,24 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/delete') {
       const alias = aliasOf(body.alias)
       const store = readStore()
-      if (store[alias]) {
+      const removed = Boolean(store[alias])
+      if (removed) {
         delete store[alias]
         writeStore(store)
       }
-      return sendJson(res, 200, { ok: true })
+      // A machine defined in the settings form is not in this file, so the row
+      // stayed on the page after "已删除". Say which source still defines it.
+      const warnings = []
+      const settings = settingsMachines()[alias]
+      if (settings && (settings.host || settings.user)) {
+        warnings.push(removed
+          ? '已删除凭据文件里的记录；该别名在 DSH 设置界面里也有定义，仍然可用，要移除请改设置'
+          : '凭据文件里没有该别名的记录；它来自 DSH 设置界面，要从这里移除请改设置')
+      }
+      if (!removed && !warnings.length) {
+        warnings.push('凭据文件里没有该别名的记录，没有可删除的内容')
+      }
+      return sendJson(res, 200, { ok: true, removed, warnings })
     }
 
     if (req.method === 'POST' && url.pathname === '/api/test') {

@@ -688,3 +688,40 @@ test('a field that is not text is refused instead of stringified into the file',
     rmSync(home, { recursive: true, force: true })
   }
 })
+test('deleting a machine that the settings form defines says where it lives', async () => {
+  // The row stayed on the page after a successful-looking delete: the entry
+  // was never in this file to begin with.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    machines:',
+    '      formonly:',
+    '        host: 10.1.2.3',
+    '        user: root',
+  ].join('\n'))
+  const { child, base, token } = await start(home)
+  try {
+    const onlySettings = await call(base, token, '/api/delete', { alias: 'formonly' })
+    assert.equal(onlySettings.status, 200)
+    assert.equal(onlySettings.body.removed, false)
+    assert.ok(onlySettings.body.warnings.some((w) => w.includes('设置界面')), JSON.stringify(onlySettings.body))
+
+    // Present in both sources: the file entry goes, the settings one stays.
+    await call(base, token, '/api/save', { alias: 'formonly', host: '10.1.2.3', user: 'root', password: 'x' })
+    const both = await call(base, token, '/api/delete', { alias: 'formonly' })
+    assert.equal(both.body.removed, true)
+    assert.ok(both.body.warnings.some((w) => w.includes('设置界面')), JSON.stringify(both.body))
+    const state = await call(base, token, '/api/state')
+    assert.ok(state.body.machines.some((m) => m.alias === 'formonly'), 'the settings machine is still there')
+
+    const unknown = await call(base, token, '/api/delete', { alias: 'ghost' })
+    assert.equal(unknown.body.removed, false)
+    assert.ok(unknown.body.warnings.some((w) => w.includes('没有可删除的内容')), JSON.stringify(unknown.body))
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
