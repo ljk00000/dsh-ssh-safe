@@ -459,3 +459,28 @@ test('the defaults in the README table match the defaults in the code', async ()
     assert.ok(checked >= 15, 'expected to compare most settings, compared ' + checked)
   } finally { restore() }
 })
+test('a gated read says read, not write', async () => {
+  // ssh_read is gated under execGuard: confirm (a read can copy a private key
+  // off the host), but the message told the caller to confirm a WRITE and
+  // explained why writes are dangerous.
+  const { tools, restore } = capture({ execGuard: 'confirm' }, {
+    DSH_SSH_T_HOST: '127.0.0.1', DSH_SSH_T_PORT: '1',
+    DSH_SSH_T_USER: 'u', DSH_SSH_T_PASSWORD: 'p',
+  })
+  try {
+    await assert.rejects(
+      () => tools['ssh_read'].execute({ machine: 't', path: '/etc/hostname' }),
+      (err) => {
+        assert.match(err.message, /pass confirm: true to read from the remote host/)
+        assert.match(err.message, /copy a private key/)
+        assert.doesNotMatch(err.message, /to write to the remote host/)
+        return true
+      },
+    )
+    // Listing a directory reads names only, so it stays ungated.
+    await assert.rejects(
+      () => tools['ssh_list'].execute({ machine: 't', path: '/' }),
+      (err) => { assert.doesNotMatch(err.message, /confirm: true/); return true },
+    )
+  } finally { restore() }
+})

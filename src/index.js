@@ -595,12 +595,14 @@ function assertKnownArgs(args, known, toolName) {
    * confirmation. Writing is often the more dangerous half of an agent's work,
    * so the guard covers it too.
    */
-  const guardWrite = (confirmed) => {
+  const guardWrite = (confirmed, direction = 'write to') => {
     if (cfg.execGuard === 'confirm' && confirmed !== true) {
-      throw new Error(
-        'execGuard is "confirm": pass confirm: true to write to the remote host. ' +
-        'Writes can install scripts or change access, so they are gated as well.'
-      )
+      // The direction matters: a refused read used to say "pass confirm: true to
+      // write to the remote host", which describes the wrong tool entirely.
+      const why = direction === 'read from'
+        ? 'Reads can copy a private key or a configuration file off the host, so they are gated as well.'
+        : 'Writes can install scripts or change access, so they are gated as well.'
+      throw new Error('execGuard is "confirm": pass confirm: true to ' + direction + ' the remote host. ' + why)
     }
   }
 
@@ -907,7 +909,8 @@ function assertKnownArgs(args, known, toolName) {
     name: 'ssh_read',
     description:
       'Read a file from the remote machine as UTF-8 text, capped at maxFileBytes. ' +
-      'Prefer this over ssh_exec "cat": it streams and truncates cleanly.',
+      'Prefer this over ssh_exec "cat": it streams and truncates cleanly. ' +
+      'Requires confirm: true when execGuard is "confirm" (a read can copy a key off the host).',
     parameters: {
       machine: { type: 'string', description: 'Machine alias. Defaults to defaultMachine.' },
       path: { type: 'string', required: true, description: 'Absolute path on the remote host.' },
@@ -926,7 +929,7 @@ function assertKnownArgs(args, known, toolName) {
     isConcurrencySafe: () => true,
     async execute(args, execution) {
       const alias = machineFor(args)
-      guardWrite(optionalFlag(args.confirm, 'confirm'))
+      guardWrite(optionalFlag(args.confirm, 'confirm'), 'read from')
       const remotePath = requireText(args.path, 'path')
       const startedAt = Date.now()
       let r

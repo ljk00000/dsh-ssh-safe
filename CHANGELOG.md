@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.50 — 2026-10-31
+
+### Fixed
+- **A gated `ssh_read` told the caller to confirm a write.** Reads are gated
+  under `execGuard: "confirm"` too -- a read can copy a private key or a config
+  file off the host -- but the refusal was the write message:
+  `pass confirm: true to write to the remote host. Writes can install scripts or
+  change access`. It now says `to read from the remote host` and gives the
+  reason that applies. The tool description mentions the gate as well.
+
+### Verified, no change needed
+- Every command class the guard's header and the README list was executed
+  against the shipped patterns: 45 cases, no mismatch -- including
+  `sudo -u root rm -rf /`, `env FOO=1 bash -c "rm -rf /"`, `sudo bash -c`,
+  `nice`/`nohup`/`timeout`/`command`/`exec`/`doas` prefixes, the `//` `/*` `/.`
+  `/..` spellings, and the near misses that must keep working
+  (`cd /tmp && rm -rf *`, `rm -rf /var/log/myapp`, `grep -c shutdown syslog`).
+
+### Added — tests
+- The read gate says read and not write; `ssh_list` stays ungated.
+
 ## 0.7.49 — 2026-10-31
 
 ### Fixed
