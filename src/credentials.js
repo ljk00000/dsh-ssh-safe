@@ -33,11 +33,6 @@ export function envNames(alias) {
   }
 }
 
-const readEnv = (name) => {
-  const v = process.env[name]
-  return typeof v === 'string' && v.length > 0 ? v : ''
-}
-
 /**
  * Resolve a machine definition from the environment.
  * Returns only the fields that are actually present; never throws.

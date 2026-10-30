@@ -42,6 +42,26 @@ import { normalizeRemotePath } from './remote-path.js'
 import { closeClient } from './close.js'
 import { readRemoteFile, writeRemoteFile, listRemoteDir } from './sftp.js'
 
+/** The largest delay setTimeout accepts; anything larger is clamped to 1 ms. */
+const MAX_TIMER_MS = 2147483647
+
+/**
+ * Clamp a caller-supplied deadline to something setTimeout can represent.
+ *
+ * A tool call may pass any positive number, and setTimeout silently rewrites a
+ * value above 2^31-1 to 1 ms — so 'timeoutMs: 10000000000' returned "timed out"
+ * in 12 ms instead of waiting.
+ *
+ * @param {unknown} value requested deadline
+ * @param {number} fallback used when the value is missing or not positive
+ * @returns {number}
+ */
+function timerValue(value, fallback) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return fallback
+  return Math.min(n, MAX_TIMER_MS)
+}
+
 /**
  * One pooled machine slot.
  *
@@ -470,7 +490,7 @@ export class SshPool {
   }
 
   async #execOn(alias, client, command, timeoutMs) {
-    const limit = pick(timeoutMs || undefined, pick(this.config.commandTimeoutMs, 20000))
+    const limit = timerValue(pick(timeoutMs || undefined, pick(this.config.commandTimeoutMs, 20000)), 20000)
     const cap = pick(this.config.maxOutputChars, 200000)
 
     return await new Promise((resolve, reject) => {
@@ -588,7 +608,7 @@ export class SshPool {
     const client = await this.connect(alias, { sessionPassword })
     return await readRemoteFile(client, remotePath, {
       maxBytes: cap,
-      timeoutMs: pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)),
+      timeoutMs: timerValue(pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)), 30000),
     })
   }
 
@@ -613,7 +633,7 @@ export class SshPool {
     normalizeRemotePath(remotePath)
     const client = await this.connect(alias, { sessionPassword })
     return await writeRemoteFile(client, remotePath, content, {
-      timeoutMs: pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)),
+      timeoutMs: timerValue(pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)), 30000),
       createDirs: createDirs === true,
     })
   }
@@ -639,7 +659,7 @@ export class SshPool {
     normalizeRemotePath(remotePath || '.', { allowRelative: true })
     const client = await this.connect(alias, { sessionPassword })
     return await listRemoteDir(client, remotePath, {
-      timeoutMs: pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)),
+      timeoutMs: timerValue(pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)), 30000),
     })
   }
   /**

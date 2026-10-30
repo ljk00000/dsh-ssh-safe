@@ -56,3 +56,15 @@ test('the error names the problem so the caller can fix it', () => {
     assert.equal(err.name, 'RemotePathError')
   }
 })
+test('a relative path with .. is refused even when relatives are allowed', () => {
+  // SFTP resolves it against the login directory, which this plugin does not
+  // know; a '..' there can escape wherever the caller expected to be.
+  assert.throws(() => normalizeRemotePath('./a/../a', { allowRelative: true }), /cannot contain "\.\."/)
+  assert.throws(() => normalizeRemotePath('..', { allowRelative: true }), /cannot contain "\.\."/)
+  assert.throws(() => normalizeRemotePath('a/../../b', { allowRelative: true }), /remote base directory is not known/)
+})
+
+test('a relative path without .. is accepted when relatives are allowed', () => {
+  assert.equal(normalizeRemotePath('logs/app.log', { allowRelative: true }), 'logs/app.log')
+  assert.equal(normalizeRemotePath('.', { allowRelative: true }), '.')
+})

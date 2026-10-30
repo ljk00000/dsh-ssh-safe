@@ -177,3 +177,75 @@ test('a second connection to the same host reuses the pooled client', async () =
   assert.equal(pool.entry('t').client, first, 'the client must be reused')
   await pool.closeAll({ force: true })
 })
+test('maxConnections 0 means no ceiling', async () => {
+  const pool = poolFor({
+    a: machineFor('a', srv.port),
+    b: machineFor('b', srv.port),
+    c: machineFor('c', srv.port),
+  }, { maxConnections: 0 })
+  try {
+    for (const alias of ['a', 'b', 'c']) await pool.exec(alias, 'echo ' + alias, {})
+    const live = [...pool.entries.values()].filter((e) => e.client).length
+    assert.equal(live, 3, 'all three connections must stay open')
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})
+
+test('closeAll with a drain window waits for work in flight', async () => {
+  const pool = poolFor({ t: machineFor('t', srv.port) })
+  try {
+    await pool.exec('t', 'echo warm', {})
+    const running = pool.exec('t', 'sleep 1', {})
+    await new Promise((r) => setTimeout(r, 100))
+    const result = await pool.closeAll({ drainMs: 3000 })
+    assert.deepEqual(result.busy, [], 'the drain window must let the command finish')
+    assert.ok(result.closed.includes('t'), 'the connection should be closed after draining')
+    const out = await running
+    assert.match(out.stdout, /slept 1/)
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})
+test('an enormous timeout is clamped instead of firing immediately', async () => {
+  // setTimeout rejects anything above 2^31-1 by firing after 1 ms, so a
+  // timeoutMs of 10000000000 used to abort the command instantly.
+  const pool = poolFor({ t: machineFor('t', srv.port) })
+  try {
+    const started = Date.now()
+    const result = await pool.exec('t', 'sleep 0.4', { timeoutMs: 10000000000 })
+    assert.equal(result.timedOut, false, 'the deadline must not fire early')
+    assert.ok(Date.now() - started >= 300, 'the command should have been allowed to finish')
+    assert.match(result.stdout, /slept 0\.4/)
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})
+test('ten commands run at once on one connection', async () => {
+  const pool = poolFor({ t: machineFor('t', srv.port) })
+  try {
+    const results = await Promise.all(Array.from({ length: 10 }, (_, i) => pool.exec('t', 'echo p' + i, {})))
+    results.forEach((r, i) => assert.match(r.stdout, new RegExp('p' + i), 'call ' + i + ' got ' + JSON.stringify(r.stdout)))
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})
+
+test('a dropped connection is noticed and re-established', async () => {
+  const pool = poolFor({ t: machineFor('t', srv.port) }, { healthCheckIdleMs: 0 })
+  try {
+    const first = await pool.exec('t', 'echo before', {})
+    assert.match(first.stdout, /before/)
+    const before = pool.entry('t').client
+    assert.ok(before, 'the first call must connect')
+
+    srv.killClients()
+    await new Promise((r) => setTimeout(r, 150))
+
+    const after = await pool.exec('t', 'echo after', {})
+    assert.match(after.stdout, /after/, 'the next call must not reuse a dead client')
+    assert.notEqual(pool.entry('t').client, before, 'a new client should have been created')
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})

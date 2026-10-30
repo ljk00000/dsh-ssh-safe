@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.5 — 2026-10-31
+
+### Fixed
+- **An enormous `timeoutMs` aborted the command instantly.** `setTimeout` clamps
+  any delay above 2^31-1 to 1 ms, so `ssh_exec { timeoutMs: 10000000000 }`
+  returned "timed out" after 12 ms. Deadlines are clamped to the timer range for
+  exec and for the SFTP transfers.
+- **Two dead helpers removed.** `readEnv` in credentials.js and
+  `dpapiDescription` in dpapi.js were defined and never called; a future reader
+  would have taken `readEnv` for the code that reads credentials from the
+  environment, which it never was.
+
+### Added — tests
+- Relative paths containing `..` are refused for the stated reason.
+- Ten commands run at once on one connection; a dropped connection is noticed
+  and re-established on the next call; `maxConnections: 0` means no ceiling; the
+  drain window lets an in-flight command finish.
+- Two credential-page saves issued together both survive.
+
 ## 0.7.4 — 2026-10-31
 
 Found by driving the guard against a real host and by building a loopback SSH

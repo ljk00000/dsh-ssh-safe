@@ -346,3 +346,25 @@ test('unknown routes are 404 and malformed bodies are 400', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+test('two saves at the same time both survive', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    // save is read-modify-write over the credential file. Two requests can
+    // interleave between the read and the write, and the second one would
+    // overwrite the first entry if the handler is not serialised.
+    const [one, two] = await Promise.all([
+      call(base, token, '/api/save', { alias: 'alpha', host: '10.0.0.1', user: 'u' }),
+      call(base, token, '/api/save', { alias: 'beta', host: '10.0.0.2', user: 'u' }),
+    ])
+    assert.equal(one.status, 200)
+    assert.equal(two.status, 200)
+    const raw = readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8')
+    const store = JSON.parse(raw)
+    assert.ok(store.alpha, 'alpha missing, keys: ' + JSON.stringify(Object.keys(store)))
+    assert.ok(store.beta, 'beta missing, keys: ' + JSON.stringify(Object.keys(store)))
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

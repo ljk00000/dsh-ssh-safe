@@ -21,7 +21,10 @@ const { Server, utils } = ssh2
  */
 export function startServer({ port = 0, user = 'tester', password = 'test-pass', key = null } = {}) {
   const hostKey = key || utils.generateKeyPairSync('ed25519').private
+  const clients = new Set()
   const server = new Server({ hostKeys: [hostKey] }, (client) => {
+    clients.add(client)
+    client.on('close', () => clients.delete(client))
     client.on('authentication', (ctx) => {
       if (ctx.method === 'password' && ctx.username === user && ctx.password === password) ctx.accept()
       else ctx.reject(['password'])
@@ -69,6 +72,10 @@ export function startServer({ port = 0, user = 'tester', password = 'test-pass',
       resolve({
         port: server.address().port,
         key: hostKey,
+        clientCount: () => clients.size,
+        // Sever established sessions the way a network drop would: the server
+        // stops answering while the listening socket stays up.
+        killClients: () => { for (const c of clients) { try { c.end(); c.destroy?.() } catch {} } },
         close: () => new Promise((done) => server.close(() => done(undefined))),
       })
     })

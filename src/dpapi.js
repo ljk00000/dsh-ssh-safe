@@ -117,8 +117,3 @@ export function decryptDpapi(cipher) {
 export function forgetDecrypted() {
   memory.clear()
 }
-
-/** A short description of where the ciphertext came from, for diagnostics. */
-export function dpapiDescription() {
-  return dpapiAvailable() ? 'Windows DPAPI (this user account)' : 'unavailable on this platform'
-}
