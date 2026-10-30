@@ -33,6 +33,7 @@ async function loadClient() {
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
+import { isIPv6 } from 'node:net'
 import { redact, envNames } from './credentials.js'
 import { connectOptions, expandHome } from './connect.js'
 import { credentialFor, machineDefinition } from './machines.js'
@@ -73,8 +74,13 @@ function timerValue(value, fallback) {
  */
 export function formatHost(host) {
   const text = String(host || '')
-  if (!text.includes(':')) return text
-  return text.startsWith('[') && text.endsWith(']') ? text : '[' + text + ']'
+  const bare = text.startsWith('[') && text.endsWith(']') ? text.slice(1, -1) : text
+  // isIPv6, not "contains a colon": 'example.com:2222' and 'ssh://h' also
+  // contain colons, and bracketing them produced 'u@[ssh://h]:22'.
+  if (isIPv6(bare)) return '[' + bare + ']'
+  // A colon in a value that is not an IPv6 literal is a sign the address was
+  // pasted whole; quoting keeps "u@a:b:22" from reading as host "a:b:22".
+  return text.includes(':') ? '"' + text + '"' : text
 }
 
 /**
@@ -112,7 +118,40 @@ export function connectFailure(err, m) {
     [/Host key verification failed|Unknown host/i, 'the host key store does not trust this host; run ssh_connect with trustHostKey once'],
   ]
   const hint = hints.find(([pattern]) => pattern.test(raw))
-  return new Error('Could not connect to ' + target + ': ' + raw + (hint ? ' (' + hint[1] + ')' : ''))
+  const extra = /ENOTFOUND|EAI_FAIL|EAI_AGAIN/i.test(raw) ? hostShapeHint(m && m.host) : ''
+  const advice = [hint ? hint[1] : '', extra].filter(Boolean).join('; ')
+  return new Error('Could not connect to ' + target + ': ' + raw + (advice ? ' (' + advice + ')' : ''))
+}
+
+/**
+ * Explain a host value that cannot be a host name.
+ *
+ * A resolve failure is where these surface, and "the host name did not resolve"
+ * is true but unhelpful when the value is a URL, a user@host pair or host:port
+ * pasted into the wrong field.
+ *
+ * @param {string} [host]
+ * @returns {string} a sentence, or ''
+ */
+function hostShapeHint(host) {
+  const text = String(host || '')
+  if (!text) return ''
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) {
+    return 'the host looks like a URL — use the bare host name and put the port in the port setting'
+  }
+  if (text.includes('@')) {
+    return 'the host contains "@" — the user name belongs in the user field'
+  }
+  if (/:\d+$/.test(text)) {
+    return 'the host ends with a port — put it in the port setting and use the bare host name'
+  }
+  if (text !== text.trim()) {
+    return 'the host has leading or trailing spaces'
+  }
+  if (/[\\/]/.test(text)) {
+    return 'the host contains a path separator'
+  }
+  return ''
 }
 
 /**

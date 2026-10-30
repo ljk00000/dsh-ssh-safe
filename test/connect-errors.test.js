@@ -129,3 +129,22 @@ test('an unreadable key file names the machine and does not start a cooldown', a
     await p.closeAll({ force: true })
   }
 })
+test('a host that holds a URL, a user or a port is explained', async () => {
+  // A resolve failure says "the host name did not resolve", which is true and
+  // useless when the field holds something that is not a host name at all.
+  const { connectFailure } = await import('../src/pool.js')
+  const resolveError = new Error('getaddrinfo ENOTFOUND whatever')
+  const cases = [
+    ['ssh://10.0.0.5', /looks like a URL/],
+    ['root@10.0.0.5', /the user name belongs in the user field/],
+    ['10.0.0.5:2222', /ends with a port/],
+    ['  10.0.0.5  ', /leading or trailing spaces/],
+  ]
+  for (const [host, pattern] of cases) {
+    const wrapped = connectFailure(resolveError, { host, port: 22, username: 'u' })
+    assert.match(wrapped.message, pattern, host + ' -> ' + wrapped.message)
+    assert.match(wrapped.message, /Could not connect to u@/)
+  }
+  const plain = connectFailure(resolveError, { host: 'example.com', port: 22, username: 'u' })
+  assert.doesNotMatch(plain.message, /looks like a URL|belongs in the user field|ends with a port/)
+})

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.40 — 2026-10-31
+
+### Fixed
+- **0.7.39 bracketed anything with a colon.** `host: "example.com:2222"` was
+  printed `u@[example.com:2222]:22`, which is not an address at all. Brackets
+  are now reserved for real IPv6 literals (`net.isIPv6`); a non-IPv6 value with
+  a colon is quoted instead (`u@"example.com:2222":22`).
+- **A host field holding a URL, `user@host` or `host:port` only said "the host
+  name did not resolve".** That is true and useless. The connection error now
+  adds what the value looks like: `the host looks like a URL — use the bare host
+  name and put the port in the port setting`, `the host contains "@" — the user
+  name belongs in the user field`, `the host ends with a port ...`, `the host
+  has leading or trailing spaces`, `the host contains a path separator`.
+
+### Added — tests
+- `formatHost` for a host:port and a URL (quoted, not bracketed).
+- Four host-shape hints, and no hint for a plain host name.
+
 ## 0.7.39 — 2026-10-31
 
 ### Fixed

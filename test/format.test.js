@@ -82,5 +82,9 @@ test('an IPv6 literal is printed once, in brackets', async () => {
   assert.equal(formatHost('fe80::1'), '[fe80::1]')
   assert.equal(formatHost('10.0.0.5'), '10.0.0.5')
   assert.equal(formatHost('example.com'), 'example.com')
+  // Not an IPv6 literal, but a whole address pasted into the host field: quote
+  // it so the port after it is not swallowed into the host.
+  assert.equal(formatHost('example.com:2222'), '"example.com:2222"')
+  assert.equal(formatHost('ssh://h'), '"ssh://h"')
   assert.equal(formatHost(''), '')
 })
