@@ -65,7 +65,13 @@ export function summarize(command, maxLength = 200) {
   const firstLine = raw.split(/\r?\n/)[0].trim()
   const multi = raw.includes('\n')
   let text = firstLine
-  if (text.length > maxLength) text = text.slice(0, maxLength) + '…'
+  if (text.length > maxLength) {
+    text = text.slice(0, maxLength)
+    // Do not cut a surrogate pair in half: the record is NDJSON, and a lone
+    // half renders as a replacement character in every reader.
+    if (/[\uD800-\uDBFF]$/.test(text)) text = text.slice(0, -1)
+    text += '…'
+  }
   if (multi) text += ' [+' + (raw.split(/\r?\n/).length - 1) + ' more lines]'
   return text
 }
@@ -164,7 +170,10 @@ export class AuditLog {
           }
         } catch { /* that generation may not exist */ }
       }
-      return all.slice(-limit).map((line) => {
+      // A negative limit used to mean 'drop the first N': slice(-(-5)) is
+      // slice(5), so recent(-5) returned everything except the oldest five.
+      const take = Number.isFinite(Number(limit)) ? Math.max(1, Math.floor(Number(limit))) : 50
+      return all.slice(-take).map((line) => {
         try {
           const parsed = JSON.parse(line)
           // A log line is a record or nothing. 'null', a bare number or an array

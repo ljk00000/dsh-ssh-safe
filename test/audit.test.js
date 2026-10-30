@@ -127,3 +127,23 @@ test('a line that parses to a non-object is reported, not passed on', () => {
     for (const record of malformed) assert.equal(typeof record.line, 'string')
   } finally { rmSync(d, { recursive: true, force: true }) }
 })
+test('summarize does not cut a multi-byte character in half', () => {
+  // The record is NDJSON; a lone surrogate renders as a replacement character
+  // in every reader, and the command column is the one people scan.
+  const text = summarize('a'.repeat(199) + '🙂' + 'tail', 200)
+  assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(text), false, 'lone surrogate: ' + JSON.stringify(text.slice(-4)))
+  assert.ok(text.endsWith('…'))
+})
+
+test('a negative limit is not a request to drop the oldest records', () => {
+  // slice(-(-5)) is slice(5): recent(-5) used to return everything but the five
+  // oldest. The tool clamps its argument, but the log must not depend on that.
+  const dir = mkdtempSync(path.join(tmpdir(), 'dsh-aud-'))
+  try {
+    const log = new AuditLog(dir, { enabled: true })
+    for (let i = 0; i < 10; i++) log.write({ kind: 'exec', command: 'c' + i })
+    assert.equal(log.recent(-5).length, 1)
+    assert.equal(log.recent(0).length, 1)
+    assert.equal(log.recent(3).length, 3)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})

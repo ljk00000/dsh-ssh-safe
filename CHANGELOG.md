@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.54 — 2026-10-31
+
+### Fixed
+- **`recent(-5)` returned everything but the five oldest records.**
+  `Array.prototype.slice(-(-5))` is `slice(5)`. `ssh_audit` clamps its argument,
+  so no user saw this, but the log must not depend on its caller remembering to.
+  A non-finite limit falls back to the default and a negative one to 1.
+- **A command truncated at the character limit could end on half an emoji.** The
+  audit record is NDJSON and a lone surrogate renders as a replacement character
+  in the column people scan; the cut now steps back one code unit.
+
+### Verified, no change needed
+- Rotation under four concurrent writer processes: 1600 records, no torn line, no
+  unparsable record, four generations plus the live file.
+- A full 20 MB log (4 MB live + four generations, the enforced cap) is read in
+  39 ms for either 20 or 200 records, so `ssh_audit` does not need a streaming
+  reader.
+
+### Added — tests
+- The non-positive limits and the surrogate-safe truncation.
+
 ## 0.7.53 — 2026-10-31
 
 ### Fixed
