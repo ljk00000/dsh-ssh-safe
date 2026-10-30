@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, statSync, readFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, statSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { checkHostKey, fingerprint, keyId, storePath, fingerprintsEqual } from '../src/hostkey.js'
@@ -111,4 +111,22 @@ test('the store is written with restrictive permissions', () => {
     // Windows ignores POSIX bits; only assert on POSIX platforms.
     if (process.platform !== 'win32') assert.equal(mode, 0o600)
   } finally { rmSync(home, { recursive: true, force: true }) }
+})
+test('a recorded entry without a fingerprint is not reported as a changed key', async () => {
+  // is documented: an unreadable file means 'unknown'. An entry that exists but
+  // holds no fingerprint is a corrupt record, not evidence of interception --
+  // 'HOST KEY CHANGED' is the one alarm that has to keep its meaning.
+  const dir = mkdtempSync(path.join(tmpdir(), 'dsh-hk-'))
+  const file = path.join(dir, 'known_hosts.json')
+  for (const entry of ['garbage', { firstSeenAt: 'x' }, { fingerprint: 12345 }]) {
+    writeFileSync(file, JSON.stringify({ version: 1, hosts: { ['h.example:22']: entry } }))
+    const verdict = checkHostKey({
+      dshHome: dir, host: 'h.example', port: 22, keyBlob: keyA,
+      policy: 'strict', trustHostKey: false, knownHostsFile: file,
+    })
+    assert.equal(verdict.ok, false, 'a corrupt record must still refuse')
+    assert.doesNotMatch(verdict.reason, /HOST KEY CHANGED/)
+    assert.match(verdict.reason, /Host key verification failed/)
+    assert.match(verdict.reason, /no usable fingerprint/)
+  }
 })

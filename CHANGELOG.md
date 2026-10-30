@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.33 — 2026-10-31
+
+### Fixed
+- **A corrupt `known_hosts.json` entry raised the interception alarm.**
+  An entry that exists but holds no usable fingerprint (`"garbage"`, `{}`,
+  `{"fingerprint": 12345}`) made the plugin answer
+  `HOST KEY CHANGED ... recorded undefined` -- the one message that must keep
+  meaning "someone may be intercepting this connection", spent on a broken file.
+  It now says
+  `Host key verification failed: the recorded entry for host:port in <file> has
+  no usable fingerprint (string), so nothing can be verified against it` and
+  tells the user to remove the entry. It still refuses to connect.
+
+### Verified, no change needed
+- 400 randomised tool calls (mixed types, nested objects, NULs, 300-character
+  strings): no `TypeError`, no non-`Error` throw, no malformed result.
+- The workspace registry fuzzed with `list` throwing/returning `null`/strings,
+  junk items, `create` returning `null`, `delete` throwing: every call answered
+  without an exception escaping.
+- Credential precedence inside the file matches the settings form: a key wins
+  over a stored password, and a plaintext password in the file is refused with an
+  explanation.
+
+### Added — tests
+- Three corrupt entry shapes: each refuses, none claims a changed key, all point
+  at the file.
+
 ## 0.7.32 — 2026-10-31
 
 ### Fixed

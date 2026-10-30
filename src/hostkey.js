@@ -103,6 +103,23 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
   if (recorded && fingerprintsEqual(recorded.fingerprint, fp)) {
     return { ok: true, reason: 'host key matches the recorded fingerprint', fp, firstSeen: false }
   }
+  // A record that exists but holds no fingerprint is not a changed key: the file
+  // was edited or truncated. Saying "HOST KEY CHANGED" for it raises the one
+  // alarm that should mean interception, over a broken file.
+  if (recorded && (typeof recorded.fingerprint !== 'string' || recorded.fingerprint.length === 0)) {
+    return {
+      ok: false,
+      // Starts with the ssh wording on purpose: pool.connectFailure() passes it
+      // through untouched instead of prefixing "Could not connect", which reads
+      // like a network problem.
+      reason:
+        'Host key verification failed: the recorded entry for ' + id + ' in ' + file +
+        ' has no usable fingerprint (' + typeof recorded.fingerprint + '), so nothing can be verified ' +
+        'against it. Remove that entry and connect again to record the key you verify out of band.',
+      fp,
+      firstSeen: false,
+    }
+  }
   if (recorded && !fingerprintsEqual(recorded.fingerprint, fp)) {
     // A changed key is the classic man-in-the-middle signal. Never auto-heal.
     return {
