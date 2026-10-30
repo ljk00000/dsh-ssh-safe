@@ -1127,11 +1127,17 @@ export async function apply(ctx, config) {
           dshHome: cfg.useCredentialFile === true ? dshHome : '',
         })
         const where = (source) => source === 'none' ? '—' : source
+        // machineInventory hides the topology from the conversation. This tool
+        // is part of that conversation too, and it used to print user@host:port
+        // even with the setting on.
+        const lean = cfg.machineInventory === 'alias'
         head.push(
           '',
-          '• ' + alias + '  ' + (st.configured
-            ? (st.username || '?') + '@' + (st.host || '?') + ':' + st.port
-            : 'INCOMPLETE (needs host and user)'),
+          '• ' + alias + '  ' + (lean
+            ? (st.configured ? '<host hidden>' : 'INCOMPLETE (needs host and user)')
+            : (st.configured
+              ? (st.username || '?') + '@' + (st.host || '?') + ':' + st.port
+              : 'INCOMPLETE (needs host and user)')),
           '    password   ' + where(st.passwordSource),
           '    key        ' + where(st.keyPathSource) +
             (st.keyPath ? '  ' + String(st.keyPath).replace(/^.*[\\/]/, '…/') : ''),

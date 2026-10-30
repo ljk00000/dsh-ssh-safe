@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.21 — 2026-10-31
+
+### Fixed — privacy
+- **`machineInventory: "alias"` did not cover `ssh_credentials`.** That tool
+  printed `deploy@10.1.2.3:22` for every machine, and its output goes into the
+  same conversation the setting exists to keep free of topology. It now shows
+  `<host hidden>` like `ssh_machines`, and still reports which credential source
+  each machine uses.
+
+### Added — tests
+- The alias/full pair for `ssh_credentials`, so the two tools cannot drift apart
+  again.
+
 ## 0.7.20 — 2026-10-31
 
 ### Fixed

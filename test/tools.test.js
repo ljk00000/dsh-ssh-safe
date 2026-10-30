@@ -228,3 +228,30 @@ test('a write passes once confirmed', async () => {
     )
   } finally { restore() }
 })
+test('machineInventory: alias also hides the topology in ssh_credentials', async () => {
+  // ssh_credentials prints user@host:port for each machine. Its output goes
+  // into the same conversation that machineInventory exists to keep clean.
+  const { tools, restore } = capture({ machineInventory: 'alias' }, {
+    DSH_SSH_PROD_HOST: '10.1.2.3',
+    DSH_SSH_PROD_USER: 'deploy',
+    DSH_SSH_PROD_KEY_PATH: '~/.ssh/id_secret_name',
+  })
+  try {
+    const text = textOf(await tools['ssh_credentials'].execute({}))
+    assert.match(text, /prod/)
+    assert.doesNotMatch(text, /10\.1\.2\.3/, 'the host must be hidden here too')
+    assert.doesNotMatch(text, /deploy@/, 'the user must be hidden here too')
+    assert.match(text, /<host hidden>/)
+  } finally { restore() }
+})
+
+test('machineInventory: full still shows it', async () => {
+  const { tools, restore } = capture({}, {
+    DSH_SSH_PROD_HOST: '10.1.2.3',
+    DSH_SSH_PROD_USER: 'deploy',
+  })
+  try {
+    const text = textOf(await tools['ssh_credentials'].execute({}))
+    assert.match(text, /deploy@10\.1\.2\.3:22/)
+  } finally { restore() }
+})
