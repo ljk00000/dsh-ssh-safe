@@ -71,13 +71,13 @@ const credFile = credentialsPath(dshHome)
  * Any failure means "no settings-form machines" -- the page still works off the
  * credential file and the environment.
  */
-function settingsMachines() {
+function pluginBlock() {
   const file = path.join(profileDir, 'cordis.patch.yml')
   let text
-  try { text = readFileSync(file, 'utf8') } catch { return {} }
+  try { text = readFileSync(file, 'utf8') } catch { return null }
   const lines = text.split(/\r?\n/)
   const start = lines.findIndex((line) => /^\s*-\s*id:\s*dsh-ssh-safe\s*$/.test(line))
-  if (start < 0) return {}
+  if (start < 0) return null
   const entryIndent = (lines[start].match(/^\s*/) || [''])[0].length
 
   let end = lines.length
@@ -85,8 +85,29 @@ function settingsMachines() {
     const indent = (lines[i].match(/^\s*/) || [''])[0].length
     if (indent === entryIndent && /^\s*-\s*id:/.test(lines[i])) { end = i; break }
   }
+  return lines.slice(start, end)
+}
 
-  const block = lines.slice(start, end)
+/**
+ * Whether the profile still lets the plugin read its credential file.
+ *
+ * The test button mimics a real connection, so it has to make the same choice
+ * the plugin does: with useCredentialFile off, the file's password, host, port
+ * and user are all out of play, and a "connection ok" here would be a lie.
+ */
+function settingsUseCredentialFile() {
+  const block = pluginBlock()
+  if (!block) return true
+  for (const line of block) {
+    const match = line.match(/^\s*useCredentialFile:\s*(true|false)\s*(?:#.*)?$/)
+    if (match) return match[1] === 'true'
+  }
+  return true
+}
+
+function settingsMachines() {
+  const block = pluginBlock()
+  if (!block) return {}
   const machinesAt = block.findIndex((line) => /^\s*machines:\s*$/.test(line))
   if (machinesAt < 0) return {}
   const machinesIndent = (block[machinesAt].match(/^\s*/) || [''])[0].length
@@ -221,11 +242,19 @@ function tcpProbe(host, port, timeoutMs) {
  */
 async function testConnection(alias) {
   const settings = settingsMachines()
-  const m = machineDefinition(alias, { machines: settings, dshHome })
+  // The plugin would ignore the credential file entirely when the profile turns
+  // it off; testing with it anyway would report a connection the plugin cannot
+  // make.
+  const fileEnabled = settingsUseCredentialFile()
+  const credentialHome = fileEnabled ? dshHome : ''
+  const m = machineDefinition(alias, { machines: settings, dshHome: credentialHome })
   const lines = []
   const say = (stage, verdict, detail) =>
     lines.push('[' + verdict + '] ' + stage + (detail ? ': ' + detail : ''))
   const finish = (ok) => ({ ok, lines })
+  if (!fileEnabled) {
+    say('凭据文件', 'warn', '设置里 useCredentialFile 为 false，本页保存的密码/主机不会被插件读取')
+  }
 
   if (!m.host || !m.username) {
     say('配置', 'FAIL', '缺少主机或用户，请在上方填写后保存')
@@ -248,7 +277,7 @@ async function testConnection(alias) {
 
   // One resolver, shared with the plugin: the page must not disagree with the
   // plugin about which credential source wins.
-  const auth = credentialFor(alias, { machines: settings, dshHome, useAgent: false })
+  const auth = credentialFor(alias, { machines: settings, dshHome: credentialHome, useAgent: false })
   for (const warning of auth.warnings || []) say('凭据', 'warn', warning)
 
   return await new Promise((resolve) => {

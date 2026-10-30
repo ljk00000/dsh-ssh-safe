@@ -250,8 +250,19 @@ export class SshPool {
   describe(alias) {
     return machineDefinition(alias, {
       machines: this.config.machines || {},
-      dshHome: this.deps.dshHome,
+      dshHome: this.#credentialHome,
     })
+  }
+
+  /**
+   * Where the credential file may be read from.
+   *
+   * '' when the profile turned it off: useCredentialFile must make the file
+   * invisible to the connection, not just to the tools that report sources.
+   * The known_hosts store keeps using the real home either way.
+   */
+  get #credentialHome() {
+    return this.deps.credentialHome === undefined ? this.deps.dshHome : this.deps.credentialHome
   }
 
   /**
@@ -374,7 +385,7 @@ export class SshPool {
   async #open(alias, e, { sessionPassword, trustHostKey }) {
     const auth = credentialFor(alias, {
       machines: this.config.machines || {},
-      dshHome: this.deps.dshHome,
+      dshHome: this.#credentialHome,
       sessionPassword,
       allowSessionPassword: this.config.allowSessionPassword === true,
       allowPlaintextPassword: this.config.allowPlaintextPassword === true,

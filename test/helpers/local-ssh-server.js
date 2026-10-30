@@ -20,8 +20,34 @@ const { Server, utils } = ssh2
  *   stderr           -> one line on stderr, then "ok" on stdout
  *   anything else    -> "ran: <command>"
  */
+// One host key per process, generated once.
+//
+// ed25519 generation was cheap but occasionally produced a key ssh2's own
+// server parser rejected ("Malformed OpenSSH private key"), which turned into a
+// flaky test that had nothing to do with the code under test. RSA generation
+// costs ~100 ms once per test process and is what the first version of this
+// helper used without a single failure.
+let cachedHostKey = null
+function hostKeyOnce() {
+  if (!cachedHostKey) cachedHostKey = utils.generateKeyPairSync('rsa', { bits: 2048 }).private
+  return cachedHostKey
+}
+
+/**
+ * A second, different host key.
+ *
+ * Tests that check the plugin notices a changed key need two keys; with one
+ * cached key per process a "replacement" server presents the same key and the
+ * test proves nothing (it then fails, which is how this was noticed).
+ */
+export function alternateHostKey() {
+  if (!cachedAltKey) cachedAltKey = utils.generateKeyPairSync('rsa', { bits: 2048 }).private
+  return cachedAltKey
+}
+let cachedAltKey = null
+
 export function startServer({ port = 0, user = 'tester', password = 'test-pass', key = null } = {}) {
-  const hostKey = key || utils.generateKeyPairSync('ed25519').private
+  const hostKey = key || hostKeyOnce()
   const vfs = createVfs()
   const clients = new Set()
   const server = new Server({ hostKeys: [hostKey] }, (client) => {

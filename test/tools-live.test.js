@@ -230,3 +230,39 @@ test('a refused command is recorded with the machine it targeted', async () => {
   const text = await run('ssh_audit', { limit: 50 })
   assert.match(text, / t refused /, 'the renderer must show it: ' + text.slice(0, 400))
 })
+test('raw: true bypasses masking and maxBytes still caps the read', async () => {
+  srv.vfs.putFile('/etc/secret.txt', 'PASSWORD=hunter2\n' + 'x'.repeat(200))
+  const masked = await run('ssh_read', { path: '/etc/secret.txt' })
+  assert.ok(!masked.includes('hunter2'), 'the default path masks')
+  assert.match(masked, /secrets masked/)
+
+  const raw = await run('ssh_read', { path: '/etc/secret.txt', raw: true })
+  assert.match(raw, /hunter2/, 'raw shows the file verbatim')
+  assert.doesNotMatch(raw, /secrets masked/, 'raw must not claim to have masked anything')
+
+  const capped = await run('ssh_read', { path: '/etc/secret.txt', raw: true, maxBytes: 10 })
+  assert.match(capped, /\[truncated at 10 bytes\]/, capped)
+  assert.ok(capped.includes('PASSWORD=h'), 'the first ten bytes are kept')
+})
+
+test('a file larger than maxFileBytes is capped, not refused', async () => {
+  srv.vfs.putFile('/var/large.txt', 'y'.repeat(1200000))
+  const text = await run('ssh_read', { path: '/var/large.txt', maxBytes: 5 * 1024 * 1024 })
+  // The tool argument can only tighten the configured ceiling (1 MB here).
+  assert.ok(text.length < 1200000, 'the read must stop at the configured cap: ' + text.length)
+  assert.match(text, /\[truncated at 1048576 bytes\]/)
+})
+test('ssh_write refuses more than maxFileBytes and accepts exactly that much', async () => {
+  srv.vfs.putDir('/tmp')
+  const tooBig = 'a'.repeat(1048577)
+  await assert.rejects(
+    () => run('ssh_write', { path: '/tmp/too-big.txt', content: tooBig }),
+    /Refusing to write 1048577 bytes \(maxFileBytes = 1048576\)/,
+  )
+  assert.equal(srv.vfs.getFile('/tmp/too-big.txt'), undefined, 'nothing may be written')
+
+  const exact = 'b'.repeat(1048576)
+  const wrote = await run('ssh_write', { path: '/tmp/exact.txt', content: exact })
+  assert.match(wrote, /Wrote 1048576 bytes/)
+  assert.equal(srv.vfs.getFile('/tmp/exact.txt').length, 1048576)
+})

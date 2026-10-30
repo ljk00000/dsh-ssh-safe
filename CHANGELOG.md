@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.13 — 2026-10-31
+
+### Fixed — security
+- **`useCredentialFile: false` did not stop the plugin reading the credential
+  file.** The setting was honoured by `ssh_credentials` -- the tool that reports
+  where credentials come from -- and by nothing else: a connection still
+  authenticated from the file, and the machine's host, port and user still came
+  from it. Turning the file off is exactly what someone does when they think a
+  stored password is compromised, and the plugin kept using it.
+  One decision now feeds every reader: the pool (for both `describe` and the
+  connect path), `ssh_doctor`, `ssh_machines`, the workspace tools, and the
+  credential page's test button. The known_hosts store still uses the real home.
+
+### Fixed — tests
+- The loopback server generated an ed25519 host key per start and ssh2's own
+  server parser occasionally rejected one ("Malformed OpenSSH private key"),
+  which surfaced as a flaky GUI test. One RSA key is generated per process.
+- That caching broke the two changed-host-key tests, because a "replacement"
+  server then presented the same key. They now ask for `alternateHostKey()`,
+  and the failure is what pointed at the shared key in the first place.
+
+### Added — tests
+- The credential file end to end: a password stored by the page authenticates
+  the plugin; rotation takes effect on the next connection; `useCredentialFile:
+  false` makes the file invisible, and the page's test button says so instead of
+  reporting a connection the plugin cannot make.
+- `ssh_read` masked vs `raw`, and `maxBytes` that can only tighten the ceiling;
+  `ssh_write` at exactly `maxFileBytes`; 60 concurrent execs leave 60 readable
+  audit lines; `dsh plugin add` into a throwaway profile produces a profile
+  whose composed config contains the plugin.
+
 ## 0.7.12 — 2026-10-31
 
 ### Fixed

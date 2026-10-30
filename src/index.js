@@ -284,7 +284,13 @@ export async function apply(ctx, config) {
     )
   }
   const dshHome = resolveDshHome()
-  const pool = new SshPool(cfg, { dshHome })
+  // Everything that reads the credential file goes through this one decision.
+  // When the setting is off the file must be invisible to the host, port and
+  // user as well as to the password -- and to the connection, not just to the
+  // tools that report where credentials come from. It was honoured only by
+  // ssh_credentials, while a connection still authenticated from the file.
+  const credentialHome = cfg.useCredentialFile === true ? dshHome : ''
+  const pool = new SshPool(cfg, { dshHome, credentialHome })
   // Auditing is off by default: writing files someone did not ask for is its
   // own surprise. Turning it on is a one-line config change.
   const audit = new AuditLog(dshHome + (process.platform === 'win32' ? '\\' : '/') + 'dsh-ssh-safe', {
@@ -444,7 +450,7 @@ export async function apply(ctx, config) {
     try {
       const auth = credentialFor(alias, {
         machines: cfg.machines,
-        dshHome,
+        dshHome: credentialHome,
         sessionPassword,
         allowSessionPassword: cfg.allowSessionPassword === true,
         allowPlaintextPassword: cfg.allowPlaintextPassword === true,
@@ -515,7 +521,7 @@ export async function apply(ctx, config) {
       const out = []
       const lean = cfg.machineInventory === 'alias'
       for (const alias of aliases) {
-        const m = machineDefinition(alias, { machines: cfg.machines, dshHome })
+        const m = machineDefinition(alias, { machines: cfg.machines, dshHome: credentialHome })
         const need = expectedEnv(alias)
         // machineDefinition() never carries the password itself (it may need
         // decrypting), so test the SOURCE. Testing m.password meant the line
@@ -596,7 +602,7 @@ export async function apply(ctx, config) {
       }
       audit.write({ kind: 'connect', machine: alias, outcome: 'ok', ms: Date.now() - startedAt })
 
-      const m = machineDefinition(alias, { machines: cfg.machines, dshHome })
+      const m = machineDefinition(alias, { machines: cfg.machines, dshHome: credentialHome })
       const entry = pool.entry(alias)
       const stats = pool.connectionStats()
       // Deliberately no remote command here. Verifying the channel is what
@@ -938,7 +944,7 @@ export async function apply(ctx, config) {
         const aliases = [...knownAliases({ machines: cfg.machines, dshHome })].sort()
         if (aliases.length === 0) return { text: '没有配置任何机器。先用设置界面或凭据文件添加一台，再创建远程工作区。' }
         const rows = aliases.map((alias) => {
-          const m = machineDefinition(alias, { machines: cfg.machines, dshHome })
+          const m = machineDefinition(alias, { machines: cfg.machines, dshHome: credentialHome })
           const dir = remoteDir(dshHome, alias)
           const marker = readMarker(dshHome, alias)
           const workspace = findWorkspace({ list: () => registryRead.items }, dir)
@@ -965,7 +971,7 @@ export async function apply(ctx, config) {
       const dir = remoteDir(dshHome, alias)
 
       if (action === 'create') {
-        const m = machineDefinition(alias, { machines: cfg.machines, dshHome })
+        const m = machineDefinition(alias, { machines: cfg.machines, dshHome: credentialHome })
         if (!m.host || !m.username) {
           const need = expectedEnv(alias)
           throw new Error(
@@ -1235,7 +1241,7 @@ export async function apply(ctx, config) {
     isConcurrencySafe: () => true,
     async execute(args) {
       const alias = machineFor(args)
-      const m = machineDefinition(alias, { machines: cfg.machines, dshHome })
+      const m = machineDefinition(alias, { machines: cfg.machines, dshHome: credentialHome })
       const need = expectedEnv(alias)
       const lines = []
       const say = (stage, verdict, detail) => lines.push('[' + verdict + '] ' + stage + (detail ? ': ' + detail : ''))
@@ -1246,7 +1252,7 @@ export async function apply(ctx, config) {
       if (!m.username) missing.push(need.required[1])
       const auth = credentialFor(alias, {
         machines: cfg.machines,
-        dshHome,
+        dshHome: credentialHome,
         allowSessionPassword: cfg.allowSessionPassword,
         allowPlaintextPassword: cfg.allowPlaintextPassword === true,
       })

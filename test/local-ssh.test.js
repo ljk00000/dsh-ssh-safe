@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import { SshPool } from '../src/pool.js'
-import { startServer, machineFor } from './helpers/local-ssh-server.js'
+import { startServer, machineFor, alternateHostKey } from './helpers/local-ssh-server.js'
 
 // These drive the real ssh2 client against a real ssh2 server on loopback.
 // Everything below the tool layer — auth, host-key policy, channel streaming,
@@ -97,7 +97,7 @@ test('a changed host key is refused once the fingerprint is known', async () => 
   await first.close()
 
   // Same address, different key: the shape a man-in-the-middle takes.
-  const replacement = await startServer({ port: first.port })
+  const replacement = await startServer({ port: first.port, key: alternateHostKey() })
   try {
     const strict = poolFor({ h: machineFor('h', first.port) }, { hostKeyPolicy: 'strict' })
     await assert.rejects(

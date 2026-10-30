@@ -521,3 +521,27 @@ test('a settings file with no plugin entry is simply ignored', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+test('the test button honours useCredentialFile: false', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    useCredentialFile: false',
+  ].join('\n'))
+  const { child, base, token } = await start(home)
+  try {
+    // The page can still store an entry; the plugin will not read it.
+    await call(base, token, '/api/save', { alias: 'box', host: '10.0.0.9', user: 'root', password: 'pw' })
+    const tested = await call(base, token, '/api/test', { alias: 'box' })
+    assert.equal(tested.body.ok, false, 'a file the plugin ignores must not test green')
+    const text = tested.body.lines.join('\n')
+    assert.match(text, /useCredentialFile/)
+    assert.match(text, /\[warn\] 凭据文件/)
+    assert.match(text, /\[FAIL\] 配置/)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

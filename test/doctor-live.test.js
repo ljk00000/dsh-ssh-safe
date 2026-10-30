@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import { apply } from '../src/index.js'
-import { startServer, machineFor } from './helpers/local-ssh-server.js'
+import { startServer, machineFor, alternateHostKey } from './helpers/local-ssh-server.js'
 
 // ssh_doctor is the tool a user reaches for when a connection fails, so its
 // failure branches matter more than its success path: it has to say which stage
@@ -135,7 +135,7 @@ test('doctor reports a changed host key as a changed host key', async () => {
       assert.match(await doctor(tools, { machine: 'box' }), /\[ok\] authentication/)
 
       await first.close()
-      second = await startServer({ port: first.port })
+      second = await startServer({ port: first.port, key: alternateHostKey() })
       const text = await doctor(tools, { machine: 'box' })
       assert.match(text, /\[FAIL\] host key: HOST KEY CHANGED/)
       assert.match(text, /\[skip\] authentication/)
