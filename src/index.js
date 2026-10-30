@@ -31,6 +31,7 @@ import {
   credentialsPath,
   credentialsTemplate,
   knownAliases,
+  loadCredentialFile,
   machineDefinition,
 } from './machines.js'
 import { storePath } from './hostkey.js'
@@ -401,6 +402,9 @@ function editDistance(a, b) {
 /** Fields a machine entry in the settings form may use. */
 const MACHINE_FIELDS = ['host', 'port', 'user', 'password', 'keyPath', 'keyPassphrase', 'hostKeyPolicy', 'knownHosts']
 
+/** The credential file additionally takes an encrypted password and 'username'. */
+const CREDENTIAL_FIELDS = [...MACHINE_FIELDS, 'passwordDpapi', 'username']
+
 /**
  * Spell-check the machine entries in the settings form.
  *
@@ -411,27 +415,35 @@ const MACHINE_FIELDS = ['host', 'port', 'user', 'password', 'keyPath', 'keyPassp
  * @param {Record<string, any>} [machines]
  * @returns {string[]} one sentence per unknown field
  */
-function unknownMachineFields(machines, only = '') {
+function unknownMachineFields(machines, only = '', where = 'settings form', allowed = MACHINE_FIELDS) {
   const problems = []
   for (const [alias, entry] of Object.entries(machines || {})) {
     if (!entry || typeof entry !== 'object') continue
     if (only && alias.toLowerCase() !== String(only).toLowerCase()) continue
     for (const key of Object.keys(entry)) {
-      if (MACHINE_FIELDS.includes(key)) continue
+      if (allowed.includes(key)) continue
       let best = ''
       let bestDistance = Number.POSITIVE_INFINITY
-      for (const name of MACHINE_FIELDS) {
+      for (const name of allowed) {
         const distance = editDistance(key.toLowerCase(), name.toLowerCase())
         if (distance < bestDistance) { bestDistance = distance; best = name }
       }
       problems.push(
-        'machine "' + alias + '" has an unknown field "' + key + '"' +
+        'machine "' + alias + '" in the ' + where + ' has an unknown field "' + key + '"' +
         (bestDistance <= 3 ? ' (did you mean "' + best + '"?)' : '') +
         ' — it is ignored'
       )
     }
   }
   return problems
+}
+
+/** Unknown fields in both configuration sources, for one machine or all. */
+function machineFieldProblems(only = '') {
+  return [
+    ...unknownMachineFields(cfg.machines, only, 'settings form', MACHINE_FIELDS),
+    ...unknownMachineFields(loadCredentialFile(credentialHome), only, 'credential file', CREDENTIAL_FIELDS),
+  ]
 }
 
 function executionSignal(execution) {
@@ -678,8 +690,8 @@ function assertKnownArgs(args, known, toolName) {
       // Field typos in the settings form are dropped by the schema, so the
       // machine silently looks unconfigured; the inventory is where a user
       // checks their config, so it is where the misspelling is actionable.
-      const typos = unknownMachineFields(cfg.machines)
-      if (typos.length) out.push('', 'Settings form problems:', ...typos.map((t) => '  ' + t))
+      const typos = machineFieldProblems()
+      if (typos.length) out.push('', 'Configuration problems:', ...typos.map((t) => '  ' + t))
       return { text: out.join('\n') }
     },
   })
@@ -1410,7 +1422,7 @@ function assertKnownArgs(args, known, toolName) {
       // A misspelled field in the settings form is silently dropped by the
       // schema -- 'keypath' instead of 'keyPath' turned a key machine into
       // "no credentials" -- so name it here rather than at connect time.
-      for (const problem of unknownMachineFields(cfg.machines, alias)) {
+      for (const problem of machineFieldProblems(alias)) {
         say('configuration', 'warn', problem)
       }
       // Cheque the credential's usability, not just its declared kind: an

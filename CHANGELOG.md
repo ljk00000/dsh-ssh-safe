@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.29 — 2026-10-31
+
+### Fixed
+- **The credential file had the same silent-typo hole as the settings form.**
+  `credentials.json` is free-form JSON: `"keypath"` instead of `"keyPath"`
+  parsed, was ignored, and left the machine looking like it had no credential.
+  Both sources are now checked, and the message names which file:
+  `machine "box" in the credential file has an unknown field "keypath"`.
+  The file's own fields (`passwordDpapi`, `username`) are not flagged.
+
+### Changed
+- `ssh_machines` prints one `Configuration problems:` block covering both
+  sources (it used to be `Settings form problems:`).
+
+### Added — tests
+- A credential-file typo is reported against that file, and the file-only fields
+  stay accepted.
+
 ## 0.7.28 — 2026-10-31
 
 ### Fixed

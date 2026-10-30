@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -296,15 +296,33 @@ test('a misspelled field in the settings form is reported, not silently dropped'
   })
   try {
     const doctor = String((await tools['ssh_doctor'].execute({ machine: 'box' }, {})).text)
-    assert.match(doctor, /\[warn\] configuration: machine "box" has an unknown field "keypath"/)
+    assert.match(doctor, /\[warn\] configuration: machine "box" in the settings form has an unknown field "keypath"/)
     assert.match(doctor, /did you mean "keyPath"/)
 
     const clean = String((await tools['ssh_doctor'].execute({ machine: 'fine' }, {})).text)
     assert.doesNotMatch(clean, /unknown field/, 'another machine\'s typo is not this machine\'s problem')
 
     const inventory = String((await tools['ssh_machines'].execute({}, {})).text)
-    assert.match(inventory, /Settings form problems:/)
-    assert.match(inventory, /machine "box" has an unknown field "keypath"/)
-    assert.doesNotMatch(inventory, /machine "fine" has an unknown field/)
+    assert.match(inventory, /Configuration problems:/)
+    assert.match(inventory, /machine "box" in the settings form has an unknown field "keypath"/)
+    assert.doesNotMatch(inventory, /machine "fine" in the settings form has an unknown field/)
+  } finally { restore() }
+})
+test('a misspelled field in the credential file is reported against that file', async () => {
+  const { tools, restore } = capture({ defaultMachine: 'box' }, {})
+  try {
+    // capture() set an isolated DSH_HOME; the file lives under it.
+    const dir = path.join(process.env.DSH_HOME, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, 'credentials.json'), JSON.stringify({
+      box: { host: '127.0.0.1', port: 1, user: 'u', keypath: '/nope' },
+      ok: { host: '127.0.0.1', port: 1, user: 'u', username: 'deploy', passwordDpapi: 'x' },
+    }))
+    const doctor = String((await tools['ssh_doctor'].execute({ machine: 'box' }, {})).text)
+    assert.match(doctor, /machine "box" in the credential file has an unknown field "keypath"/)
+    assert.match(doctor, /did you mean "keyPath"/)
+
+    const clean = String((await tools['ssh_doctor'].execute({ machine: 'ok' }, {})).text)
+    assert.doesNotMatch(clean, /unknown field/, 'username and passwordDpapi are valid file fields')
   } finally { restore() }
 })
