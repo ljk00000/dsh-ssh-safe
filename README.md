@@ -34,6 +34,7 @@
 | DeepSeek Harness | `>=0.1.7-rc.1 <0.3.0`（见 `package.json` 的 `dsh.engines.dsh`） |
 | Node.js | `>=20` |
 | 目标主机 | 运行中的 `sshd`。`ssh_list`/SFTP 需要 sshd 启用 sftp 子系统（现代发行版默认开启） |
+| 工具注册 API | 自动适配：`ctx.tools.register`（0.2.1+）与 `ctx.tools.defineTool`（0.1.x）。两者都没有时以版本提示拒绝加载，而不是静默消失 |
 | 认证 | 密码、私钥文件、或 SSH agent（`SSH_AUTH_SOCK`）三者之一 |
 
 不需要在目标主机上安装任何东西，也不需要 Python、Node 或 `ripgrep`。
@@ -455,6 +456,7 @@ credentials to a third party**.
 | DeepSeek Harness | `>=0.1.7-rc.1 <0.3.0` (see `dsh.engines.dsh` in `package.json`) |
 | Node.js | `>=20` (declared as `engines.node`) |
 | Target host | a running `sshd`; `ssh_list`/SFTP need the sftp subsystem (on by default on modern distros) |
+| Tool registration API | Detected at load: `ctx.tools.register` (0.2.1+) or `ctx.tools.defineTool` (0.1.x); with neither, the plugin refuses to load with a version-naming error instead of vanishing |
 | Auth | password, private key file, or SSH agent (`SSH_AUTH_SOCK`) |
 
 Nothing needs to be installed on the target host — no Python, no Node, no `ripgrep`.

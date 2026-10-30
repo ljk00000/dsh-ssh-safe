@@ -19,6 +19,7 @@
 // SSH is a PARALLEL tool set. Local read/write/bash keep working as before.
 
 import z from '@deepseek-ai/schemastery'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import { readFileSync, existsSync } from 'node:fs'
 import net from 'node:net'
 import { homedir } from 'node:os'
@@ -330,6 +331,34 @@ export async function apply(ctx, config) {
     render: (_args, value) => [{ type: 'text', text: String(value?.text ?? '') }],
   }
 
+  /**
+   * Tool registration, across harness generations.
+   *
+   * Harness 0.2.1 removed `ctx.tools.defineTool`: the compiler moved to the
+   * `@deepseek-ai/dsh-tools` export and the service now takes an
+   * already-compiled definition through `ctx.tools.register`. Calling the old
+   * method threw "ctx.tools.defineTool is not a function" while the plugin was
+   * activating, so every tool vanished from the registry and the whole plugin
+   * reported "did not activate" — a security plugin that silently stops
+   * existing is the worst failure mode it has.
+   *
+   * Both entry points are supported: `register` when the service offers it,
+   * otherwise the older `defineTool` method, which took the un-compiled
+   * definition itself. Detection is per-call-site so a harness upgrade cannot
+   * leave half the tools on one protocol.
+   */
+  const registerTool = typeof ctx.tools.register === 'function'
+    ? (definition) => ctx.tools.register(defineTool(definition))
+    : typeof ctx.tools.defineTool === 'function'
+      ? (definition) => ctx.tools.defineTool(definition)
+      : () => {
+        throw new Error(
+          'dsh-ssh-safe: this harness exposes neither ctx.tools.register (0.2.1+) nor ' +
+          'ctx.tools.defineTool (0.1.x), so no tool can be registered. ' +
+          'Check which DSH version is running (dsh --version) and report it.'
+        )
+      }
+
   // Aliases are case-insensitive: envNames() uppercases them anyway, so
   // 'PROD' and 'prod' name the same machine and must not be listed twice.
   const normalizeAlias = (value) => String(value ?? '').trim().toLowerCase()
@@ -430,7 +459,7 @@ export async function apply(ctx, config) {
   }
 
   // ── ssh_machines ──────────────────────────────────────────────────────
-  ctx.tools.defineTool({
+  registerTool({
     name: 'ssh_machines',
     description:
       'List the SSH machines configured through environment variables: alias, host, user, auth ' +
@@ -504,7 +533,7 @@ export async function apply(ctx, config) {
   })
 
   // ── ssh_connect ───────────────────────────────────────────────────────
-  ctx.tools.defineTool({
+  registerTool({
     name: 'ssh_connect',
     description:
       'Open or reuse the SSH connection for a machine, then report the host-key fingerprint and ' +
@@ -558,7 +587,7 @@ export async function apply(ctx, config) {
   })
 
   // ── ssh_exec ──────────────────────────────────────────────────────────
-  ctx.tools.defineTool({
+  registerTool({
     name: 'ssh_exec',
     description:
       'Run a shell command on the remote machine; returns stdout, stderr and the exit code. ' +
@@ -643,7 +672,7 @@ export async function apply(ctx, config) {
   })
 
   // ── ssh_read ──────────────────────────────────────────────────────────
-  ctx.tools.defineTool({
+  registerTool({
     name: 'ssh_read',
     description:
       'Read a file from the remote machine as UTF-8 text, capped at maxFileBytes. ' +
@@ -702,7 +731,7 @@ export async function apply(ctx, config) {
   })
 
   // ── ssh_write ─────────────────────────────────────────────────────────
-  ctx.tools.defineTool({
+  registerTool({
     name: 'ssh_write',
     description:
       'Write UTF-8 text to a file on the remote machine (create or overwrite). ' +
@@ -765,7 +794,7 @@ export async function apply(ctx, config) {
   })
 
   // ── ssh_list ──────────────────────────────────────────────────────────
-  ctx.tools.defineTool({
+  registerTool({
     name: 'ssh_list',
     description: 'List a directory on the remote machine (name, size, type, mtime).',
     parameters: {
@@ -814,7 +843,7 @@ export async function apply(ctx, config) {
    * operation must go through the ssh_* tools -- which the harness already
    * loads as project instructions, so no prompt API is involved.
    */
-  ctx.tools.defineTool({
+  registerTool({
     name: 'ssh_workspace',
     description:
       'Create, list or remove a remote workspace: a sidebar workspace whose working directory is bound to ' +
@@ -915,7 +944,7 @@ export async function apply(ctx, config) {
   })
 
   // ── ssh_audit ─────────────────────────────────────────────────────────
-  ctx.tools.defineTool({
+  registerTool({
     name: 'ssh_audit',
     description:
       'Show the most recent SSH operations this plugin performed: alias, operation, a one-line ' +
@@ -967,7 +996,7 @@ export async function apply(ctx, config) {
   })
 
   // ── ssh_credentials ──────────────────────────────────────────────────
-  ctx.tools.defineTool({
+  registerTool({
     name: 'ssh_credentials',
     description:
       'Show where each machine`s credentials come from: the settings form, the credential ' +
@@ -1025,7 +1054,7 @@ export async function apply(ctx, config) {
   })
 
   // ── ssh_config ────────────────────────────────────────────────────────
-  ctx.tools.defineTool({
+  registerTool({
     name: 'ssh_config',
     description:
       'Show the plugin configuration actually in effect, plus live pool state. Useful when a ' +
@@ -1090,7 +1119,7 @@ export async function apply(ctx, config) {
   })
 
   // ── ssh_doctor ────────────────────────────────────────────────────────
-  ctx.tools.defineTool({
+  registerTool({
     name: 'ssh_doctor',
     description:
       'Diagnose one machine stage by stage: configuration, TCP reachability, host key, then ' +
@@ -1225,7 +1254,7 @@ export async function apply(ctx, config) {
   })
 
   // ── ssh_close ─────────────────────────────────────────────────────────
-  ctx.tools.defineTool({
+  registerTool({
     name: 'ssh_close',
     description:
       'Close pooled SSH connections. The next call reconnects. A connection with a command still ' +

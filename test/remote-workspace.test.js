@@ -110,7 +110,7 @@ async function toolsFor(env = {}, registry = new FakeRegistry()) {
   for (const [key, value] of Object.entries(env)) process.env[key] = value
   const tools = {}
   const ctx = {
-    tools: { defineTool: (def) => { tools[def.name] = def } },
+    tools: { register: (def) => { tools[def.name] = def } },
     effect: () => {},
     get: (name) => (name === 'workspaceRegistry' ? registry : undefined),
   }

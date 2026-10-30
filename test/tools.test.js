@@ -22,8 +22,11 @@ function capture(config = {}, env = {}) {
   process.env.DSH_HOME = home
   for (const [k, v] of Object.entries(env)) process.env[k] = v
   const tools = {}
+  // `register` is the 0.2.1+ entry point: the harness compiles a definition
+  // through @deepseek-ai/dsh-tools and hands the service the result, exactly as
+  // this fake does, so tests exercise the path the host actually runs.
   const ctx = {
-    tools: { defineTool: (def) => { tools[def.name] = def } },
+    tools: { register: (def) => { tools[def.name] = def } },
     effect: () => {},
   }
   apply(ctx, config)

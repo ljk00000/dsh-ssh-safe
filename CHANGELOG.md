@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.1 — 2026-10-30
+
+### Fixed — the plugin did not activate on DSH 0.2.1
+- **Every tool disappeared on 0.2.1.** That release replaced the
+  `ctx.tools.defineTool` service method with `ctx.tools.register` and moved the
+  definition compiler to the `@deepseek-ai/dsh-tools` export. Activation threw
+  `TypeError: ctx.tools.defineTool is not a function` at the first registration,
+  the harness logged `warning: 1 entry did not activate`, and the plugin
+  contributed nothing — the worst failure shape for a security tool, because it
+  fails quietly.
+- Registration now picks the entry point the running harness offers:
+  `ctx.tools.register(defineTool(definition))` on 0.2.1+, the older
+  `ctx.tools.defineTool(definition)` on 0.1.x, and a version-naming error when
+  neither exists.
+- `test/tools-registration.test.js` asserts the shape `register` demands
+  (`parameters.type === 'object'`, `output.render`, `output.schema`) so a
+  silent "did not activate" cannot ship again; the tool tests now register
+  through the same compiled path the host uses.
+- Verified against 0.2.1-rc.5: the "did not activate" warning is gone and all
+  twelve tools register.
+
 ## 0.7.0 — 2026-10-30
 
 ### Added — remote workspaces
