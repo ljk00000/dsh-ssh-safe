@@ -265,10 +265,15 @@ function envAliases() {
 
 function state() {
   const settings = settingsMachines()
-  const fromDisk = Object.keys(readStore())
+  // With the credential file turned off the plugin never reads it, so listing
+  // its machines here would present machines that cannot connect -- and the
+  // test button would say so, contradicting the list right above it.
+  const fileEnabled = settingsUseCredentialFile()
+  const readHome = fileEnabled ? dshHome : ''
+  const fromDisk = fileEnabled ? Object.keys(readStore()) : []
   const aliases = [...new Set([...fromDisk, ...Object.keys(settings), ...envAliases()])].sort()
   const machines = aliases.map((alias) => {
-    const m = machineDefinition(alias, { machines: settings, dshHome })
+    const m = machineDefinition(alias, { machines: settings, dshHome: readHome })
     return {
       alias,
       host: m.host,
@@ -283,6 +288,7 @@ function state() {
   })
   return {
     credentialFile: credFile,
+    fileEnabled,
     dpapi: dpapiAvailable(),
     envAliases: envAliases(),
     machines,
@@ -547,6 +553,9 @@ const server = createServer(async (req, res) => {
       const store = readStore()
       const entry = { ...(store[alias] && typeof store[alias] === 'object' ? store[alias] : {}) }
       const warnings = []
+      if (!settingsUseCredentialFile()) {
+        warnings.push('设置里 useCredentialFile 为 false：本页保存的内容插件不会读取，请在设置里改为 true 或改用环境变量')
+      }
 
       if (filled(body.host)) entry.host = String(body.host).trim()
       if (filled(body.port)) {

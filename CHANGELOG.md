@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.31 — 2026-10-31
+
+### Fixed
+- **The credential page listed machines the plugin would ignore.**
+  `useCredentialFile: false` was honoured by the connection path and by the
+  test button, but `/api/state` still read `credentials.json`, so the page
+  showed machines from a disabled file -- and the test button then explained, one
+  click later, that the file is off. The list now comes from the sources the
+  plugin actually reads.
+- **Saving from the page said nothing when the file is disabled.** The entry was
+  written to a file the plugin never opens. The save response now warns, and the
+  page shows a banner above the list.
+
+### Added — tests
+- `/api/state` with the file disabled: no machine from the file, the settings
+  machine still listed, `fileEnabled: false`, and the save warning.
+
 ## 0.7.30 — 2026-10-31
 
 ### Fixed

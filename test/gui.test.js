@@ -623,3 +623,36 @@ test('quoted values and trailing comments in the settings form parse like YAML',
     rmSync(home, { recursive: true, force: true })
   }
 })
+test('useCredentialFile: false hides the file and warns when saving', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    useCredentialFile: false',
+    '    machines:',
+    '      formbox:',
+    '        host: 10.1.2.3',
+    '        user: root',
+  ].join('\n'))
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+    ghost: { host: '9.9.9.9', user: 'g', password: 'p' },
+  }))
+  const { child, base, token } = await start(home)
+  try {
+    const state = await call(base, token, '/api/state')
+    assert.equal(state.body.fileEnabled, false)
+    const aliases = state.body.machines.map((m) => m.alias)
+    assert.ok(aliases.includes('formbox'))
+    assert.ok(!aliases.includes('ghost'), 'a disabled file must not contribute machines: ' + aliases.join(','))
+
+    const saved = await call(base, token, '/api/save', { alias: 'formbox', host: '10.1.2.3', user: 'root', password: 'secret' })
+    assert.equal(saved.status, 200)
+    assert.ok(saved.body.warnings.some((w) => w.includes('useCredentialFile 为 false')), JSON.stringify(saved.body.warnings))
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
