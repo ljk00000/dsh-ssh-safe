@@ -181,3 +181,15 @@ test('an out-of-range port is a configuration error, not a raw socket error', as
     rmSync(home, { recursive: true, force: true })
   }
 })
+test('a user name holding @ explains that the host does not belong there', async () => {
+  // 'tester@host' in the user field fails authentication, and the server's
+  // 'All configured authentication methods failed' points at the credentials.
+  const { connectFailure } = await import('../src/pool.js')
+  const authError = new Error('All configured authentication methods failed')
+  const wrapped = connectFailure(authError, { host: '10.0.0.5', port: 22, username: 'tester@nowhere' })
+  assert.match(wrapped.message, /the server rejected the credentials/)
+  assert.match(wrapped.message, /the user contains "@" — put only the account name/)
+
+  const plain = connectFailure(authError, { host: '10.0.0.5', port: 22, username: 'tester' })
+  assert.doesNotMatch(plain.message, /the user contains/)
+})

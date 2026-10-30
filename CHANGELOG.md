@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.42 — 2026-10-31
+
+### Fixed
+- **A user name with surrounding spaces could not authenticate, and the error
+  blamed the password.** Every write path trims, but a hand-edited
+  `credentials.json` or a pasted environment variable can carry `"  deploy  "`,
+  and the failure reads `the server rejected the credentials`. Host, user and
+  key path are trimmed when they are read, so the value used is the value shown.
+- **`tester@host` in the user field also blamed the password.** The
+  authentication failure now adds `the user contains "@" — put only the account
+  name, without the host`.
+
+### Added — tests
+- Trimming for host, user and key path from the credential file.
+- The user-shape hint on an authentication failure, and none for a normal name.
+
 ## 0.7.41 — 2026-10-31
 
 ### Fixed

@@ -193,16 +193,20 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
 
   return {
     alias,
-    host: String(host.value || ''),
+    // Whitespace is never part of a host, a user name or a path: every write
+    // path (page, set-password) trims these, so a value with spaces came from a
+    // hand-edited file or a pasted environment variable. Trimming here keeps the
+    // value that is used identical to the value that is displayed.
+    host: String(host.value || '').trim(),
     // Number('') is 0, which is not "unset": an unset port must stay 22.
     port: configured && portValid && Number.isInteger(portNumber) ? portNumber : 22,
     /** The value as configured, so a listing can show what is actually there. */
     portRaw: filled(port.value) ? port.value : '',
     portProblem,
-    username: String(user.value || ''),
+    username: String(user.value || '').trim(),
     // Never carries plaintext: a DPAPI entry has to be decrypted on demand.
     password: '',
-    keyPath: String(keyPath.value || ''),
+    keyPath: String(keyPath.value || '').trim(),
     keyPassphrase: String(keyPassphrase.value || ''),
     // Empty means "inherit the global policy". A previous version defaulted to
     // 'strict' here, which made the global setting unreachable.

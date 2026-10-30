@@ -268,3 +268,19 @@ test('the environment password is still accepted: it is never written', () => {
     delete process.env.DSH_SSH_V_PASSWORD
   }
 })
+test('surrounding whitespace in a hand-edited config is not part of the identity', () => {
+  // Every write path trims; a hand-edited file or a pasted environment variable
+  // can still carry spaces, and 'test user ' fails authentication with
+  // 'the server rejected the credentials' -- pointing at the password.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-trim-'))
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      box: { host: '  10.0.0.5  ', user: '  deploy  ', keyPath: '  /home/deploy/.ssh/id_rsa  ' },
+    }))
+    const m = machineDefinition('box', { dshHome: home })
+    assert.equal(m.host, '10.0.0.5')
+    assert.equal(m.username, 'deploy')
+    assert.equal(m.keyPath, '/home/deploy/.ssh/id_rsa')
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})

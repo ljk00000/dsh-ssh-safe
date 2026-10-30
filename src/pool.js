@@ -118,7 +118,9 @@ export function connectFailure(err, m) {
     [/Host key verification failed|Unknown host/i, 'the host key store does not trust this host; run ssh_connect with trustHostKey once'],
   ]
   const hint = hints.find(([pattern]) => pattern.test(raw))
-  const extra = /ENOTFOUND|EAI_FAIL|EAI_AGAIN/i.test(raw) ? hostShapeHint(m && m.host) : ''
+  const extra = /ENOTFOUND|EAI_FAIL|EAI_AGAIN/i.test(raw)
+    ? hostShapeHint(m && m.host)
+    : /authentication methods failed|Permission denied/i.test(raw) ? userShapeHint(m && m.username) : ''
   const advice = [hint ? hint[1] : '', extra].filter(Boolean).join('; ')
   return new Error('Could not connect to ' + target + ': ' + raw + (advice ? ' (' + advice + ')' : ''))
 }
@@ -151,6 +153,24 @@ function hostShapeHint(host) {
   if (/[\\/]/.test(text)) {
     return 'the host contains a path separator'
   }
+  return ''
+}
+
+/**
+ * Explain a user name that cannot be an account name.
+ *
+ * 'tester@host' pasted into the user field fails authentication, and the server's
+ * "All configured authentication methods failed" points at the credentials
+ * rather than at the field that is wrong.
+ *
+ * @param {string} [username]
+ * @returns {string} a sentence, or ''
+ */
+function userShapeHint(username) {
+  const text = String(username || '')
+  if (!text) return ''
+  if (text.includes('@')) return 'the user contains "@" — put only the account name, without the host'
+  if (/\s/.test(text)) return 'the user contains whitespace'
   return ''
 }
 
