@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.39 — 2026-10-31
+
+### Fixed
+- **An IPv6 host was printed without brackets, which made the port
+  unreadable.** `Could not connect to root@::1:2222` reads as host `::1:2222`
+  with no port. Every place that names a target -- `ssh_connect`, the connection
+  error decoration, `ssh_machines`, `ssh_workspace` -- now prints
+  `root@[::1]:2222`, and a host that already carries brackets is not doubled.
+
+### Added — tests
+- `formatHost`: bare, already-bracketed, link-local, IPv4 and hostname forms.
+
 ## 0.7.38 — 2026-10-31
 
 ### Fixed

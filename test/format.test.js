@@ -74,3 +74,13 @@ test('a name containing a newline cannot forge an extra row', () => {
   assert.equal(rows.length, 1, 'one entry must render as one row')
   assert.match(out, /line\\nbreak\.txt/, 'the newline is shown escaped, not silently dropped')
 })
+test('an IPv6 literal is printed once, in brackets', async () => {
+  // 'user@::1:22' reads as host "::1:22"; the port is unrecoverable from it.
+  const { formatHost } = await import('../src/pool.js')
+  assert.equal(formatHost('::1'), '[::1]')
+  assert.equal(formatHost('[::1]'), '[::1]', 'already bracketed is not doubled')
+  assert.equal(formatHost('fe80::1'), '[fe80::1]')
+  assert.equal(formatHost('10.0.0.5'), '10.0.0.5')
+  assert.equal(formatHost('example.com'), 'example.com')
+  assert.equal(formatHost(''), '')
+})

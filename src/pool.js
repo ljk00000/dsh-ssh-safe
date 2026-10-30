@@ -63,6 +63,21 @@ function timerValue(value, fallback) {
 }
 
 /**
+ * Host as it should be printed: an IPv6 literal in brackets, once.
+ *
+ * 'user@::1:22' reads as host "::1:22"; 'user@[::1]:22' cannot be misread. A
+ * host that already carries brackets is left alone rather than doubled.
+ *
+ * @param {string} host
+ * @returns {string}
+ */
+export function formatHost(host) {
+  const text = String(host || '')
+  if (!text.includes(':')) return text
+  return text.startsWith('[') && text.endsWith(']') ? text : '[' + text + ']'
+}
+
+/**
  * Turn a handshake failure into something a caller can act on.
  *
  * ssh2 reports the bare socket/library error -- "read ECONNRESET", "Timed out
@@ -83,7 +98,9 @@ export function connectFailure(err, m) {
   if (/^(Could not connect to |Refusing to retry )/.test(raw)) return new Error(raw)
   if (/^(Unknown host|Host key verification failed|Host key changed|HOST KEY CHANGED)/i.test(raw)) return new Error(raw)
   const target = m && m.host
-    ? (m.username ? m.username + '@' : '') + m.host + ':' + (m.port || 22)
+    // user@::1:22 reads as host "::1:22"; bracketing is how ssh prints an IPv6
+    // literal, and it is the only thing that makes the port unambiguous.
+    ? (m.username ? m.username + '@' : '') + formatHost(m.host) + ':' + (m.port || 22)
     : 'the remote host'
   /** @type {Array<[RegExp, string]>} */
   const hints = [

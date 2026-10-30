@@ -23,7 +23,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { readFileSync, existsSync } from 'node:fs'
 import net from 'node:net'
 import { homedir } from 'node:os'
-import { SshPool, expandHome, pick } from './pool.js'
+import { SshPool, expandHome, formatHost, pick } from './pool.js'
 import { expectedEnv, redact } from './credentials.js'
 import {
   credentialFor,
@@ -543,7 +543,8 @@ function assertKnownArgs(args, known, toolName) {
    */
   const endpointOf = (m) => cfg.machineInventory === 'alias'
     ? '<host hidden>'
-    : (m.username || '?') + '@' + (m.host || '?') + ':' + (m.port || 22)
+    // Same IPv6 convention as the pool: user@[::1]:22, never user@::1:22.
+    : (m.username || '?') + '@' + formatHost(m.host || '?') + ':' + (m.port || 22)
 
   const machineFor = (args) => {
     const alias = normalizeAlias(args?.machine || cfg.defaultMachine || '')
@@ -699,7 +700,7 @@ function assertKnownArgs(args, known, toolName) {
             : 'NONE'
         const endpoint = lean
           ? '<host hidden>'
-          : (m.username || '<no user>') + '@' + (m.host || '<no host>') + ':' + m.port
+          : (m.username || '<no user>') + '@' + (m.host ? formatHost(m.host) : '<no host>') + ':' + m.port
         out.push(
           '• ' + alias + '  ' + endpoint +
           '\n    auth: ' + authKind +
