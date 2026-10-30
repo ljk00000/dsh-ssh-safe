@@ -698,9 +698,12 @@ function assertKnownArgs(args, known, toolName) {
                 ? 'private key (' + m.sources.keyPath + ', path hidden)'
                 : 'key ' + m.keyPath + ' (' + m.sources.keyPath + ')')
             : 'NONE'
+        // A port that cannot be dialled is shown as configured, not as the 22
+        // fallback: showing 22 hid the value the user has to fix.
+        const shownPort = m.portProblem && m.portRaw !== '' ? m.portRaw : m.port
         const endpoint = lean
           ? '<host hidden>'
-          : (m.username || '<no user>') + '@' + (m.host ? formatHost(m.host) : '<no host>') + ':' + m.port
+          : (m.username || '<no user>') + '@' + (m.host ? formatHost(m.host) : '<no host>') + ':' + shownPort
         out.push(
           '• ' + alias + '  ' + endpoint +
           '\n    auth: ' + authKind +
@@ -714,7 +717,8 @@ function assertKnownArgs(args, known, toolName) {
                   .map(([field, source]) => field + '=' + source)
                 return used.length ? '\n    sources: ' + used.join(', ') : '\n    sources: none'
               })()) +
-          (m.host && m.username ? '' : '\n    MISSING: ' + need.required.join(', '))
+          (m.host && m.username ? '' : '\n    MISSING: ' + need.required.join(', ')) +
+          (m.portProblem ? '\n    BAD PORT: ' + m.portProblem : '')
         )
       }
       if (lean) {
@@ -1464,6 +1468,7 @@ function assertKnownArgs(args, known, toolName) {
         allowPlaintextPassword: cfg.allowPlaintextPassword === true,
       })
       if (missing.length) say('configuration', 'FAIL', 'missing ' + missing.join(', '))
+      else if (m.portProblem) say('configuration', 'FAIL', m.portProblem)
       else say('configuration', 'ok', endpointOf(m))
       // A misspelled field in the settings form is silently dropped by the
       // schema -- 'keypath' instead of 'keyPath' turned a key machine into

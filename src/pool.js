@@ -539,6 +539,14 @@ export class SshPool {
         'explicitly to ssh_connect. Nothing was read from disk.'
       ))
     }
+    // A port that cannot be dialled is a configuration error, not a network
+    // one: say which machine, which value and which source, and do not cool down.
+    if (m.portProblem) {
+      throw noCooldown(new Error(
+        'Machine "' + alias + '" cannot be used: ' + m.portProblem + '. ' +
+        'Fix the port in that source, then retry.'
+      ))
+    }
     if (auth.kind === 'none') {
       throw noCooldown(new Error(
         'Machine "' + alias + '" has no credentials. Set ' + envNames(alias).password +

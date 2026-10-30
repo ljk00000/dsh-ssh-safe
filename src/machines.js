@@ -179,11 +179,26 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
   const port = firstSet([
     ['config', cfg.port], ['file', file.port], ['env', env.port !== 22 ? env.port : ''],
   ])
+  // Only the settings form is schema-validated. The credential file is raw JSON
+  // and the environment is a string, so port 99999 or -1 reached net.connect and
+  // came back as "Port should be >= 0 and < 65536. Received type number (99999)"
+  // with no machine, no source and nothing to fix. Keep the value, report it.
+  const configured = filled(port.value)
+  const portNumber = Number(port.value)
+  const portValid = !configured ||
+    (Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535)
+  const portProblem = portValid ? '' :
+    'port ' + JSON.stringify(port.value) + ' from the ' + port.source +
+    ' is not an integer between 1 and 65535'
 
   return {
     alias,
     host: String(host.value || ''),
-    port: Number(port.value) || 22,
+    // Number('') is 0, which is not "unset": an unset port must stay 22.
+    port: configured && portValid && Number.isInteger(portNumber) ? portNumber : 22,
+    /** The value as configured, so a listing can show what is actually there. */
+    portRaw: filled(port.value) ? port.value : '',
+    portProblem,
     username: String(user.value || ''),
     // Never carries plaintext: a DPAPI entry has to be decrypted on demand.
     password: '',

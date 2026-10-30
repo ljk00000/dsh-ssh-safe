@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -147,4 +147,37 @@ test('a host that holds a URL, a user or a port is explained', async () => {
   }
   const plain = connectFailure(resolveError, { host: 'example.com', port: 22, username: 'u' })
   assert.doesNotMatch(plain.message, /looks like a URL|belongs in the user field|ends with a port/)
+})
+test('an out-of-range port is a configuration error, not a raw socket error', async () => {
+  // The settings form is schema-validated; the credential file and the
+  // environment are not, so 99999 reached net.connect and came back as
+  // "Port should be >= 0 and < 65536" with no machine and nothing to fix.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-port-'))
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+    box: { host: '127.0.0.1', port: 99999, user: 'u', password: 'p' },
+  }))
+  const p = new SshPool({
+    hostKeyPolicy: 'off', allowPlaintextPassword: true, commandTimeoutMs: 5000,
+    sftpTimeoutMs: 5000, connectTimeoutMs: 3000, closeTimeoutMs: 500, maxOutputChars: 10000,
+    maxFileBytes: 1048576, maxConnections: 2, reconnectCooldownMs: 0, healthCheckIdleMs: 0,
+    machines: {},
+  }, { dshHome: home })
+  try {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await assert.rejects(
+        () => p.connect('box', {}),
+        (err) => {
+          assert.match(err.message, /Machine "box" cannot be used: port 99999 from the file/)
+          assert.match(err.message, /not an integer between 1 and 65535/)
+          assert.doesNotMatch(err.message, /Port should be >= 0/, 'no raw socket error')
+          assert.doesNotMatch(err.message, /Refusing to retry/)
+          return true
+        },
+      )
+    }
+  } finally {
+    await p.closeAll({ force: true })
+    rmSync(home, { recursive: true, force: true })
+  }
 })

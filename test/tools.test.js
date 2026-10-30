@@ -382,3 +382,20 @@ test('a credential file that is an array or nests under machines is explained', 
     assert.doesNotMatch(inventory, /unknown field "prod"/, 'the nested key is explained, not just misspelled')
   } finally { restore() }
 })
+test('an invalid port in the credential file is shown as configured, not as 22', async () => {
+  const { tools, restore } = capture({})
+  try {
+    const dir = path.join(process.env.DSH_HOME, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, 'credentials.json'), JSON.stringify({
+      box: { host: '10.0.0.5', port: 99999, user: 'u', password: 'p' },
+    }))
+    const inventory = String((await tools['ssh_machines'].execute({}, {})).text)
+    assert.match(inventory, /box  u@10\.0\.0\.5:99999/, 'the value you have to fix is visible')
+    assert.match(inventory, /BAD PORT: port 99999 from the file/,
+      'and it is marked as wrong: ' + inventory.slice(0, 200))
+
+    const doctor = String((await tools['ssh_doctor'].execute({ machine: 'box' }, {})).text)
+    assert.match(doctor, /\[FAIL\] configuration: port 99999 from the file/)
+  } finally { restore() }
+})

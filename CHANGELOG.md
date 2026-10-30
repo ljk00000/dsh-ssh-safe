@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.41 — 2026-10-31
+
+### Fixed
+- **An out-of-range port from the credential file or the environment produced a
+  raw socket error.** Only the settings form is schema-validated, so
+  `"port": 99999` (or `-1`, `22.5`, `"abc"`) reached `net.connect` and came
+  back as `Port should be >= 0 and < 65536. Received type number (99999)` -- no
+  machine, no source, nothing to fix. It is now a configuration error naming all
+  three: `Machine "box" cannot be used: port 99999 from the file is not an
+  integer between 1 and 65535`, without starting the reconnect cooldown.
+  `ssh_machines` shows the value as configured with a `BAD PORT` line (it used
+  to show the silent 22 fallback) and `ssh_doctor` fails the configuration
+  stage.
+
+### Note
+- The first cut of the port check turned an *unset* port into 0 (`Number('')is
+  0`); an existing test caught it before release.
+
+### Added — tests
+- The configuration-error shape, twice, without a cooldown; the inventory line
+  and the doctor stage for the same machine.
+
 ## 0.7.40 — 2026-10-31
 
 ### Fixed
