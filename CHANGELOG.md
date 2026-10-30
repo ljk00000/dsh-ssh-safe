@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.46 — 2026-10-31
+
+### Fixed
+- **The documented credential precedence was missing three sources.**
+  `ssh_credentials` said `encrypted file > environment > SSH agent`, and the
+  README said `settings form > credential file > environment > SSH agent`. The
+  code uses seven steps -- settings password, encrypted file, plaintext file,
+  environment, key file, session password, agent -- so a user checking why a key
+  was not used had nothing to check against. Both now list all of them, and both
+  say the surprising part out loud: **any usable password outranks a key**.
+- **The header had a blank line in it** when the credential file was enabled
+  (an empty array entry joined the block).
+
+### Added — tests
+- The three precedence steps that a user can hit: a settings password beats a
+  key, an environment password beats a key, and without a password the key is
+  used.
+- The `ssh_credentials` header mentions all seven sources and the password-beats-key
+  rule.
+
 ## 0.7.45 — 2026-10-31
 
 ### Fixed

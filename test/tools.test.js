@@ -414,3 +414,19 @@ test('the doctor probe line hides the port under machineInventory: alias', async
     assert.match(doctor, /the configured port|configuration: <host hidden>/)
   } finally { restore() }
 })
+test('ssh_credentials lists every source in the order actually used', async () => {
+  // The header used to say "encrypted file > environment > SSH agent" and
+  // omitted the settings password, the plaintext file and the key -- three of
+  // the six sources a user has to check when a password is not the one used.
+  const { tools, restore } = capture({ machines: { box: { host: 'h', user: 'u' } } })
+  try {
+    const text = String((await tools['ssh_credentials'].execute({}, {})).text)
+    const line = text.split('\n').filter((l) => l.includes('precedence')).join(' ') +
+      ' ' + (text.split('\n')[text.split('\n').findIndex((l) => l.includes('precedence')) + 1] || '')
+    for (const part of ['settings password', 'encrypted file', 'plaintext file', 'environment', 'key file', 'session password', 'SSH agent']) {
+      assert.ok(line.includes(part), 'the precedence line omits ' + part + ': ' + line)
+    }
+    assert.match(text, /a usable password always outranks a key/)
+    assert.doesNotMatch(text, /\n\n  encryption/, 'no blank line inside the header')
+  } finally { restore() }
+})

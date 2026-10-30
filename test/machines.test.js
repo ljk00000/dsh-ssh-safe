@@ -284,3 +284,29 @@ test('surrounding whitespace in a hand-edited config is not part of the identity
     assert.equal(m.keyPath, '/home/deploy/.ssh/id_rsa')
   } finally { rmSync(home, { recursive: true, force: true }) }
 })
+test('a usable password outranks a key, in the order the documentation states', () => {
+  // README and ssh_credentials both say a password beats a key. That is
+  // surprising enough that it has to be pinned: a user who adds a key expecting
+  // it to be used instead of a stale password would get the password.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-prec-'))
+  try {
+    const opts = {
+      machines: { box: { host: 'h', user: 'u', password: 'settings-pw', keyPath: '/tmp/k' } },
+      dshHome: home,
+      allowPlaintextPassword: true,
+    }
+    assert.equal(credentialFor('box', opts).kind, 'config-password')
+
+    // Drop the settings password: the key is next because no other password source has one.
+    opts.machines = { box: { host: 'h', user: 'u', keyPath: '/tmp/k' } }
+    assert.equal(credentialFor('box', opts).kind, 'config-key')
+
+    // An environment password beats the key.
+    process.env.DSH_SSH_BOX_PASSWORD = 'env-pw'
+    try {
+      assert.equal(credentialFor('box', opts).kind, 'env-password')
+    } finally {
+      delete process.env.DSH_SSH_BOX_PASSWORD
+    }
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})

@@ -1317,11 +1317,19 @@ function assertKnownArgs(args, known, toolName) {
         '  settings form   machines.<alias> in the plugin config',
         '  credential file ' + file + (cfg.useCredentialFile === true ? '' : '  [DISABLED]'),
         '  environment     DSH_SSH_<ALIAS>_*',
-        '  precedence      encrypted file > environment > SSH agent',
+        // Matches credentialFor(): any usable password outranks a key, and a key
+        // outranks the agent. Listing only three of the six sources sent users
+        // looking in the wrong place, and hid the fact that a password beats a key.
+        '  precedence      settings password > encrypted file > plaintext file > environment',
+        '                  > key file > session password > SSH agent',
+        '                  (a usable password always outranks a key)',
         '  encryption      ' + (cfg.allowPlaintextPassword === true
           ? 'plaintext ACCEPTED (allowPlaintextPassword is on)'
           : 'plaintext refused; passwords stored DPAPI encrypted'),
       ]
+      if (cfg.useCredentialFile !== true) {
+        head.push('  note            the credential file is disabled, so its entries are not used')
+      }
       if (aliases.length === 0) {
         head.push('', 'No machines defined yet.')
         return { text: head.join('\n') }
