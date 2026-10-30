@@ -409,3 +409,33 @@ test('a signal that is already aborted never starts the command', async () => {
     /cancelled before it started/,
   )
 })
+test('machineInventory: alias hides the host from every tool that prints one', async () => {
+  // One tool leaking the topology undoes the setting for the whole transcript:
+  // the workspace listing and ssh_connect used to print user@host:port.
+  // A dedicated server, so this test cannot disturb the shared one's teardown.
+  const own = await startServer()
+  const home2 = mkdtempSync(path.join(tmpdir(), 'dsh-lean-'))
+  process.env.DSH_HOME = home2
+  const leanTools = {}
+  await apply({ tools: { register: (d) => { leanTools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    defaultMachine: 't',
+    machineInventory: 'alias',
+    hostKeyPolicy: 'tofu',
+    allowPlaintextPassword: true,
+    machines: { t: machineFor('t', own.port) },
+  })
+  try {
+    const texts = [
+      String((await leanTools.ssh_machines.execute({}, {})).text),
+      String((await leanTools.ssh_workspace.execute({ action: 'list' }, {})).text),
+      String((await leanTools.ssh_connect.execute({ machine: 't' }, {})).text),
+      String((await leanTools.ssh_doctor.execute({ machine: 't' }, {})).text),
+    ]
+    for (const text of texts) assert.doesNotMatch(text, /127\.0\.0\.1/, text.slice(0, 120))
+    assert.match(texts[2], /<host hidden>/, 'ssh_connect still names the target, without the address')
+  } finally {
+    await leanTools.ssh_close.execute({ force: true }, {})
+    await own.close()
+    rmSync(home2, { recursive: true, force: true })
+  }
+})

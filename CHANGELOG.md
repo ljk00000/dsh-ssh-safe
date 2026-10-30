@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.32 — 2026-10-31
+
+### Fixed
+- **`machineInventory: alias` leaked the host from three more tools.**
+  `ssh_machines` and `ssh_credentials` hid it, but `ssh_workspace` (both list
+  and create), `ssh_connect` and `ssh_doctor` printed
+  `user@host:port` anyway -- so the setting's promise held only until someone
+  called one of those. All of them now report `<host hidden>`, through one
+  shared helper so a new tool cannot quietly reintroduce the leak.
+
+### Added — tests
+- With `machineInventory: alias`: none of the four output shapes contains the
+  address, and `ssh_connect` still names the machine it connected to.
+
 ## 0.7.31 — 2026-10-31
 
 ### Fixed

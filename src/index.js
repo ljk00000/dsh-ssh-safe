@@ -513,6 +513,20 @@ function assertKnownArgs(args, known, toolName) {
   // 'PROD' and 'prod' name the same machine and must not be listed twice.
   const normalizeAlias = (value) => String(value ?? '').trim().toLowerCase()
 
+  /**
+   * How a machine is named in tool output.
+   *
+   * machineInventory: 'alias' exists so the conversation carries no topology;
+   * every tool that prints a target has to ask here, or one of them leaks the
+   * host the others hide.
+   *
+   * @param {{username?: string, host?: string, port?: number}} m
+   * @returns {string}
+   */
+  const endpointOf = (m) => cfg.machineInventory === 'alias'
+    ? '<host hidden>'
+    : (m.username || '?') + '@' + (m.host || '?') + ':' + (m.port || 22)
+
   const machineFor = (args) => {
     const alias = normalizeAlias(args?.machine || cfg.defaultMachine || '')
     if (!alias) {
@@ -745,7 +759,7 @@ function assertKnownArgs(args, known, toolName) {
       // extra command in the audit trail and an extra entry in the in-flight
       // counter for something the caller never asked for.
       return { text:
-        'Connected: ' + (m.username || '?') + '@' + (m.host || '?') + ':' + (m.port || 22) +
+        'Connected: ' + endpointOf(m) +
         '\nHost key: ' + (entry.fingerprint || 'NOT VERIFIED (policy: ' + cfg.hostKeyPolicy + ')') +
         '\nPool: ' + stats.live + ' live' + (stats.limit > 0 ? ' / ' + stats.limit + ' max' : ' (no limit)') +
         (cfg.hostKeyPolicy === 'off' ? '\n\nWARNING: hostKeyPolicy is "off" — this connection is not protected against a man-in-the-middle.' : '') +
@@ -1097,6 +1111,10 @@ function assertKnownArgs(args, known, toolName) {
       if (action === 'list') {
         const aliases = [...knownAliases({ machines: cfg.machines, dshHome: credentialHome })].sort()
         if (aliases.length === 0) return { text: '没有配置任何机器。先用设置界面或凭据文件添加一台，再创建远程工作区。' }
+        // machineInventory hides the topology from the conversation; this
+        // listing is conversation output like any other, and it used to print
+        // user@host:port regardless.
+        const lean = cfg.machineInventory === 'alias'
         const rows = aliases.map((alias) => {
           const m = machineDefinition(alias, { machines: cfg.machines, dshHome: credentialHome })
           const dir = remoteDir(dshHome, alias)
@@ -1109,7 +1127,10 @@ function assertKnownArgs(args, known, toolName) {
               : marker
                 ? '有占位目录，但未注册（用 action: "create" 注册）'
                 : '未创建（用 action: "create" 创建）'
-          return '• ' + alias + '  ' + (m.username || '?') + '@' + (m.host || '?') + ':' + (m.port || 22) +
+          const endpoint = lean
+            ? '<host hidden>'
+            : (m.username || '?') + '@' + (m.host || '?') + ':' + (m.port || 22)
+          return '• ' + alias + '  ' + endpoint +
             '\n    ' + state +
             (existsSync(dir) ? '\n    ' + dir : '')
         })
@@ -1149,7 +1170,9 @@ function assertKnownArgs(args, known, toolName) {
           (created ? '已创建远程工作区' : '已刷新远程工作区') + '\n' +
           '  别名   ' + alias + '\n' +
           '  目录   ' + dir + '\n' +
-          '  绑定   ' + m.username + '@' + m.host + ':' + (m.port || 22) + '\n' +
+          '  绑定   ' + (cfg.machineInventory === 'alias'
+            ? '<host hidden>'
+            : m.username + '@' + m.host + ':' + (m.port || 22)) + '\n' +
           '  ' + registered + '\n\n' +
           '下一步：在侧栏的这个工作区里新开会话。该会话会自动读到 AGENTS.md，' +
           '所有文件与命令操作都会走 ssh_* 工具（machine: "' + alias + '"）。\n' +
@@ -1418,7 +1441,7 @@ function assertKnownArgs(args, known, toolName) {
         allowPlaintextPassword: cfg.allowPlaintextPassword === true,
       })
       if (missing.length) say('configuration', 'FAIL', 'missing ' + missing.join(', '))
-      else say('configuration', 'ok', m.username + '@' + m.host + ':' + m.port)
+      else say('configuration', 'ok', endpointOf(m))
       // A misspelled field in the settings form is silently dropped by the
       // schema -- 'keypath' instead of 'keyPath' turned a key machine into
       // "no credentials" -- so name it here rather than at connect time.
