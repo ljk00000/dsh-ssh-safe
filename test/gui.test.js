@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import { request as httpRequest } from 'node:http'
 import { startServer } from './helpers/local-ssh-server.js'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -540,6 +540,27 @@ test('the test button honours useCredentialFile: false', async () => {
     assert.match(text, /useCredentialFile/)
     assert.match(text, /\[warn\] 凭据文件/)
     assert.match(text, /\[FAIL\] 配置/)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+test('saving replaces the credential file atomically', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  const credFile = path.join(home, 'dsh-ssh-safe', 'credentials.json')
+  try {
+    for (let i = 0; i < 20; i++) {
+      await call(base, token, '/api/save', { alias: 'm' + i, host: '10.0.0.' + i, user: 'root', password: 'pw' + i })
+    }
+    // Every save must leave exactly the target behind: no temp files, and a
+    // file a reader in another process can parse at any moment.
+    const dir = path.dirname(credFile)
+    const left = readdirSync(dir).filter((name) => name.includes('.tmp-'))
+    assert.deepEqual(left, [], 'no temporary files may survive a save')
+    const parsed = JSON.parse(readFileSync(credFile, 'utf8'))
+    assert.equal(Object.keys(parsed).length, 20)
+    assert.equal(parsed.m19.host, '10.0.0.19')
   } finally {
     child.kill()
     rmSync(home, { recursive: true, force: true })

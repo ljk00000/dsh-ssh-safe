@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.15 — 2026-10-31
+
+### Fixed
+- **Saving from the page could make a concurrent connection fail.** The
+  credential file was rewritten in place, which truncates it first; the plugin
+  reads that file on every connection, from another process, so a connection
+  that landed in the window read an empty file, fell back to "no machines", and
+  answered "not configured" -- while the page reported the save as successful.
+  Saves now write a sibling temp file and rename it over the target.
+
+### Added — tests
+- Twenty saves leave no temporary files behind and a parseable file.
+
 ## 0.7.14 — 2026-10-31
 
 ### Fixed

@@ -28,7 +28,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { networkInterfaces } from 'node:os'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import process from 'node:process'
@@ -172,7 +172,21 @@ function readStore() {
 
 function writeStore(store) {
   mkdirSync(path.dirname(credFile), { recursive: true })
-  writeFileSync(credFile, JSON.stringify(store, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
+  // Write beside the file and rename over it.
+  //
+  // The plugin reads this file on every connection, from another process. An
+  // in-place write truncates first, so a connection that lands in that window
+  // reads an empty file, falls back to "no machines" and fails with "not
+  // configured" -- while the page says the save succeeded.
+  const text = JSON.stringify(store, null, 2) + '\n'
+  const tmp = credFile + '.tmp-' + process.pid
+  writeFileSync(tmp, text, { encoding: 'utf8', mode: 0o600 })
+  try {
+    renameSync(tmp, credFile)
+  } catch (err) {
+    try { rmSync(tmp, { force: true }) } catch { /* nothing left to do */ }
+    throw err
+  }
   if (process.platform === 'win32') {
     const me = process.env.USERDOMAIN && process.env.USERNAME
       ? process.env.USERDOMAIN + '\\' + process.env.USERNAME
