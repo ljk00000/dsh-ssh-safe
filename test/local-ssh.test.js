@@ -467,3 +467,23 @@ test('a non-forcing close leaves a handshake that another call started alone', a
     await pool.closeAll({ force: true })
   }
 })
+test('a configuration error does not arm the reconnect cooldown', async () => {
+  // The cooldown exists for network failures. Arming it on 'missing host' made
+  // the answer after a quick fix 'Refusing to retry for another 15s' instead of
+  // the real error or a working connection.
+  const pool = poolFor({ t: machineFor('t', srv.port) })
+  try {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await assert.rejects(
+        () => pool.connect('ghost', {}),
+        (err) => {
+          assert.match(err.message, /not configured/, 'attempt ' + attempt + ': ' + err.message)
+          assert.doesNotMatch(err.message, /Refusing to retry/, 'attempt ' + attempt + ' must not hit the cooldown')
+          return true
+        },
+      )
+    }
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})

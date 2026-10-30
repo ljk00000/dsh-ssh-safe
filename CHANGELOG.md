@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.22 — 2026-10-31
+
+### Fixed
+- **A configuration error armed the reconnect cooldown.** Connecting to a
+  machine with no host set threw "not configured", and that also started the
+  15-second retry cooldown -- so after filling in the setting, the next attempt
+  answered "Refusing to retry ghost for another 15s" instead of connecting. The
+  cooldown is for network failures; "missing DSH_SSH_X_HOST" and "no credentials"
+  no longer start one.
+- **An unknown `ssh_workspace` action blamed the machine.** `action: "nope"`
+  fell through to the machine check and answered "action \"nope\" needs machine",
+  sending the caller to the wrong argument. The action is validated first.
+
+### Added — tests
+- Two consecutive connects to an unconfigured machine both report "not
+  configured" and never the cooldown.
+- The unknown-action message.
+
 ## 0.7.21 — 2026-10-31
 
 ### Fixed — privacy

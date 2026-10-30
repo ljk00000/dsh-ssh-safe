@@ -228,3 +228,14 @@ test('remove refuses to guess when the service cannot be read', async () => {
 test('findWorkspace tolerates a registry that throws', () => {
   assert.equal(findWorkspace(brokenRegistry(), 'C:\\x'), null)
 })
+test('an unknown action is refused before the machine is looked at', async () => {
+  const { tools, restore } = await toolsFor({}, new FakeRegistry())
+  try {
+    await assert.rejects(
+      () => tools.ssh_workspace.execute({ action: 'nope' }, {}),
+      // It used to answer 'action "nope" needs machine', pointing at the
+      // wrong argument.
+      /action 只能是 list、create 或 remove（收到 "nope"）/,
+    )
+  } finally { restore() }
+})

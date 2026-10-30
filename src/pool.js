@@ -98,6 +98,12 @@ export function connectFailure(err, m) {
   return new Error('Could not connect to ' + target + ': ' + raw + (hint ? ' (' + hint[1] + ')' : ''))
 }
 
+/** Mark an error that must not arm the reconnect cooldown. */
+function noCooldown(err) {
+  /** @type {any} */ (err).noCooldown = true
+  return err
+}
+
 /**
  * Name the real cause when ssh2 says the client is not connected.
  *
@@ -400,7 +406,11 @@ export class SshPool {
       })
       .catch((err) => {
         e.lastError = redact(err && err.message ? err.message : String(err))
-        e.nextAttemptAt = Date.now() + pick(this.config.reconnectCooldownMs, 15000)
+        // Configuration errors are marked: they must not start a cooldown, or
+        // the message after a quick fix is the cooldown rather than the result.
+        if (!(err && /** @type {any} */ (err).noCooldown === true)) {
+          e.nextAttemptAt = Date.now() + pick(this.config.reconnectCooldownMs, 15000)
+        }
         throw err
       })
       .finally(() => { e.ready = null })
@@ -452,22 +462,26 @@ export class SshPool {
       const need = []
       if (!m.host) need.push(names.host)
       if (!m.username) need.push(names.user)
-      throw new Error(
+      // A configuration error is not a network failure: retrying costs nothing
+      // and the user usually fixes the setting and retries at once. Marking it
+      // keeps the reconnect cooldown from answering "Refusing to retry for
+      // another 15s" when the real answer is "fill in the host".
+      throw noCooldown(new Error(
         'Machine "' + alias + '" is not configured: missing ' + need.join(', ') +
         '. Set it in the plugin settings (machines.' + alias + '), or as the environment ' +
         'variable(s) ' + need.join(', ') + ', or pass host/username ' +
         'explicitly to ssh_connect. Nothing was read from disk.'
-      )
+      ))
     }
     if (auth.kind === 'none') {
-      throw new Error(
+      throw noCooldown(new Error(
         'Machine "' + alias + '" has no credentials. Set ' + envNames(alias).password +
         ' or ' + envNames(alias).keyPath + '. Also checked: SSH_AUTH_SOCK for an agent,' +
         ' which none was found at.' +
         (this.config.allowSessionPassword
           ? ' Or pass password (this profile allows it).'
           : ' Passing a password in conversation is disabled for this profile.')
-      )
+      ))
     }
 
     // One shared mapping, also used by the settings page's test button. It keys

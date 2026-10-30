@@ -930,6 +930,12 @@ export async function apply(ctx, config) {
     isConcurrencySafe: () => true,
     async execute(args) {
       const action = String(args.action === undefined || args.action === null ? 'list' : args.action).toLowerCase()
+      // Reject an unknown action before anything else: it used to fall through
+      // to the machine check and answer "action \"nope\" needs machine", which
+      // sends the caller looking at the wrong argument.
+      if (action !== 'list' && action !== 'create' && action !== 'remove') {
+        throw new Error('action 只能是 list、create 或 remove（收到 ' + JSON.stringify(args.action) + '）。')
+      }
       // The workspace registry is a host service, not a tool: a profile that
       // does not mount workspaces (headless) must still be able to create the
       // placeholder, so a missing registry is a reported limitation rather than
@@ -1024,7 +1030,8 @@ export async function apply(ctx, config) {
           '\n  远端主机上的文件没有被动过。' }
       }
 
-      throw new Error('action 只能是 list、create 或 remove（收到 ' + JSON.stringify(args.action) + '）。')
+      // The three actions above return; anything else is a bug in this file.
+      throw new Error('action 已校验却未处理：' + action)
     },
   })
 
