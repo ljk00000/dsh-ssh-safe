@@ -255,3 +255,32 @@ test('machineInventory: full still shows it', async () => {
     assert.match(text, /deploy@10\.1\.2\.3:22/)
   } finally { restore() }
 })
+test('a misspelled argument is rejected instead of silently ignored', async () => {
+  // The harness compiles parameters into an open object schema, so the tool has
+  // to police its own names: 'timeout: 500' used to run with the configured
+  // 30 seconds and look like it worked.
+  const { tools, restore } = capture({}, { DSH_SSH_PROD_HOST: '10.1.2.3', DSH_SSH_PROD_USER: 'deploy' })
+  try {
+    await assert.rejects(
+      () => tools['ssh_exec'].execute({ command: 'ls', timeout: 500 }),
+      (err) => {
+        assert.match(err.message, /Unknown argument\(s\) for ssh_exec: "timeout"/)
+        assert.match(err.message, /did you mean "timeoutMs"/)
+        assert.match(err.message, /Accepted: machine, command/)
+        return true
+      },
+    )
+    await assert.rejects(
+      () => tools['ssh_write'].execute({ path: '/x', content: 'y', createDir: true }),
+      /did you mean "createDirs"/,
+    )
+    await assert.rejects(
+      () => tools['ssh_list'].execute({ path: '/x', depth: 2 }),
+      (err) => {
+        assert.match(err.message, /"depth"/)
+        assert.doesNotMatch(err.message, /did you mean/, 'nothing is close to depth')
+        return true
+      },
+    )
+  } finally { restore() }
+})

@@ -367,10 +367,76 @@ export async function apply(ctx, config) {
    * definition itself. Detection is per-call-site so a harness upgrade cannot
    * leave half the tools on one protocol.
    */
+/**
+ * Levenshtein distance, bounded: enough to suggest a near-miss argument name.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function editDistance(a, b) {
+  if (a === b) return 0
+  const rows = a.length + 1
+  const cols = b.length + 1
+  let previous = Array.from({ length: cols }, (_, i) => i)
+  for (let i = 1; i < rows; i++) {
+    const current = [i]
+    for (let j = 1; j < cols; j++) {
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+    }
+    previous = current
+  }
+  return previous[cols - 1]
+}
+
+/**
+ * Reject arguments the tool does not declare.
+ *
+ * The harness compiles a tool's parameters into an OPEN object schema, so a
+ * misspelled argument is accepted and silently ignored: `timeout: 500` ran with
+ * the configured 30 seconds and `maxByte: 5` read up to a megabyte. Both looked
+ * like they worked. A typo in an argument name is otherwise invisible.
+ *
+ * @param {Record<string, unknown>} args
+ * @param {string[]} known
+ * @param {string} toolName
+ */
+function assertKnownArgs(args, known, toolName) {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return
+  const allowed = new Set(known)
+  const unknown = Object.keys(args).filter((key) => !allowed.has(key))
+  if (unknown.length === 0) return
+  const describe = (key) => {
+    const lower = key.toLowerCase()
+    let best = ''
+    let bestDistance = Number.POSITIVE_INFINITY
+    for (const name of known) {
+      const distance = editDistance(lower, name.toLowerCase())
+      if (distance < bestDistance) { bestDistance = distance; best = name }
+    }
+    return '"' + key + '"' + (bestDistance <= 2 ? ' (did you mean "' + best + '"?)' : '')
+  }
+  throw new Error(
+    'Unknown argument(s) for ' + toolName + ': ' + unknown.map(describe).join(', ') +
+    '. Accepted: ' + known.join(', ') + '.'
+  )
+}
+  // Wrap execute once so every tool rejects undeclared arguments.
+  const withArgCheck = (definition) => {
+    const known = Object.keys(definition.parameters || {})
+    const run = definition.execute
+    return {
+      ...definition,
+      execute: (args, toolContext) => {
+        assertKnownArgs(args, known, definition.name)
+        return run(args, toolContext)
+      },
+    }
+  }
   const registerTool = typeof ctx.tools.register === 'function'
-    ? (definition) => ctx.tools.register(defineTool(definition))
+    ? (definition) => ctx.tools.register(defineTool(withArgCheck(definition)))
     : typeof ctx.tools.defineTool === 'function'
-      ? (definition) => ctx.tools.defineTool(definition)
+      ? (definition) => ctx.tools.defineTool(withArgCheck(definition))
       : () => {
         throw new Error(
           'dsh-ssh-safe: this harness exposes neither ctx.tools.register (0.2.1+) nor ' +

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.26 — 2026-10-31
+
+### Fixed
+- **A misspelled argument was accepted and silently ignored.** DSH compiles a
+  tool's parameters into an *open* object schema, so `timeout: 500` ran with the
+  configured 30 seconds, `maxByte: 5` read up to a megabyte, and
+  `createDir: true` created nothing -- each looking like it had worked. Every
+  tool now rejects undeclared arguments and names the near miss:
+  `Unknown argument(s) for ssh_exec: "timeout" (did you mean "timeoutMs"?) ...`.
+
+### Added — tests
+- Three typo shapes: a near miss with a suggestion, another with a suggestion,
+  and one with nothing close enough to suggest.
+
 ## 0.7.25 — 2026-10-31
 
 ### Fixed
