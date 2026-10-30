@@ -54,7 +54,14 @@ function closeSftp(sftp) {
  */
 function remoteError(err, target) {
   const message = redact(err && err.message ? err.message : String(err))
-  const wrapped = /** @type {Error & {code?: unknown}} */ (new Error(message + ': ' + target))
+  // A relative path is resolved by sshd against the login user's home
+  // directory, not against anything the caller passed earlier. Saying so turns
+  // a bare "No such file: tmp/x" into something the caller can act on.
+  const relative = typeof target === 'string' && target.length > 0 && !target.startsWith('/')
+  const hint = relative && /no such file|not found|does not exist/i.test(message)
+    ? " (relative to the login user's home directory — pass an absolute path to be exact)"
+    : ''
+  const wrapped = /** @type {Error & {code?: unknown}} */ (new Error(message + ': ' + target + hint))
   const code = /** @type {{code?: unknown}} */ (err || {}).code
   if (code !== undefined) wrapped.code = code
   return wrapped

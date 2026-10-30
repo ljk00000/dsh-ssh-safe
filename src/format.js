@@ -27,6 +27,26 @@ function printable(name) {
 }
 
 /**
+ * The status line for one command result.
+ *
+ * A command killed by a signal has no exit code: ssh2 reports
+ * `close(null, 'SIGKILL')`. Rendering that as `[exit unknown]` throws away the
+ * one fact the caller needs, which is that the shell did not decide the status
+ * — a signal did.
+ *
+ * @param {{code?: number|null, signal?: string|null}} result
+ * @returns {string}
+ */
+export function exitLine(result) {
+  const code = result ? result.code : null
+  const signal = result ? result.signal : null
+  if ((code === null || code === undefined) && typeof signal === 'string' && signal.length > 0) {
+    return '[signal ' + signal + ']'
+  }
+  return '[exit ' + (code === null || code === undefined ? 'unknown' : code) + ']'
+}
+
+/**
  * Render a directory listing.
  *
  * @param {{path: string, items: Array<{name: string, size: number, dir: boolean, mtime?: string|null}>}} listing

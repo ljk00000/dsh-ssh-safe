@@ -33,7 +33,7 @@ class FakeClient {
   sftp(cb) { cb(null, {}) }
 }
 
-async function run({ cap = 100000, chunks = [], errChunks = [], code = 0 }) {
+async function run({ cap = 100000, chunks = [], errChunks = [], code = 0, signal = null }) {
   const stream = new FakeStream()
   const client = new FakeClient()
   client.stream = stream
@@ -51,10 +51,21 @@ async function run({ cap = 100000, chunks = [], errChunks = [], code = 0 }) {
 
   for (const c of chunks) stream.emit('data', Buffer.from(c))
   for (const c of errChunks) stream.stderr.emit('data', Buffer.from(c))
-  stream.emit('close', code)
+  stream.emit('close', code, signal)
 
   return await promise
 }
+
+test('a command killed by a signal carries the signal out of the pool', async () => {
+  const result = await run({ code: null, signal: 'SIGKILL', chunks: [] })
+  assert.equal(result.code, null)
+  assert.equal(result.signal, 'SIGKILL')
+})
+
+test('a normal exit has no signal', async () => {
+  const result = await run({ code: 0, chunks: ['ok'] })
+  assert.equal(result.signal, null)
+})
 
 // maxOutputChars looked enforced and was not: the accumulators obeyed the cap
 // while the timeline -- the thing ssh_exec actually renders -- collected every

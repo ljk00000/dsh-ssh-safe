@@ -35,7 +35,7 @@ import {
 } from './machines.js'
 import { storePath } from './hostkey.js'
 import { checkCommand } from './guard.js'
-import { formatListing } from './format.js'
+import { exitLine, formatListing } from './format.js'
 import { AuditLog, summarize } from './audit.js'
 import {
   findWorkspace,
@@ -682,7 +682,9 @@ export async function apply(ctx, config) {
       }
       if (r.truncated) parts.push('[output truncated at maxOutputChars]')
       if (r.timedOut) parts.push('[timed out after ' + (budget || cfg.commandTimeoutMs) + 'ms]')
-      parts.push('[exit ' + (r.code === null ? 'unknown' : r.code) + ']')
+      // A killed process has no exit code; naming the signal is the only
+      // honest answer, and '[exit unknown]' reads like the harness lost it.
+      parts.push(exitLine(r))
       for (const warning of credentialWarnings(alias, optionalText(args.password, 'password'))) {
         parts.push('[note] ' + warning)
       }

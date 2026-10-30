@@ -1,6 +1,24 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { formatListing } from '../src/format.js'
+import { exitLine, formatListing } from '../src/format.js'
+
+// A command killed by a signal has no exit code. ssh2 reports
+// close(null, 'SIGKILL'), and rendering that as '[exit unknown]' hides the only
+// useful fact: the process was killed, not that its status was lost.
+test('a killed process names the signal instead of "unknown"', () => {
+  assert.equal(exitLine({ code: null, signal: 'SIGKILL' }), '[signal SIGKILL]')
+  assert.equal(exitLine({ code: null, signal: 'TERM' }), '[signal TERM]')
+})
+
+test('an ordinary exit keeps the exit code', () => {
+  assert.equal(exitLine({ code: 0, signal: null }), '[exit 0]')
+  assert.equal(exitLine({ code: 3 }), '[exit 3]')
+})
+
+test('no code and no signal is still reported as unknown', () => {
+  assert.equal(exitLine({ code: null }), '[exit unknown]')
+  assert.equal(exitLine({}), '[exit unknown]')
+})
 
 // A directory of 200k files used to come back as a 20 MB tool result with no
 // ceiling. The rendering lives in its own module now, so the cap, the ordering

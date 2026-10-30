@@ -246,6 +246,27 @@ test('a failed write does not report success when close follows the error', asyn
   )
 })
 
+test('a relative path that does not exist explains what it is relative to', async () => {
+  await assert.rejects(
+    () => listRemoteDir(client(new FakeSftp({ readdirError: 'No such file' })), 'tmp/x', opts()),
+    (err) => {
+      assert.match(err.message, /relative to the login user's home directory/)
+      assert.match(err.message, /absolute path/)
+      return true
+    },
+  )
+})
+
+test('an absolute path that does not exist gets no relative hint', async () => {
+  await assert.rejects(
+    () => listRemoteDir(client(new FakeSftp({ readdirError: 'No such file' })), '/tmp/x', opts()),
+    (err) => {
+      assert.ok(!/relative to the login/.test(err.message), err.message)
+      return true
+    },
+  )
+})
+
 test('listRemoteDir gives up at the deadline', async () => {
   const silent = { readdir() { /* never calls back */ } }
   await assert.rejects(

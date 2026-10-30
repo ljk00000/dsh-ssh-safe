@@ -518,6 +518,7 @@ export class SshPool {
           stdout: out.text,
           stderr: err.text,
           code: null,
+          signal: null,
           timedOut: true,
           truncated: budget.truncated,
           timeline,
@@ -542,11 +543,13 @@ export class SshPool {
           const kept = budget.append(err, text)
           if (kept) timeline.push({ stream: 'err', text: kept })
         })
-        s.on('close', (code) => {
+        // close(code, signal): a process killed by a signal reports no code.
+        s.on('close', (code, signal) => {
           settle({
             stdout: out.text,
             stderr: err.text,
             code: typeof code === 'number' ? code : null,
+            signal: typeof signal === 'string' && signal.length > 0 ? signal : null,
             timedOut: false,
             truncated: budget.truncated,
             timeline,

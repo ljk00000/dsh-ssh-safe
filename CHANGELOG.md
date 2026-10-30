@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.3 — 2026-10-31
+
+### Fixed
+- **A command killed by a signal reported `[exit unknown]`.** ssh2's close
+  event carries `(code, signal)`; only the code was read, so `kill -9 $$`
+  looked like lost information instead of a killed process. The result now
+  carries the signal and renders `[signal SIGKILL]` / `[signal SIGTERM]`.
+- **A relative path that does not exist now says what it is relative to.**
+  sshd resolves it against the login user's home directory, not against the
+  previous call's path, and the bare `No such file: tmp/x` gave the caller no
+  way to tell. The hint appears only for missing relative paths, so absolute
+  paths and permission errors are unchanged.
+
 ## 0.7.2 — 2026-10-31
 
 Found by driving the twelve tools against a live host on 0.2.1-rc.5.
