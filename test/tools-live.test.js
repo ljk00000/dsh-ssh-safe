@@ -439,3 +439,47 @@ test('machineInventory: alias hides the host from every tool that prints one', a
     rmSync(home2, { recursive: true, force: true })
   }
 })
+test('no tool output echoes the configured password', async () => {
+  // The plugin's whole claim is that secrets stay out of the conversation. This
+  // is the property, checked against a value nobody would type by accident.
+  const CANARY = 'S3CRET-CANARY-42'
+  const own = await startServer()
+  const home2 = mkdtempSync(path.join(tmpdir(), 'dsh-canary-'))
+  process.env.DSH_HOME = home2
+  const canaryTools = {}
+  await apply({ tools: { register: (d) => { canaryTools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    defaultMachine: 't',
+    hostKeyPolicy: 'tofu',
+    auditLog: true,
+    machines: { t: { ...machineFor('t', own.port), password: 'wrong-password-for-the-canary' } },
+  })
+  const outputs = []
+  const run = async (name, args = {}) => {
+    try { outputs.push(String((await canaryTools[name].execute(args, {})).text)) }
+    catch (err) { outputs.push(String(err.message)) }
+  }
+  try {
+    await run('ssh_machines')
+    await run('ssh_config')
+    await run('ssh_credentials')
+    await run('ssh_doctor')
+    await run('ssh_connect')
+    await run('ssh_exec', { command: 'echo hi' })
+    await run('ssh_audit')
+    for (const text of outputs) {
+      assert.ok(!text.includes(CANARY), 'a tool output echoed the password: ' + text.slice(0, 120))
+      assert.ok(!text.includes('wrong-password-for-the-canary'), 'the settings password appears in output: ' + text.slice(0, 120))
+    }
+    // The audit file is on disk in the isolated home: it must not hold it either.
+    const auditFile = path.join(home2, 'dsh-ssh-safe', 'audit.ndjson')
+    if (existsSync(auditFile)) {
+      const auditText = readFileSync(auditFile, 'utf8')
+      assert.ok(!auditText.includes(CANARY))
+      assert.ok(!auditText.includes('wrong-password-for-the-canary'))
+    }
+  } finally {
+    await canaryTools.ssh_close.execute({ force: true }, {})
+    await own.close()
+    rmSync(home2, { recursive: true, force: true })
+  }
+})

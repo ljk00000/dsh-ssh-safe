@@ -16,6 +16,7 @@
 
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
+import ssh2 from 'ssh2'
 
 /** Expand a leading ~ so key paths written by hand work. */
 export function expandHome(p) {
@@ -44,7 +45,22 @@ export function connectOptions(machine, auth, timing = {}) {
   }
 
   if (auth.keyPath) {
-    options.privateKey = readFileSync(expandHome(auth.keyPath))
+    const keyPath = expandHome(auth.keyPath)
+    // Both failures used to arrive without the path: readFileSync's EISDIR
+    // message does not include it, and ssh2's parse error is thrown later with
+    // nothing to say which file it read. Name the file here.
+    let keyText
+    try {
+      keyText = readFileSync(keyPath)
+    } catch (err) {
+      throw new Error('cannot read the private key ' + keyPath + ': ' +
+        String(err && /** @type {any} */ (err).message ? /** @type {any} */ (err).message : err))
+    }
+    const parsed = ssh2.utils.parseKey(keyText)
+    if (parsed instanceof Error) {
+      throw new Error('the private key ' + keyPath + ' could not be parsed: ' + parsed.message)
+    }
+    options.privateKey = keyText
     if (auth.passphrase) options.passphrase = auth.passphrase
   } else if (auth.password) {
     options.password = auth.password

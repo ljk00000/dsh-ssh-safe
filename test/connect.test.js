@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import ssh2 from 'ssh2'
 import { connectOptions, expandHome } from '../src/connect.js'
 
 // This mapping used to exist twice -- once in the pool, once in the settings
@@ -23,7 +24,8 @@ test('a password becomes connectConfig.password', () => {
 test('a key becomes a Buffer and a passphrase is carried', () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-connect-'))
   const keyPath = join(dir, 'id')
-  writeFileSync(keyPath, '-----BEGIN OPENSSH PRIVATE KEY-----\nx\n-----END OPENSSH PRIVATE KEY-----\n')
+  // A real key: connectOptions now parses it so a broken file names itself.
+  writeFileSync(keyPath, ssh2.utils.generateKeyPairSync('ed25519').private)
   const options = connectOptions(machine, { keyPath, passphrase: 'pp' })
   assert.ok(Buffer.isBuffer(options.privateKey))
   assert.equal(options.passphrase, 'pp')
@@ -60,4 +62,27 @@ test('expandHome only touches a leading tilde', () => {
   assert.ok(expandHome('~/.ssh/id_ed25519').endsWith('/.ssh/id_ed25519') || expandHome('~/.ssh/id_ed25519').endsWith('\\.ssh\\id_ed25519'))
   assert.equal(expandHome('/abs/~file'), '/abs/~file')
   assert.equal(expandHome('a~b'), 'a~b')
+})
+test('a key file that cannot be read or parsed names itself', () => {
+  // readFileSync's EISDIR message has no path in it, and ssh2's parse error is
+  // thrown later with nothing to say which file it read.
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-connect-'))
+  assert.throws(
+    () => connectOptions(machine, { keyPath: dir }),
+    (err) => {
+      assert.match(err.message, /cannot read the private key/)
+      assert.ok(err.message.includes(dir), 'the path must be in the message: ' + err.message)
+      return true
+    },
+  )
+  const junk = join(dir, 'junk')
+  writeFileSync(junk, 'not a key')
+  assert.throws(
+    () => connectOptions(machine, { keyPath: junk }),
+    (err) => {
+      assert.match(err.message, /could not be parsed/)
+      assert.ok(err.message.includes(junk), 'the path must be in the message: ' + err.message)
+      return true
+    },
+  )
 })

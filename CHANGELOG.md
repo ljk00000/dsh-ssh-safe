@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.43 — 2026-10-31
+
+### Fixed
+- **An unusable private key did not name the file.** `readFileSync`'s
+  `EISDIR: illegal operation on a directory, read` carries no path, and ssh2's
+  `Cannot parse privateKey: Unsupported key format` is thrown later with nothing
+  to say which file it read, so a typo'd `keyPath` produced
+  `Machine "box" cannot use its credential: EISDIR ...` with no way to tell
+  which machine field to fix. The key is read and parsed once, up front, and both
+  failures name the machine and the file.
+
+### Added — tests
+- A key path that is a directory, and one that holds junk: each message contains
+  the path.
+- A canary sweep: seven tools (machines, config, credentials, doctor, connect,
+  exec, audit) and the audit file on disk must not contain the configured
+  password. The failure paths (no credentials, wrong password, missing key) are
+  covered by the same value.
+
 ## 0.7.42 — 2026-10-31
 
 ### Fixed
