@@ -422,3 +422,48 @@ test('closing a connection mid-command settles the command instead of hanging', 
     await pool.closeAll({ force: true })
   }
 })
+test('closing during a handshake closes the connection that lands, not nothing', async () => {
+  const pool = poolFor({ t: machineFor('t', srv.port) })
+  try {
+    // The close races the connect: there is no client yet, so a naive close
+    // reports 'nothing to close' and the connection stays open for good.
+    const running = pool.exec('t', 'sleep 0.3', {})
+    const closed = await pool.closeOne('t', { force: true })
+    assert.equal(closed.pending, true)
+    await assert.rejects(() => running, /connection to "t" is gone/)
+    await new Promise((r) => setTimeout(r, 400))
+    assert.equal(srv.clientCount(), 0, 'the connection that landed must have been closed')
+    const entry = pool.entries.get('t')
+    assert.equal(entry && entry.client, null)
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})
+
+test('closeAll during a handshake leaves no orphaned connection', async () => {
+  const pool = poolFor({ t: machineFor('t', srv.port) })
+  try {
+    const running = pool.exec('t', 'sleep 0.3', {})
+    await pool.closeAll({ force: true })
+    await running.catch(() => {})
+    await new Promise((r) => setTimeout(r, 400))
+    assert.equal(srv.clientCount(), 0)
+    const after = await pool.exec('t', 'echo back', {})
+    assert.match(after.stdout, /back/)
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})
+
+test('a non-forcing close leaves a handshake that another call started alone', async () => {
+  const pool = poolFor({ t: machineFor('t', srv.port) })
+  try {
+    const running = pool.exec('t', 'echo quick', {})
+    const closed = await pool.closeOne('t')
+    assert.equal(closed.pending, true)
+    const result = await running
+    assert.match(result.stdout, /quick/, 'the other call keeps its connection')
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})

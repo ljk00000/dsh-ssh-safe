@@ -99,6 +99,26 @@ export function connectFailure(err, m) {
 }
 
 /**
+ * Name the real cause when ssh2 says the client is not connected.
+ *
+ * A close or an eviction can land between connect() and the first use, and
+ * ssh2 answers with a bare "Not connected" that reads like a plugin bug.
+ *
+ * @param {unknown} err
+ * @param {string} alias
+ * @returns {Error}
+ */
+function explainGone(err, alias) {
+  const message = String((err && /** @type {any} */ (err).message) || err || '')
+  if (!/Not connected|not connected|Channel open failure/i.test(message)) return err instanceof Error ? err : new Error(message)
+  return new Error(
+    'The connection to "' + alias + '" is gone: it was closed while the operation was starting ' +
+    'or running (ssh_close, an eviction, or a dropped channel). The operation did not complete; ' +
+    'call it again to reconnect.'
+  )
+}
+
+/**
  * One pooled machine slot.
  *
  * @typedef {object} PoolEntry
@@ -531,6 +551,8 @@ export class SshPool {
     this.beginOp(alias)
     try {
       return await this.#execOn(alias, client, command, timeoutMs)
+    } catch (err) {
+      throw explainGone(err, alias)
     } finally {
       this.endOp(alias)
     }
@@ -640,6 +662,8 @@ export class SshPool {
     this.beginOp(alias)
     try {
       return await this.#readFileOn(alias, remotePath, opts)
+    } catch (err) {
+      throw explainGone(err, alias)
     } finally {
       this.endOp(alias)
     }
@@ -672,6 +696,8 @@ export class SshPool {
     this.beginOp(alias)
     try {
       return await this.#writeFileOn(alias, remotePath, content, opts)
+    } catch (err) {
+      throw explainGone(err, alias)
     } finally {
       this.endOp(alias)
     }
@@ -698,6 +724,8 @@ export class SshPool {
     this.beginOp(alias)
     try {
       return await this.#listOn(alias, remotePath, opts)
+    } catch (err) {
+      throw explainGone(err, alias)
     } finally {
       this.endOp(alias)
     }
@@ -724,6 +752,19 @@ export class SshPool {
   async closeOne(alias, { force = false } = {}) {
     const e = this.entries.get(alias)
     if (!e) return { closed: false, confirmed: false }
+    // A handshake can be in flight. Closing now finds no client and reports
+    // that there was nothing to close, while the connection that lands a
+    // moment later stays open -- the opposite of what the caller asked for.
+    if (e.ready) {
+      if (!force) return { closed: false, confirmed: false, busy: this.isBusy(alias), pending: true }
+      const landing = e.ready
+      e.ready = null
+      landing.then(
+        (client) => { closeClient(client, pick(this.config.closeTimeoutMs, 1500)).catch(() => {}) },
+        () => { /* the handshake failed; nothing landed */ },
+      )
+      return { closed: false, confirmed: false, pending: true }
+    }
     if (!force && this.isBusy(alias)) {
       return { closed: false, confirmed: false, busy: true }
     }
@@ -764,6 +805,19 @@ export class SshPool {
     const closed = []
     const busy = []
     const clients = []
+
+    // A handshake that is still running has no client yet; nulling its entry
+    // would orphan the connection when it lands, leaving a socket nobody ever
+    // closes. Arrange for that arrival to be closed too.
+    for (const [, e] of this.entries) {
+      if (!e.ready) continue
+      const landing = e.ready
+      e.ready = null
+      landing.then(
+        (client) => { closeClient(client, pick(this.config.closeTimeoutMs, 1500)).catch(() => {}) },
+        () => { /* the handshake failed; nothing landed */ },
+      )
+    }
 
     for (const [alias, e] of this.entries) {
       if (!force && this.isBusy(alias)) {

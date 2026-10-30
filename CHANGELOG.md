@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.20 — 2026-10-31
+
+### Fixed
+- **Closing during a handshake closed nothing and leaked the connection.**
+  `ssh_close` (or `closeAll` at unload) landing while a connect was in flight
+  found no client, answered "No live connection", and the socket that completed
+  a moment later stayed open for the life of the process. `closeOne` now
+  reports `pending`, and a forcing close arranges for the arriving connection to
+  be closed; `closeAll` attaches the same cleanup before it drops entries.
+- **The caller then got a bare "Not connected".** A close or eviction between
+  `connect()` and the first use surfaced ssh2's wording, which reads like a
+  plugin bug. It now says which machine's connection went away, that the close
+  (or eviction, or dropped channel) caused it, and that the operation did not
+  complete.
+
+### Added — tests
+- Forced close during a handshake: `pending`, the command rejects with the new
+  message, the landing socket is closed and the server sees zero clients.
+- `closeAll` during a handshake: same, and the next command reconnects.
+- A non-forcing close during a handshake leaves the other call's connection
+  alone (that call's command still completes).
+
 ## 0.7.19 — 2026-10-31
 
 ### Fixed

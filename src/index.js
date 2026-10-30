@@ -1390,6 +1390,11 @@ export async function apply(ctx, config) {
       const force = optionalFlag(args.force, 'force')
       if (alias) {
         const result = await pool.closeOne(alias, { force })
+        if (result.pending) {
+          return { text: force
+            ? 'A connection to ' + alias + ' is still being established; it will be closed as soon as it completes.'
+            : 'A connection to ' + alias + ' is still being established. Pass force: true to have it closed on arrival.' }
+        }
         if (result.busy) {
           return { text:
             'Not closing ' + alias + ': a command is still running on it. ' +
