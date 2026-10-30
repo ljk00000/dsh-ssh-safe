@@ -311,9 +311,10 @@ test('fifty aliases under a ceiling of eight leave eight connections', async () 
   }
 })
 test('a connection closed mid-command is reported as incomplete', async () => {
-  // maxConnections 2 with three aliases: the third connect force-closes the
-  // oldest, which is running a command. The caller must not be told the
-  // command finished normally with no output.
+  // The connection is closed under a running command. The caller must not be
+  // told the command finished normally with no output. (This used to be
+  // produced by the ceiling evicting the busy connection; eviction leaves work
+  // in progress alone now, so the close is explicit.)
   const pool = poolFor({
     a: machineFor('a', srv.port),
     b: machineFor('b', srv.port),
@@ -323,8 +324,7 @@ test('a connection closed mid-command is reported as incomplete', async () => {
     await pool.exec('a', 'echo warm', {})
     const running = pool.exec('a', 'sleep 3', {})
     await new Promise((r) => setTimeout(r, 200))
-    await pool.exec('b', 'echo b', {})
-    await pool.exec('c', 'echo c', {})   // evicts a, whose command is running
+    await pool.closeOne('a', { force: true })
 
     const result = await Promise.race([running, new Promise((r) => setTimeout(() => r('HUNG'), 5000))])
     assert.notEqual(result, 'HUNG', 'the evicted call must settle')

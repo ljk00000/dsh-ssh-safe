@@ -3,14 +3,20 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { SshPool } from '../src/pool.js'
 
-// Regression guard for the gap between two fixes.
+// Eviction and work in progress.
 //
-// closeOne() gained a busy guard (refuse to sever a running command), and
-// evictIdle() called closeOne() without force. Eviction therefore did nothing
-// while reporting success: the ceiling was silently exceeded.
+// History: closeOne() gained a busy guard (refuse to sever a running command),
+// then evictIdle() called it without force and reported a ceiling it did not
+// hold. The fix at the time was to force-close -- which kept the ceiling and
+// killed a running command whenever the agent touched one machine too many:
+// 'sleep 2; echo done' on machine A came back as "connection closed before the
+// command reported an exit status" because machine B was used meanwhile.
 //
-// shutdown.test.js covered closeAll+busy. lru.test.js covered eviction. Nothing
-// covered the two together, which is exactly where the defect lived.
+// The policy is now: evict idle connections, leave a busy one alone, report the
+// overflow, and enforce the ceiling on the next acquire. A resource ceiling is
+// not a reason to abort work the user asked for.
+//
+// shutdown.test.js covers closeAll+busy; lru.test.js covers ordering.
 
 class FakeStream extends EventEmitter {
   constructor() { super(); this.stderr = new EventEmitter() }
@@ -39,7 +45,7 @@ function makePool(maxConnections) {
 
 const live = (pool) => [...pool.entries.values()].filter((e) => e.client).length
 
-test('eviction holds the ceiling even when every connection is busy', async () => {
+test('a connection running a command is not evicted', async () => {
   const pool = makePool(2)
   for (const alias of ['a', 'b', 'c']) {
     pool.entry(alias).client = new FakeClient()
@@ -47,8 +53,33 @@ test('eviction holds the ceiling even when every connection is busy', async () =
   }
 
   const closed = await pool.evictIdle(2, 'c')
-  assert.ok(live(pool) <= 2, 'the ceiling must hold, got ' + live(pool))
-  assert.equal(closed.length, 1, 'exactly one connection is evicted')
+  assert.equal(closed.length, 0, 'nothing may be severed while it runs')
+  assert.equal(live(pool), 3, 'the overflow is temporary and bounded by the callers')
+  assert.equal(pool.connectionStats().overLimit, true, 'and it is reported as such')
+})
+
+test('an idle connection is evicted even when another one is busy', async () => {
+  const pool = makePool(2)
+  for (const alias of ['a', 'b', 'c']) pool.entry(alias).client = new FakeClient()
+  pool.beginOp('c') // the newest is the one working
+
+  const closed = await pool.evictIdle(2, 'c')
+  assert.deepEqual(closed, ['a'], 'the oldest idle one goes')
+  assert.ok(pool.entries.get('c').client, 'the working one survives')
+})
+
+test('the ceiling is enforced once the busy connection drains', async () => {
+  const pool = makePool(1)
+  for (const alias of ['a', 'b']) pool.entry(alias).client = new FakeClient()
+  pool.beginOp('a')
+
+  assert.equal((await pool.evictIdle(1, 'b')).length, 0)
+  assert.equal(live(pool), 2)
+
+  pool.endOp('a') // the command finished
+  const closed = await pool.evictIdle(1, 'b')
+  assert.deepEqual(closed, ['a'])
+  assert.equal(live(pool), 1)
 })
 
 test('evictIdle only reports connections it actually closed', async () => {

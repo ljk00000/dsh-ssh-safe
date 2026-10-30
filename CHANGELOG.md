@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.55 — 2026-10-31
+
+### Changed
+- **The connection ceiling no longer aborts a command that is running.** With
+  `maxConnections` reached, touching one more machine closed the oldest
+  connection -- even a busy one. Measured: `sleep 2; echo done` on machine A came
+  back as `[connection closed before the command reported an exit status]`
+  because machine B was used meanwhile. Eviction now closes idle connections
+  only; a busy one is left alone and the ceiling is enforced on the next acquire,
+  when it is idle. The overflow is bounded by how many operations run at once and
+  `ssh_config` says so out loud:
+  `Live connections: 2 / 1 max  (over the limit: the extra ones are running a command)`.
+
+  This reverses a deliberate earlier decision ("a ceiling, not a preference"):
+  that fix was itself a fix for eviction that did nothing while reporting
+  success. The result is the same accounting -- what is closed is what is
+  reported -- without killing work the user asked for.
+
+### Added — tests
+- A busy connection is not evicted and the overflow is reported; an idle one is
+  still evicted next to it; the ceiling is enforced once the busy one drains.
+- The two "output is incomplete when the connection dies" tests now close the
+  connection explicitly instead of relying on eviction to kill it.
+
 ## 0.7.54 — 2026-10-31
 
 ### Fixed

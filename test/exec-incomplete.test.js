@@ -34,8 +34,11 @@ test('ssh_exec says the output is partial when the connection dies mid-command',
     await tools.ssh_exec.execute({ command: 'echo warm' }, {})
     const running = tools.ssh_exec.execute({ command: 'sleep 3' }, {})
     await new Promise((r) => setTimeout(r, 200))
-    await tools.ssh_exec.execute({ command: 'echo b', machine: 'b' }, {})
-    await tools.ssh_exec.execute({ command: 'echo c', machine: 'c' }, {}) // evicts a
+    // Close the connection under the running command, the way a real drop
+    // happens. This used to be produced by using another machine until the
+    // ceiling evicted the busy connection -- eviction no longer severs work in
+    // progress, so the test asks for the close explicitly.
+    await tools.ssh_close.execute({ machine: 'a', force: true }, {})
 
     const result = await Promise.race([running.then((r) => r), new Promise((r) => setTimeout(() => r('HUNG'), 5000))])
     assert.notEqual(result, 'HUNG', 'the call must settle')

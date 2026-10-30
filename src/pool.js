@@ -399,18 +399,27 @@ export class SshPool {
     // Oldest first, so the most recently used survive.
     candidates.sort((a, b) => (a[1].lastUsedAt || 0) - (b[1].lastUsedAt || 0))
 
+    // Evict what is idle. A connection with a command in flight is left alone:
+    // force-closing it aborts real work -- a build, a transfer -- because the
+    // agent touched a ninth machine while the eighth was busy. The ceiling is a
+    // resource guard, not a reason to kill a running command, and the overflow
+    // is bounded by how many operations can be in flight at once. The next
+    // acquire evicts again, by which time those connections are idle.
     const closed = []
+    let stillOver = false
     for (const [alias] of candidates) {
       if (closed.length >= excess) break
-      const result = await this.closeOne(alias, { force: true })
+      const result = await this.closeOne(alias, { force: false })
       if (result.closed) closed.push(alias)
+      else if (result.busy) stillOver = true
     }
+    this.overLimit = stillOver && closed.length < excess
     return closed
   }
 
   /**
    * Connection count and ceiling, for diagnostics.
-   * @returns {{live: number, limit: number, aliases: string[]}}
+   * @returns {{live: number, limit: number, overLimit: boolean, aliases: string[]}}
    */
   connectionStats() {
     const aliases = [...this.entries.entries()]
@@ -420,6 +429,9 @@ export class SshPool {
     return {
       live: aliases.length,
       limit: Number.isFinite(limit) ? limit : 0,
+      // True while the cap is exceeded because the connections that would have
+      // been evicted are running something.
+      overLimit: aliases.length > (Number.isFinite(limit) ? limit : 0) && Boolean(this.overLimit),
       aliases,
     }
   }

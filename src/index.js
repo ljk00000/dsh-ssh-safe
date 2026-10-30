@@ -1437,6 +1437,7 @@ function assertKnownArgs(args, known, toolName) {
 
       lines.push('', 'Live connections: ' + stats.live +
         (stats.limit > 0 ? ' / ' + stats.limit + ' max' : ' (no limit)') +
+        (stats.overLimit ? '  (over the limit: the extra ones are running a command)' : '') +
         (stats.aliases.length ? '  [' + stats.aliases.join(', ') + ']' : ''))
       if (cfg.auditLog === true) {
         lines.push('Audit log: ' + dshHome + (process.platform === 'win32' ? '\\' : '/') + 'dsh-ssh-safe' +
