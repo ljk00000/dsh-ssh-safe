@@ -656,3 +656,35 @@ test('useCredentialFile: false hides the file and warns when saving', async () =
     rmSync(home, { recursive: true, force: true })
   }
 })
+test('a field that is not text is refused instead of stringified into the file', async () => {
+  // String({a:1}) is '[object Object]', and that was written as the host name;
+  // Number(true) is 1, a valid port, so a boolean port saved silently.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  const { child, base, token } = await start(home)
+  try {
+    const shapes = [
+      { alias: 'a1', host: { a: 1 }, user: 'u' },
+      { alias: 'a2', host: ['9.9.9.9'], user: 'u' },
+      { alias: 'a3', host: 'h', port: true },
+      { alias: 'a4', host: 'h', user: 42 },
+      { alias: 'a5', host: 'h', user: 'u', keyPath: { p: 1 } },
+    ]
+    for (const shape of shapes) {
+      const saved = await call(base, token, '/api/save', shape)
+      assert.equal(saved.status, 400, JSON.stringify(shape) + ' must be refused')
+      assert.match(saved.body.error, /必须是字符串|端口必须是/)
+    }
+    assert.equal(existsSync(path.join(home, 'dsh-ssh-safe', 'credentials.json')), false,
+      'nothing may be written for a refused save')
+
+    const ok = await call(base, token, '/api/save', { alias: 'good', host: '  10.0.0.5  ', user: ' deploy ', port: '2222' })
+    assert.equal(ok.status, 200)
+    const saved = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
+    assert.deepEqual(saved.good, { host: '10.0.0.5', user: 'deploy', port: 2222 })
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

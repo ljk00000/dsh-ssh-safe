@@ -557,6 +557,23 @@ const server = createServer(async (req, res) => {
         warnings.push('设置里 useCredentialFile 为 false：本页保存的内容插件不会读取，请在设置里改为 true 或改用环境变量')
       }
 
+      // Every field must be text. String({a:1}) is '[object Object]', and that
+      // was written to the file as the host name -- the plugin then dialled a
+      // machine called [object Object]. Same for a boolean port: Number(true)
+      // is 1, a valid port, so it saved silently as port 1.
+      for (const field of ['host', 'user', 'keyPath', 'password']) {
+        const value = body[field]
+        if (value === undefined || value === null || value === '') continue
+        if (typeof value !== 'string') {
+          return sendJson(res, 400, { error: field + ' 必须是字符串（收到 ' + (Array.isArray(value) ? 'array' : typeof value) + '）' })
+        }
+      }
+      if (body.port !== undefined && body.port !== null && body.port !== '') {
+        if (typeof body.port !== 'string' && typeof body.port !== 'number') {
+          return sendJson(res, 400, { error: '端口必须是 1-65535 的整数（收到 ' + (Array.isArray(body.port) ? 'array' : typeof body.port) + '）' })
+        }
+      }
+
       if (filled(body.host)) entry.host = String(body.host).trim()
       if (filled(body.port)) {
         const port = Number(body.port)

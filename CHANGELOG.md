@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.36 — 2026-10-31
+
+### Fixed
+- **The page wrote non-text values into the credential file.** `String({a:1})`
+  is `"[object Object]"`, and `/api/save` stored that as the host name -- the
+  plugin then dialled a machine called `[object Object]`. `host`, `user`,
+  `keyPath` and `password` must be strings now (400 with the field and the
+  received type).
+- **A boolean port saved as port 1.** `Number(true)` is `1`, a valid port, so
+  `port: true` was accepted silently. Booleans, objects and arrays are refused.
+
+### Added — tests
+- Five rejected shapes (object, array, boolean, number in a text field), nothing
+  written for any of them, and a valid save still trims and coerces to the
+  documented shape.
+
 ## 0.7.35 — 2026-10-31
 
 ### Fixed
