@@ -46,6 +46,35 @@ function closeSftp(sftp) {
 }
 
 /**
+ * Wire a caller's AbortSignal to a settle() callback.
+ *
+ * The harness aborts exec.signal when the user stops the turn; a cooperative
+ * tool must stop its work, not just stop waiting for it. Returns the listener so
+ * settle() can detach it.
+ *
+ * @param {AbortSignal|undefined} signal
+ * @param {string} message
+ * @param {(error: Error) => void} settle
+ * @returns {(() => void)|null}
+ */
+function onAbort(signal, message, settle) {
+  if (!signal) return null
+  if (signal.aborted) {
+    settle(new Error(message + ' (cancelled before it started)'))
+    return null
+  }
+  const listener = () => settle(new Error(message))
+  try { signal.addEventListener('abort', listener, { once: true }) } catch { return null }
+  return listener
+}
+
+/** Detach a listener installed by onAbort(). */
+function clearAbort(signal, listener) {
+  if (!listener || !signal) return
+  try { signal.removeEventListener('abort', listener) } catch {}
+}
+
+/**
  * Wrap an sftp error with the remote path it refers to.
  *
  * "No such file" alone gives the caller nothing to act on; the path is what
@@ -164,10 +193,10 @@ async function ensureRemoteDir(sftp, dir) {
  *
  * @param {any} client
  * @param {string} remotePath
- * @param {{maxBytes?: number, timeoutMs: number}} options
+ * @param {{maxBytes?: number, timeoutMs: number, signal?: AbortSignal}} options
  * @returns {Promise<{content: string, truncated: boolean, bytes: number, path: string}>}
  */
-export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs }) {
+export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, signal }) {
   const target = normalizeRemotePath(remotePath)
   const sftp = await openSftp(client)
   return await new Promise((resolve, reject) => {
@@ -175,11 +204,14 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs }
     let settled = false
     let timer = null
     let stream = null
+    let abortListener = null
 
     const settle = (result, error) => {
       if (settled) return
       settled = true
       if (timer) clearTimeout(timer)
+      clearAbort(signal, abortListener)
+      abortListener = null
       if (stream) {
         // Detach the data handler, then leave exactly one 'error' listener
         // behind. Destroying the stream and closing the SFTP session makes
@@ -199,6 +231,7 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs }
     timer = setTimeout(() => {
       settle(null, new Error('reading ' + target + ' did not complete within ' + timeoutMs + 'ms'))
     }, timeoutMs)
+    abortListener = onAbort(signal, 'reading ' + target + ' was cancelled', (error) => settle(null, error))
 
     try {
       stream = sftp.createReadStream(target)
@@ -250,10 +283,10 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs }
  * @param {any} client
  * @param {string} remotePath
  * @param {string|Buffer} content
- * @param {{timeoutMs: number, createDirs?: boolean}} options
+ * @param {{timeoutMs: number, createDirs?: boolean, signal?: AbortSignal}} options
  * @returns {Promise<{bytes: number, path: string}>}
  */
-export async function writeRemoteFile(client, remotePath, content, { timeoutMs = 30000, createDirs = false } = /** @type {any} */ ({})) {
+export async function writeRemoteFile(client, remotePath, content, { timeoutMs = 30000, createDirs = false, signal } = /** @type {any} */ ({})) {
   const target = normalizeRemotePath(remotePath)
   const payload = Buffer.isBuffer(content) ? content : Buffer.from(String(content ?? ''), 'utf8')
   const sftp = await openSftp(client)
@@ -263,11 +296,14 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
     let settled = false
     let timer = null
     let stream = null
+    let abortListener = null
 
     const settle = (result, error) => {
       if (settled) return
       settled = true
       if (timer) clearTimeout(timer)
+      clearAbort(signal, abortListener)
+      abortListener = null
       if (stream && error) {
         // Same hazard as in readRemoteFile: a pending request fails when the
         // session closes, and an event with no listener kills the process.
@@ -286,6 +322,8 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
         ' — the remote channel may have dropped; the file may be truncated or partially written'
       ))
     }, timeoutMs)
+    abortListener = onAbort(signal, 'writing ' + target + ' was cancelled; the file may be truncated or partially written',
+      (error) => settle(null, error))
 
     try {
       stream = sftp.createWriteStream(target)
@@ -336,15 +374,16 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
  *
  * @param {any} client
  * @param {string} remotePath
- * @param {{timeoutMs: number}} options
+ * @param {{timeoutMs: number, signal?: AbortSignal}} options
  * @returns {Promise<{path: string, items: Array<{name: string, size: number, dir: boolean, mtime: string|null}>}>}
  */
-export async function listRemoteDir(client, remotePath, { timeoutMs }) {
+export async function listRemoteDir(client, remotePath, { timeoutMs, signal }) {
   const target = normalizeRemotePath(remotePath || '.', { allowRelative: true })
   const sftp = await openSftp(client)
 
   return await new Promise((resolve, reject) => {
     let settled = false
+    let abortListener = null
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
@@ -356,11 +395,14 @@ export async function listRemoteDir(client, remotePath, { timeoutMs }) {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      clearAbort(signal, abortListener)
+      abortListener = null
       closeSftp(sftp)
       if (error) reject(error)
       else resolve(result)
     }
 
+    abortListener = onAbort(signal, 'listing ' + target + ' was cancelled', (error) => settle(null, error))
     try {
       sftp.readdir(target, (err, items) => {
         if (err) {

@@ -390,6 +390,22 @@ function editDistance(a, b) {
 }
 
 /**
+ * The caller's cancellation signal, or undefined.
+ *
+ * The harness aborts this when the user stops the turn. Tools that pass it down
+ * can stop their work instead of finishing it for nobody.
+ *
+ * @param {{signal?: unknown}} [execution]
+ * @returns {AbortSignal|undefined}
+ */
+function executionSignal(execution) {
+  const signal = execution && /** @type {any} */ (execution).signal
+  return signal && typeof signal === 'object' && typeof signal.aborted === 'boolean'
+    ? /** @type {AbortSignal} */ (signal)
+    : undefined
+}
+
+/**
  * Reject arguments the tool does not declare.
  *
  * The harness compiles a tool's parameters into an OPEN object schema, so a
@@ -707,7 +723,7 @@ function assertKnownArgs(args, known, toolName) {
     // time: a three-second command on one machine made an unrelated 200ms
     // command on the same or another machine wait for it.
     isConcurrencySafe: () => true,
-    async execute(args) {
+    async execute(args, execution) {
       const alias = machineFor(args)
       const command = requireText(args.command, 'command')
       const budget = optionalBudget(args.timeoutMs, 'timeoutMs')
@@ -716,6 +732,7 @@ function assertKnownArgs(args, known, toolName) {
       let r
       try {
         r = await pool.exec(alias, command, {
+          signal: execution && execution.signal ? execution.signal : undefined,
           timeoutMs: budget,
           sessionPassword: optionalText(args.password, 'password'),
         })
@@ -734,7 +751,7 @@ function assertKnownArgs(args, known, toolName) {
         kind: 'exec',
         machine: alias,
         command: summarize(command),
-        outcome: r.timedOut ? 'timeout' : (r.dropped ? 'incomplete' : (r.code === 0 ? 'ok' : 'exit')),
+        outcome: r.cancelled ? 'cancel' : (r.timedOut ? 'timeout' : (r.dropped ? 'incomplete' : (r.code === 0 ? 'ok' : 'exit'))),
         exitCode: r.code,
         truncated: r.truncated,
         ms: Date.now() - startedAt,
@@ -771,6 +788,9 @@ function assertKnownArgs(args, known, toolName) {
       }
       if (r.truncated) parts.push('[output truncated at maxOutputChars]')
       if (r.timedOut) parts.push('[timed out after ' + (budget || cfg.commandTimeoutMs) + 'ms]')
+      if (r.cancelled) {
+        parts.push('[cancelled at the caller request — the remote command was sent SIGTERM; the output above is what arrived first]')
+      }
       // 'exit unknown' alone is ambiguous; the commonest cause is a connection
       // that died mid-command, and the caller needs to know the output is only
       // what arrived before that.
@@ -779,7 +799,9 @@ function assertKnownArgs(args, known, toolName) {
       }
       // A killed process has no exit code; naming the signal is the only
       // honest answer, and '[exit unknown]' reads like the harness lost it.
-      parts.push(exitLine(r))
+      // A cancelled command has no exit status at all: the note above already
+      // says why, and '[exit unknown]' after it is noise.
+      if (!r.cancelled) parts.push(exitLine(r))
       for (const warning of credentialWarnings(alias, optionalText(args.password, 'password'))) {
         parts.push('[note] ' + warning)
       }
@@ -808,7 +830,7 @@ function assertKnownArgs(args, known, toolName) {
     // time: a three-second command on one machine made an unrelated 200ms
     // command on the same or another machine wait for it.
     isConcurrencySafe: () => true,
-    async execute(args) {
+    async execute(args, execution) {
       const alias = machineFor(args)
       guardWrite(optionalFlag(args.confirm, 'confirm'))
       const remotePath = requireText(args.path, 'path')
@@ -821,6 +843,7 @@ function assertKnownArgs(args, known, toolName) {
           // negative budget. Same shape as the password below.
           maxBytes: optionalBudget(args.maxBytes, 'maxBytes'),
           timeoutMs: optionalBudget(args.timeoutMs, 'timeoutMs'),
+          signal: executionSignal(execution),
           sessionPassword: optionalText(args.password, 'password'),
         })
       } catch (err) {
@@ -874,7 +897,7 @@ function assertKnownArgs(args, known, toolName) {
     // time: a three-second command on one machine made an unrelated 200ms
     // command on the same or another machine wait for it.
     isConcurrencySafe: () => true,
-    async execute(args) {
+    async execute(args, execution) {
       guardWrite(optionalFlag(args.confirm, 'confirm'))
       const alias = machineFor(args)
       const remotePath = requireText(args.path, 'path')
@@ -896,6 +919,7 @@ function assertKnownArgs(args, known, toolName) {
           timeoutMs: optionalBudget(args.timeoutMs, 'timeoutMs'),
           sessionPassword: optionalText(args.password, 'password'),
           createDirs,
+          signal: executionSignal(execution),
         })
       } catch (err) {
         const message = err && err.message ? err.message : String(err)
@@ -941,7 +965,7 @@ function assertKnownArgs(args, known, toolName) {
     // time: a three-second command on one machine made an unrelated 200ms
     // command on the same or another machine wait for it.
     isConcurrencySafe: () => true,
-    async execute(args) {
+    async execute(args, execution) {
       const alias = machineFor(args)
       const rawPath = args.path === undefined || args.path === null || args.path === '' ? '.' : args.path
       if (typeof rawPath !== 'string') {
@@ -953,6 +977,7 @@ function assertKnownArgs(args, known, toolName) {
       try {
         listing = await pool.list(alias, remotePath, {
           timeoutMs: optionalBudget(args.timeoutMs, 'timeoutMs'),
+          signal: executionSignal(execution),
           sessionPassword: optionalText(args.password, 'password'),
         })
       } catch (err) {

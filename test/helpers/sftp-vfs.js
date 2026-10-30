@@ -86,6 +86,7 @@ export function createVfs() {
   const control = {
   stallReads: false,
   stallWrites: false,
+  stallDirs: false,
   // Paths whose every operation answers "permission denied", the way sshd
   // answers for a file the login user may not touch.
   denied: new Set(),
@@ -253,6 +254,7 @@ export function attachSftp(stream, vfs) {
     if (type === FXP.OPENDIR) {
       const target = vfs.normalize(reader.path())
       if (vfs.control.denied.has(target)) return status(id, STATUS.PERMISSION_DENIED, 'Permission denied')
+      if (vfs.control.stallDirs) return // a readdir that never answers
       const stat = vfs.stat(target)
       if (!stat) return status(id, STATUS.NO_SUCH_FILE, 'no such file')
       if (!stat.dir) return status(id, STATUS.FAILURE, 'not a directory')

@@ -578,9 +578,9 @@ export class SshPool {
   /**
    * @param {string} alias
    * @param {string} command
-   * @param {{timeoutMs?: number, sessionPassword?: string}} [inline]
+   * @param {{timeoutMs?: number, sessionPassword?: string, signal?: AbortSignal}} [inline]
    */
-  async exec(alias, command, { timeoutMs, sessionPassword } = {}) {
+  async exec(alias, command, { timeoutMs, sessionPassword, signal } = {}) {
     // Refuse a command that cannot be sent before opening a connection for it.
     const bytes = Buffer.byteLength(String(command ?? ''), 'utf8')
     if (bytes > MAX_COMMAND_BYTES) {
@@ -593,7 +593,7 @@ export class SshPool {
     const client = await this.connect(alias, { sessionPassword })
     this.beginOp(alias)
     try {
-      return await this.#execOn(alias, client, command, timeoutMs)
+      return await this.#execOn(alias, client, command, timeoutMs, signal)
     } catch (err) {
       throw explainGone(err, alias)
     } finally {
@@ -601,7 +601,7 @@ export class SshPool {
     }
   }
 
-  async #execOn(alias, client, command, timeoutMs) {
+  async #execOn(alias, client, command, timeoutMs, signal) {
     const limit = timerValue(pick(timeoutMs || undefined, pick(this.config.commandTimeoutMs, 20000)), 20000)
     const cap = pick(this.config.maxOutputChars, 200000)
 
@@ -620,10 +620,15 @@ export class SshPool {
       let timer = null
       let timedOutResult = null
 
+      let abortListener = null
       const settle = (result, error) => {
         if (settled) return
         settled = true
         if (timer) clearTimeout(timer)
+        if (abortListener && signal) {
+          try { signal.removeEventListener('abort', abortListener) } catch {}
+          abortListener = null
+        }
         // Detach listeners so a stream that keeps draining after we gave up
         // cannot grow the buffers or fire a second completion.
         if (stream) {
@@ -659,6 +664,35 @@ export class SshPool {
         // Let the TERM message flush before the channel is destroyed.
         setImmediate(() => settle(timedOutResult))
       }, limit)
+
+      // The caller can cancel: the harness aborts exec.signal when the user
+      // stops the turn, and a remote command left running is a side effect the
+      // user asked to end. Same treatment as a deadline: TERM the channel, keep
+      // what was printed, and let the flush happen before the destroy.
+      const cancel = () => {
+        if (settled) return
+        try { if (stream) stream.signal('TERM') } catch {}
+        const cancelledResult = {
+          stdout: out.text,
+          stderr: err.text,
+          code: null,
+          signal: null,
+          timedOut: false,
+          cancelled: true,
+          dropped: false,
+          truncated: budget.truncated,
+          timeline,
+        }
+        setImmediate(() => settle(cancelledResult))
+      }
+      if (signal) {
+        if (signal.aborted) {
+          settle(null, new Error('the command was cancelled before it started'))
+          return
+        }
+        abortListener = cancel
+        try { signal.addEventListener('abort', abortListener, { once: true }) } catch {}
+      }
 
       client.exec(command, (error, s) => {
         if (error) return settle(null, new Error(redact(error.message)))
@@ -700,7 +734,7 @@ export class SshPool {
     })
   }
 
-  /** @param {string} alias @param {string} remotePath @param {{maxBytes?: number, timeoutMs?: number, sessionPassword?: string}} [opts] */
+  /** @param {string} alias @param {string} remotePath @param {{maxBytes?: number, timeoutMs?: number, sessionPassword?: string, signal?: AbortSignal}} [opts] */
   async readFile(alias, remotePath, opts = {}) {
     this.beginOp(alias)
     try {
@@ -715,9 +749,9 @@ export class SshPool {
   /**
    * @param {string} alias
    * @param {string} remotePath
-   * @param {{maxBytes?: number, sessionPassword?: string, timeoutMs?: number}} [inline]
+   * @param {{maxBytes?: number, sessionPassword?: string, timeoutMs?: number, signal?: AbortSignal}} [inline]
    */
-  async #readFileOn(alias, remotePath, { maxBytes, sessionPassword, timeoutMs } = {}) {
+  async #readFileOn(alias, remotePath, { maxBytes, sessionPassword, timeoutMs, signal } = {}) {
     // Validate before connecting: an invalid path is the caller's mistake, and
     // surfacing it as ECONNREFUSED (or as a cooldown) sends the user after a
     // server that is perfectly healthy.
@@ -731,10 +765,11 @@ export class SshPool {
     return await readRemoteFile(client, remotePath, {
       maxBytes: cap,
       timeoutMs: timerValue(pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)), 30000),
+      signal,
     })
   }
 
-  /** @param {string} alias @param {string} remotePath @param {{timeoutMs?: number, sessionPassword?: string, createDirs?: boolean}} [opts] */
+  /** @param {string} alias @param {string} remotePath @param {{timeoutMs?: number, sessionPassword?: string, createDirs?: boolean, signal?: AbortSignal}} [opts] */
   async writeFile(alias, remotePath, content, opts = {}) {
     this.beginOp(alias)
     try {
@@ -750,19 +785,20 @@ export class SshPool {
    * @param {string} alias
    * @param {string} remotePath
    * @param {string|Buffer} content
-   * @param {{sessionPassword?: string, timeoutMs?: number, createDirs?: boolean}} [inline]
+   * @param {{sessionPassword?: string, timeoutMs?: number, createDirs?: boolean, signal?: AbortSignal}} [inline]
    */
-  async #writeFileOn(alias, remotePath, content, { sessionPassword, timeoutMs, createDirs } = {}) {
+  async #writeFileOn(alias, remotePath, content, { sessionPassword, timeoutMs, createDirs, signal } = {}) {
     // See readFile: reject a bad path before touching the network.
     normalizeRemotePath(remotePath)
     const client = await this.connect(alias, { sessionPassword })
     return await writeRemoteFile(client, remotePath, content, {
       timeoutMs: timerValue(pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)), 30000),
       createDirs: createDirs === true,
+      signal,
     })
   }
 
-  /** @param {string} alias @param {string} remotePath @param {{timeoutMs?: number, sessionPassword?: string}} [opts] */
+  /** @param {string} alias @param {string} remotePath @param {{timeoutMs?: number, sessionPassword?: string, signal?: AbortSignal}} [opts] */
   async list(alias, remotePath, opts = {}) {
     this.beginOp(alias)
     try {
@@ -777,15 +813,16 @@ export class SshPool {
   /**
    * @param {string} alias
    * @param {string} remotePath
-   * @param {{sessionPassword?: string, timeoutMs?: number}} [inline]
+   * @param {{sessionPassword?: string, timeoutMs?: number, signal?: AbortSignal}} [inline]
    */
-  async #listOn(alias, remotePath, { sessionPassword, timeoutMs } = {}) {
+  async #listOn(alias, remotePath, { sessionPassword, timeoutMs, signal } = {}) {
     // list allows a relative path, so it validates with allowRelative rather
     // than insisting on an absolute one.
     normalizeRemotePath(remotePath || '.', { allowRelative: true })
     const client = await this.connect(alias, { sessionPassword })
     return await listRemoteDir(client, remotePath, {
       timeoutMs: timerValue(pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)), 30000),
+      signal,
     })
   }
   /**

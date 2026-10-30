@@ -189,3 +189,35 @@ test('a five megabyte write arrives intact', async () => {
   assert.equal(stored.length, 5000000)
   assert.equal(createHash('sha256').update(stored).digest('hex'), expected)
 })
+test('a cancelled transfer stops at once instead of running to its deadline', async () => {
+  // The harness aborts the call when the user stops the turn. A transfer that
+  // ignored it kept the socket busy for its full deadline.
+  const controller = new AbortController()
+  srv.vfs.putFile('/var/cancel.txt', 'x'.repeat(1000))
+  srv.vfs.control.stallReads = true
+  const starting = pool.readFile('t', '/var/cancel.txt', { maxBytes: 64, signal: controller.signal })
+  setTimeout(() => controller.abort(), 100)
+  const started = Date.now()
+  await assert.rejects(() => starting, /reading \/var\/cancel\.txt was cancelled/)
+  assert.ok(Date.now() - started < 2000, 'cancellation must be prompt')
+  srv.vfs.control.stallReads = false
+
+  const writeController = new AbortController()
+  srv.vfs.control.stallWrites = true
+  const writing = pool.writeFile('t', '/tmp/cancel.txt', 'y'.repeat(100000), { timeoutMs: 20000, signal: writeController.signal })
+  setTimeout(() => writeController.abort(), 100)
+  await assert.rejects(() => writing, /writing \/tmp\/cancel\.txt was cancelled; the file may be truncated/)
+  srv.vfs.control.stallWrites = false
+
+  const listController = new AbortController()
+  srv.vfs.control.stallDirs = true
+  const listing = pool.list('t', '/var', { signal: listController.signal })
+  setTimeout(() => listController.abort(), 100)
+  await assert.rejects(() => listing, /listing \/var was cancelled/)
+  srv.vfs.control.stallDirs = false
+
+  // The session was torn down each time; the pool must still work.
+  srv.vfs.putFile('/var/after.txt', 'ok')
+  const after = await pool.readFile('t', '/var/after.txt', { maxBytes: 16 })
+  assert.equal(after.content, 'ok')
+})

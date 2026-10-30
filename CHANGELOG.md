@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.27 — 2026-10-31
+
+### Fixed
+- **Stopping a turn did not stop the remote work.** DSH aborts `exec.signal`
+  when the user cancels, and the plugin ignored it: `ssh_exec` kept running
+  until its deadline (a real side effect on the remote host) and a stalled
+  transfer kept its socket busy.
+  `ssh_exec` now sends SIGTERM to the channel and returns what had already
+  printed, with `[cancelled at the caller request ...]` and no bogus
+  `[exit unknown]`; reads, writes and listings abort their SFTP session at once
+  (a cancelled write says the file may be partially written). A signal that is
+  already aborted refuses before anything starts.
+
+### Added — tests
+- Cancellation of a running command (prompt, partial output, connection still
+  usable afterwards) and of an already-aborted call.
+- Cancellation of a stalled read, write and listing, each against a server that
+  never answers; the pool still works afterwards.
+
 ## 0.7.26 — 2026-10-31
 
 ### Fixed

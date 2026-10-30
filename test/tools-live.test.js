@@ -382,3 +382,30 @@ test('a command that cannot fit in one SSH request is refused with a reason', as
   const ok = await run('ssh_exec', { command: 'echo ' + 'b'.repeat(33000) })
   assert.match(ok, /\[exit 0\]/, 'a command under the limit still runs')
 })
+test('a cancelled command stops at once and leaves the connection usable', async () => {
+  // The harness aborts exec.signal when the user stops the turn. The remote
+  // command used to keep running (a real side effect) until its deadline.
+  const controller = new AbortController()
+  const started = Date.now()
+  const running = tools.ssh_exec.execute({ command: 'sleep 5' }, { signal: controller.signal })
+  setTimeout(() => controller.abort(), 200)
+  const result = await running
+  const elapsed = Date.now() - started
+  assert.ok(elapsed < 2000, 'cancellation must not wait for the command: ' + elapsed + 'ms')
+  const text = String(result.text)
+  assert.match(text, /\[cancelled at the caller request/)
+  assert.doesNotMatch(text, /\[timed out/, 'a cancelled call is not a timeout')
+  assert.doesNotMatch(text, /exit unknown/, 'there is no exit status to report')
+
+  const after = await tools.ssh_exec.execute({ command: 'echo back' }, {})
+  assert.match(String(after.text), /back/, 'the connection must survive a cancellation')
+})
+
+test('a signal that is already aborted never starts the command', async () => {
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(
+    () => tools.ssh_exec.execute({ command: 'echo never' }, { signal: controller.signal }),
+    /cancelled before it started/,
+  )
+})
