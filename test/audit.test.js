@@ -92,3 +92,21 @@ test('a malformed line is reported rather than thrown', () => {
     assert.ok(records.some((r) => r.malformed === true))
   } finally { rmSync(d, { recursive: true, force: true }) }
 })
+test('the log recovers when the file or its directory is deleted', () => {
+  const d = dir()
+  try {
+    const log = new AuditLog(d)
+    log.write({ kind: 'exec', machine: 't', command: 'one' })
+    const file = path.join(d, 'audit.ndjson')
+    rmSync(file, { force: true })
+    log.write({ kind: 'exec', machine: 't', command: 'two' })
+    assert.equal(existsSync(file), true, 'the file must come back')
+    assert.match(readFileSync(file, 'utf8'), /two/)
+
+    rmSync(d, { recursive: true, force: true })
+    log.write({ kind: 'exec', machine: 't', command: 'three' })
+    assert.equal(existsSync(file), true, 'the directory must come back')
+    assert.match(readFileSync(file, 'utf8'), /three/)
+    assert.equal(log.failures, 0, 'recovering is not a failure')
+  } finally { rmSync(d, { recursive: true, force: true }) }
+})

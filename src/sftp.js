@@ -283,7 +283,7 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
     timer = setTimeout(() => {
       settle(null, new Error(
         'writing ' + target + ' did not complete within ' + timeoutMs + 'ms' +
-        ' — the remote channel may have dropped'
+        ' — the remote channel may have dropped; the file may be truncated or partially written'
       ))
     }, timeoutMs)
 
@@ -305,9 +305,18 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
     }
     stream.on('error', (e) => {
       if (explain) return
+      // The stream truncates on open, so a write that fails part-way leaves less
+      // than the caller asked for. Saying so is the difference between "retry"
+      // and "someone deleted half this file".
+      const note = (err) => {
+        if (err && typeof err.message === 'string' && !/partially written/.test(err.message)) {
+          err.message += ' — the file may be truncated or partially written'
+        }
+        return err
+      }
       explain = kindMismatch(sftp, target, 'file').then(
-        (better) => settle(null, better || remoteError(e, target)),
-        () => settle(null, remoteError(e, target)),
+        (better) => settle(null, better || note(remoteError(e, target))),
+        () => settle(null, note(remoteError(e, target))),
       )
     })
     stream.on('close', done)

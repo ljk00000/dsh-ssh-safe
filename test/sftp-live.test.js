@@ -164,7 +164,12 @@ test('a stalled write gives up at the deadline and the connection survives', asy
   srv.vfs.control.stallWrites = true
   const started = Date.now()
   try {
-    await assert.rejects(() => pool.writeFile('t', '/tmp/stall.txt', 'y'.repeat(100000), { timeoutMs: 400 }), /did not complete within 400ms/)
+    await assert.rejects(
+      () => pool.writeFile('t', '/tmp/stall.txt', 'y'.repeat(100000), { timeoutMs: 400 }),
+      // The stream truncates on open, so the caller has to be told the file is
+      // no longer what it was.
+      /did not complete within 400ms.*truncated or partially written/,
+    )
     assert.ok(Date.now() - started < 3000, 'the deadline must fire promptly')
   } finally {
     srv.vfs.control.stallWrites = false

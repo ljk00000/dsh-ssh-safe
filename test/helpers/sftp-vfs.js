@@ -83,7 +83,15 @@ export function createVfs() {
     for (const part of parts) { current += '/' + part; dirs.add(current) }
   }
 
-  const control = { stallReads: false, stallWrites: false }
+  const control = {
+  stallReads: false,
+  stallWrites: false,
+  // Paths whose every operation answers "permission denied", the way sshd
+  // answers for a file the login user may not touch.
+  denied: new Set(),
+  deny(target) { control.denied.add(String(target)) },
+  undeny() { control.denied.clear() },
+}
 
   return {
     control,
@@ -173,6 +181,7 @@ export function attachSftp(stream, vfs) {
 
     if (type === FXP.OPEN) {
       const target = vfs.normalize(reader.path())
+      if (vfs.control.denied.has(target)) return status(id, STATUS.PERMISSION_DENIED, 'Permission denied')
       const pflags = reader.u32()
       reader.skipAttrs()
       const existing = vfs.stat(target)
@@ -201,6 +210,7 @@ export function attachSftp(stream, vfs) {
       const offset = reader.u64()
       const length = reader.u32()
       if (!handle) return status(id, STATUS.FAILURE, 'bad handle')
+      if (vfs.control.denied.has(handle.path)) return status(id, STATUS.PERMISSION_DENIED, 'Permission denied')
       if (vfs.control.stallReads) return // no answer at all, like a wedged server
       const data = vfs.read(handle.path, offset, length)
       if (!data) return status(id, STATUS.EOF)
@@ -212,6 +222,7 @@ export function attachSftp(stream, vfs) {
       const offset = reader.u64()
       const data = reader.string()
       if (!handle) return status(id, STATUS.FAILURE, 'bad handle')
+      if (vfs.control.denied.has(handle.path)) return status(id, STATUS.PERMISSION_DENIED, 'Permission denied')
       if (vfs.control.stallWrites) return
       vfs.write(handle.path, offset, data)
       return status(id, STATUS.OK)
@@ -241,6 +252,7 @@ export function attachSftp(stream, vfs) {
 
     if (type === FXP.OPENDIR) {
       const target = vfs.normalize(reader.path())
+      if (vfs.control.denied.has(target)) return status(id, STATUS.PERMISSION_DENIED, 'Permission denied')
       const stat = vfs.stat(target)
       if (!stat) return status(id, STATUS.NO_SUCH_FILE, 'no such file')
       if (!stat.dir) return status(id, STATUS.FAILURE, 'not a directory')

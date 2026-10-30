@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.16 — 2026-10-31
+
+### Fixed
+- **A write that fails part-way now says the file is damaged.** The SFTP write
+  stream truncates on open, so a timeout or a dropped channel leaves less than
+  the caller asked for -- and the error only said "did not complete". It now
+  ends "the file may be truncated or partially written", on both the deadline
+  and the error path. (A path that turns out to be a directory still says so and
+  carries no such warning: nothing was written.)
+
+### Added — tests
+- Permission denied from the server reaches the caller with the path attached,
+  for `ssh_list`, `ssh_read` and `ssh_write`; the test server can now deny a
+  path the way sshd does.
+- Deleting the audit log -- or its whole directory -- while the plugin runs is
+  recovered on the next write, and does not count as a failure.
+
 ## 0.7.15 — 2026-10-31
 
 ### Fixed
