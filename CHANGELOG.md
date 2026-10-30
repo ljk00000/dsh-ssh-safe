@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.28 — 2026-10-31
+
+### Fixed
+- **A misspelled machine field looked like a machine with no credentials.**
+  schemastery drops keys it does not know, so `keypath: ~/.ssh/id_ed25519`
+  parsed fine and the machine then reported "no password, key or agent
+  available" -- configured on paper, unconfigured in practice.
+  `ssh_doctor` now warns (`machine "box" has an unknown field "keypath" (did you
+  mean "keyPath"?)`) and `ssh_machines` adds a "Settings form problems" block.
+  The doctor checks the machine it was asked about; the inventory checks them
+  all.
+
+### Verified, no change needed
+- Plugin unload: the effect disposer really is collected and run (cordis calls
+  the returned function), sockets close, a command running at unload settles
+  with `connection closed before the command reported an exit status` instead of
+  hanging, and the client count reaches zero.
+- 60 sequential and 20 concurrent mixed calls on one connection: every result
+  carried its own output and the connection count stayed at one.
+
+### Added — tests
+- The three warning shapes: a typo with a suggestion, another machine's typo
+  staying out of this machine's diagnosis, and the inventory block.
+
 ## 0.7.27 — 2026-10-31
 
 ### Fixed

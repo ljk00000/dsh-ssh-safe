@@ -284,3 +284,27 @@ test('a misspelled argument is rejected instead of silently ignored', async () =
     )
   } finally { restore() }
 })
+test('a misspelled field in the settings form is reported, not silently dropped', async () => {
+  // schemastery drops unknown keys, so 'keypath' parsed fine and the machine
+  // then reported "no password, key or agent available".
+  const { tools, restore } = capture({
+    defaultMachine: 'box',
+    machines: {
+      box: { host: '127.0.0.1', port: 1, user: 'u', keypath: '/nope' },
+      fine: { host: '127.0.0.1', port: 1, user: 'u', keyPath: '/tmp/k' },
+    },
+  })
+  try {
+    const doctor = String((await tools['ssh_doctor'].execute({ machine: 'box' }, {})).text)
+    assert.match(doctor, /\[warn\] configuration: machine "box" has an unknown field "keypath"/)
+    assert.match(doctor, /did you mean "keyPath"/)
+
+    const clean = String((await tools['ssh_doctor'].execute({ machine: 'fine' }, {})).text)
+    assert.doesNotMatch(clean, /unknown field/, 'another machine\'s typo is not this machine\'s problem')
+
+    const inventory = String((await tools['ssh_machines'].execute({}, {})).text)
+    assert.match(inventory, /Settings form problems:/)
+    assert.match(inventory, /machine "box" has an unknown field "keypath"/)
+    assert.doesNotMatch(inventory, /machine "fine" has an unknown field/)
+  } finally { restore() }
+})

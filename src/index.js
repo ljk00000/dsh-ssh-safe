@@ -398,6 +398,42 @@ function editDistance(a, b) {
  * @param {{signal?: unknown}} [execution]
  * @returns {AbortSignal|undefined}
  */
+/** Fields a machine entry in the settings form may use. */
+const MACHINE_FIELDS = ['host', 'port', 'user', 'password', 'keyPath', 'keyPassphrase', 'hostKeyPolicy', 'knownHosts']
+
+/**
+ * Spell-check the machine entries in the settings form.
+ *
+ * schemastery drops keys it does not know, so `keypath: ~/.ssh/id_ed25519`
+ * parsed fine and then reported "no password, key or agent available": the
+ * machine looked configured and behaved unconfigured.
+ *
+ * @param {Record<string, any>} [machines]
+ * @returns {string[]} one sentence per unknown field
+ */
+function unknownMachineFields(machines, only = '') {
+  const problems = []
+  for (const [alias, entry] of Object.entries(machines || {})) {
+    if (!entry || typeof entry !== 'object') continue
+    if (only && alias.toLowerCase() !== String(only).toLowerCase()) continue
+    for (const key of Object.keys(entry)) {
+      if (MACHINE_FIELDS.includes(key)) continue
+      let best = ''
+      let bestDistance = Number.POSITIVE_INFINITY
+      for (const name of MACHINE_FIELDS) {
+        const distance = editDistance(key.toLowerCase(), name.toLowerCase())
+        if (distance < bestDistance) { bestDistance = distance; best = name }
+      }
+      problems.push(
+        'machine "' + alias + '" has an unknown field "' + key + '"' +
+        (bestDistance <= 3 ? ' (did you mean "' + best + '"?)' : '') +
+        ' — it is ignored'
+      )
+    }
+  }
+  return problems
+}
+
 function executionSignal(execution) {
   const signal = execution && /** @type {any} */ (execution).signal
   return signal && typeof signal === 'object' && typeof signal.aborted === 'boolean'
@@ -639,6 +675,11 @@ function assertKnownArgs(args, known, toolName) {
       if (lean) {
         out.push('', '(machineInventory is "alias": host, port and key paths are hidden. Set machineInventory: full to show them.)')
       }
+      // Field typos in the settings form are dropped by the schema, so the
+      // machine silently looks unconfigured; the inventory is where a user
+      // checks their config, so it is where the misspelling is actionable.
+      const typos = unknownMachineFields(cfg.machines)
+      if (typos.length) out.push('', 'Settings form problems:', ...typos.map((t) => '  ' + t))
       return { text: out.join('\n') }
     },
   })
@@ -1366,6 +1407,12 @@ function assertKnownArgs(args, known, toolName) {
       })
       if (missing.length) say('configuration', 'FAIL', 'missing ' + missing.join(', '))
       else say('configuration', 'ok', m.username + '@' + m.host + ':' + m.port)
+      // A misspelled field in the settings form is silently dropped by the
+      // schema -- 'keypath' instead of 'keyPath' turned a key machine into
+      // "no credentials" -- so name it here rather than at connect time.
+      for (const problem of unknownMachineFields(cfg.machines, alias)) {
+        say('configuration', 'warn', problem)
+      }
       // Cheque the credential's usability, not just its declared kind: an
       // env-key pointing at a missing file reported ok and then failed the
       // connection, which is the opposite of what a diagnostic should do.
