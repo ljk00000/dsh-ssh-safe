@@ -133,10 +133,12 @@ async function ensureRemoteDir(sftp, dir) {
   if (!path || path === '/' || path === '.') return
   const absolute = path.startsWith('/')
   const parts = path.split('/').filter((part) => part && part !== '.')
-  let current = absolute ? '' : ''
+  let current = ''
   for (const part of parts) {
-    current += (absolute ? '/' : '/') + part
-    const probe = absolute ? current : current.replace(/^\//, '')
+    current += '/' + part
+    // A relative path must stay relative: sshd resolves it against the login
+    // directory, and an accidental leading slash would target the root instead.
+    const probe = absolute ? current : current.slice(1)
     try {
       await callSftp(sftp, 'stat', probe)
       continue
