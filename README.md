@@ -195,7 +195,8 @@ ssh_machines       # 机器清单 + 每个字段的来源
 
 ### 配置服务器凭据（环境变量方式）
 
-用一个「别名 + 环境变量」的方式。别名 `prod` 对应下面这些变量：
+用一个「别名 + 环境变量」的方式。别名只能用字母、数字、点、下划线、连字符
+（字母会被转成大写用于变量名：`prod.x` 读的是 `DSH_SSH_PROD_X_HOST`）。别名 `prod` 对应下面这些变量：
 
 ```sh
 DSH_SSH_PROD_HOST=10.0.0.5
@@ -422,6 +423,7 @@ loopback 服务端不执行命令、不碰磁盘，只按脚本回包——它�
 | `hostKeyPolicy` | `strict` | 只连已记录指纹的主机 |
 | `execGuard` | `allow` | `confirm` 时 `ssh_exec` 和 `ssh_write` 都必须带 `confirm: true` |
 | `allowSessionPassword` | `false` | 是否允许在会话里传密码 |
+| `allowPlaintextPassword` | `false` | 是否接受凭据文件或设置界面里的明文密码（默认只认 DPAPI 加密值） |
 | `machineInventory` | `full` | `alias` 时隐藏 host/port/私钥路径 |
 | `auditLog` | `false` | 是否记录操作到 NDJSON |
 | `maxConnections` | `8` | 常驻连接上限，LRU 淘汰，`0` 不限制 |

@@ -151,6 +151,28 @@ function loadSsh2() {
   return null
 }
 
+/**
+ * Normalise an alias, or explain why it cannot be used.
+ *
+ * This used to strip forbidden characters silently, so "prod/x" was stored as
+ * "prodx" and "a b" as "ab". The page then listed a machine the caller never
+ * typed, and `machine: "prod/x"` answered "not configured". set-password already
+ * refuses such aliases; the page now agrees with it instead of rewriting.
+ *
+ * @param {unknown} value
+ * @returns {{alias: string} | {error: string}}
+ */
+function parseAlias(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return { error: '别名不能为空' }
+  const alias = raw.toLowerCase()
+  if (!/^[a-z0-9._-]+$/.test(alias)) {
+    return { error: '别名只能用字母、数字、点、下划线、连字符（收到 ' + JSON.stringify(raw) + '）' }
+  }
+  return { alias }
+}
+
+/** The alias a request refers to, normalised the same way. */
 const aliasOf = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '')
 
 /**
@@ -484,8 +506,9 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && url.pathname === '/api/save') {
-      const alias = aliasOf(body.alias)
-      if (!alias) return sendJson(res, 400, { error: '别名不能为空' })
+      const parsedAlias = parseAlias(body.alias)
+      if (parsedAlias.error) return sendJson(res, 400, { error: parsedAlias.error })
+      const alias = parsedAlias.alias
       if (RESERVED_ALIASES.has(alias)) {
         return sendJson(res, 400, { error: '别名 "' + alias + '" 与 JavaScript 内置属性冲突，无法保存，请换一个名字' })
       }

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.18 — 2026-10-31
+
+### Fixed
+- **The page rewrote aliases without saying so.** Saving `prod/x` stored
+  `prodx`, and `a b` stored `ab`; a name written entirely in non-ASCII was
+  refused as "empty". The page then listed a machine the caller never typed, and
+  `machine: "prod/x"` answered "not configured". Aliases outside
+  `[a-z0-9._-]` are now refused with the offending input named, which is what
+  `set-password` already did. `Prod ` still normalises to `prod`.
+
+### Docs
+- The alias character set, and the fact that letters become upper case in
+  environment variables (`prod.x` reads `DSH_SSH_PROD_X_HOST`).
+- `allowPlaintextPassword` added to the defaults table (it was only mentioned
+  in prose).
+
+### Verified — real runtime
+- `dsh plugin --profile <name> add` in an isolated home produces a profile whose
+  composed config contains the plugin, and `remove` drops both the dependency
+  and the bundles entry (no dangling bundle).
+- The page escapes `& < > " '` in every value it interpolates, including
+  `data-alias` attributes.
+
 ## 0.7.17 — 2026-10-31
 
 ### Fixed

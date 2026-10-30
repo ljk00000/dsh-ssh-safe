@@ -566,3 +566,25 @@ test('saving replaces the credential file atomically', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+test('an alias that cannot be used is refused, not silently rewritten', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    // Silently stripping used to store 'prodx' for 'prod/x' and 'ab' for 'a b',
+    // so the page listed a machine the caller never typed.
+    for (const alias of ['prod/x', 'a b', '服务器']) {
+      const bad = await call(base, token, '/api/save', { alias, host: 'h', user: 'u', password: 'p' })
+      assert.equal(bad.status, 400, alias + ' must be refused')
+      assert.match(bad.body.error, /别名只能用字母、数字、点、下划线、连字符/)
+    }
+
+    const good = await call(base, token, '/api/save', { alias: ' Prod ', host: 'h', user: 'u', password: 'p' })
+    assert.equal(good.status, 200, JSON.stringify(good.body))
+    const listed = await call(base, token, '/api/state')
+    const aliases = listed.body.machines.map((m) => m.alias)
+    assert.deepEqual(aliases, ['prod'], 'only the trimmed, lower-cased alias is stored')
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
