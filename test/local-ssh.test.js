@@ -249,3 +249,19 @@ test('a dropped connection is noticed and re-established', async () => {
     await pool.closeAll({ force: true })
   }
 })
+test('a timed-out command leaves the connection usable', async () => {
+  const pool = poolFor({ t: machineFor('t', srv.port) })
+  try {
+    await pool.exec('t', 'echo warm', {})
+    const client = pool.entry('t').client
+    for (let i = 0; i < 3; i++) {
+      const r = await pool.exec('t', 'sleep 2', { timeoutMs: 120 })
+      assert.equal(r.timedOut, true)
+    }
+    assert.equal(pool.entry('t').client, client, 'the pooled client must survive a deadline')
+    const after = await pool.exec('t', 'echo still-here', {})
+    assert.match(after.stdout, /still-here/, 'the next command must run on the same connection')
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})

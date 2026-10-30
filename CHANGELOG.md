@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.6 — 2026-10-31
+
+### Fixed
+- **`redactObject` removed.** It was exported, exercised only by its own test,
+  and recursed without a depth or cycle guard: a circular error object would
+  have thrown `RangeError: Maximum call stack size exceeded` from inside the
+  redaction path. Nothing called it, so it is gone along with `SECRET_ENV`.
+
+### Added — tests
+- Unloading the plugin closes its pooled connections and the plugin keeps
+  working afterwards.
+- A command that hits its deadline leaves the connection healthy for the next
+  call (three deadlines in a row).
+- The file and workspace tools answer through their schemas even when SFTP and
+  the workspace registry are unavailable.
+- An oversized request to the credential page is refused without writing
+  anything.
+
 ## 0.7.5 — 2026-10-31
 
 ### Fixed

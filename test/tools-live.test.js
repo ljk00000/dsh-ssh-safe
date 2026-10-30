@@ -134,3 +134,30 @@ test('the audit file exists and never contains the command output', () => {
   assert.match(body, /audited/)
   assert.ok(!body.includes('ran: echo audited'), 'audit must record the command, not its output')
 })
+test('an empty command is refused with a message, not an empty result', async () => {
+  await assert.rejects(() => run('ssh_exec', { command: '   ' }), /command/i)
+})
+
+test('a command with no output still reports the exit code', async () => {
+  const text = await run('ssh_exec', { command: 'exit 0' })
+  assert.match(text, /\[exit 0\]/)
+  assert.ok(text.trim().length > 0, 'the result must not be blank')
+})
+test('the file and workspace tools answer through their schema', async () => {
+  // These reach SFTP, which this server does not implement, and the workspace
+  // tool reaches for a registry that a headless run does not have. The point is
+  // that each answers with a message rather than a schema error or a crash.
+  const cases = [
+    ['ssh_read', { path: '/etc/hostname' }],
+    ['ssh_write', { path: '/tmp/probe.txt', content: 'hi' }],
+    ['ssh_list', { path: '/' }],
+    ['ssh_workspace', { action: 'list' }],
+  ]
+  for (const [name, args] of cases) {
+    let text
+    try { text = String((await tools[name].execute(args, {})).text) }
+    catch (err) { text = 'rejected: ' + err.message }
+    assert.ok(text.length > 0, name + ' returned nothing')
+    assert.doesNotMatch(text, /INVALID_ARGS|must be of type|unexpected property/i, name + ': ' + text.slice(0, 200))
+  }
+})

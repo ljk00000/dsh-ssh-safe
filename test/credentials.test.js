@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { envNames, machineFromEnv, redact, redactObject, expectedEnv } from '../src/credentials.js'
+import { envNames, machineFromEnv, redact, expectedEnv } from '../src/credentials.js'
 
 test('envNames maps an alias to variable names', () => {
   const n = envNames('prod')
@@ -45,13 +45,6 @@ test('redact strips env-var assignments and PEM bodies', () => {
   assert.doesNotMatch(redact('DSH_SSH_PROD_PASSWORD=hunter2'), /hunter2/)
   const pem = '-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----'
   assert.doesNotMatch(redact(pem), /abc/)
-})
-
-test('redactObject redacts secret-looking keys', () => {
-  const out = redactObject({ password: 'p', keyPath: '/k', host: 'h' })
-  assert.equal(out.password, '<redacted>')
-  assert.equal(out.keyPath, '/k', 'a path is not a secret')
-  assert.equal(out.host, 'h')
 })
 
 test('expectedEnv names the required and auth variables', () => {

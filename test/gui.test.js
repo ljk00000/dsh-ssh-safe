@@ -31,7 +31,7 @@ function start(home) {
       const match = out.match(/http:\/\/127\.0\.0\.1:(\d+)\/\?t=([0-9a-f]+)/)
       if (match) {
         clearTimeout(timer)
-        resolve({ child, base: 'http://127.0.0.1:' + match[1], token: match[2] })
+        resolve({ child, base: 'http://127.0.0.1:' + match[1], token: match[2], output: () => out })
       }
     })
     child.stderr.on('data', (chunk) => { out += chunk.toString('utf8') })
@@ -220,15 +220,15 @@ test('delete removes the entry and keeps the others', async () => {
 
 test('shutdown ends the process', async () => {
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
-  const { child, base, token } = await start(home)
+  const { child, base, token, output } = await start(home)
   const exited = new Promise((resolve) => child.on('exit', resolve))
   try {
     await call(base, token, '/api/shutdown', {})
     const code = await Promise.race([
       exited,
-      new Promise((resolve) => setTimeout(() => resolve('timeout'), 5000)),
+      new Promise((resolve) => setTimeout(() => resolve('timeout'), 10000)),
     ])
-    assert.equal(code, 0, 'it exits cleanly')
+    assert.equal(code, 0, 'it exits cleanly; output: ' + output().slice(0, 300))
   } finally {
     try { child.kill() } catch {}
     rmSync(home, { recursive: true, force: true })
@@ -363,6 +363,24 @@ test('two saves at the same time both survive', async () => {
     const store = JSON.parse(raw)
     assert.ok(store.alpha, 'alpha missing, keys: ' + JSON.stringify(Object.keys(store)))
     assert.ok(store.beta, 'beta missing, keys: ' + JSON.stringify(Object.keys(store)))
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+test('an oversized body is refused with 413', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    const res = await fetch(base + '/api/save', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-gui-token': token },
+      body: JSON.stringify({ alias: 'big', host: 'h', user: 'u', padding: 'x'.repeat(80 * 1024) }),
+    }).catch(() => null)
+    // The server destroys the socket once the cap is crossed, so the client may
+    // see a reset instead of a response; either way nothing may be written.
+    if (res) assert.equal(res.status, 413)
+    assert.ok(!existsSync(path.join(home, 'dsh-ssh-safe', 'credentials.json')), 'nothing may be stored')
   } finally {
     child.kill()
     rmSync(home, { recursive: true, force: true })

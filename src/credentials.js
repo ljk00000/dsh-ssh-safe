@@ -90,7 +90,6 @@ export function agentSocket(env = process.env) {
  * is prose, while 'client_secret: x' and 'AWS_SECRET_ACCESS_KEY=...' are not.
  * A prefix is allowed because real variable names carry one.
  */
-const SECRET_ENV = /(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|API_?KEY|PRIVATE_?KEY|KEY)$/i
 
 /** Replace anything that looks like a secret before it can reach a message. */
 export function redact(text) {
@@ -135,18 +134,4 @@ export function redact(text) {
   s = s.replace(/(^|[^\w])([a-z][a-z0-9+.-]{0,31}:\/\/)([^\s:@/]+):([^\s@/]+)@/gi, '$1$2$3:<redacted>@')
   // bare long secrets are left alone on purpose: guessing wrong shreds output.
   return s
-}
-
-/** Redact an object's secret-looking keys, one level deep and in arrays. */
-export function redactObject(value) {
-  if (Array.isArray(value)) return value.map(redactObject)
-  if (value && typeof value === 'object') {
-    const out = {}
-    for (const [k, v] of Object.entries(value)) {
-      out[k] = SECRET_ENV.test(k) ? '<redacted>' : redactObject(v)
-    }
-    return out
-  }
-  if (typeof value === 'string') return redact(value)
-  return value
 }
