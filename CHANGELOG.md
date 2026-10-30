@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.45 — 2026-10-31
+
+### Fixed
+- **`ssh_doctor` still named the port under `machineInventory: alias`.**
+  `ssh_machines` promises "host, port and key paths are hidden", but the
+  reachability stage printed `port 2299 accepts connections` /
+  `no answer on port 2299`. It says `the configured port` now.
+
+### Verified, no change needed
+- Host and port sweeps over twelve surfaces on the failure path (unreachable
+  host) and ten on the success path (real connection): no leak in either,
+  including the audit file.
+
+### Added — tests
+- The port must not appear in the alias-mode outputs (the sweep that found it).
+- The doctor's probe line under `alias`.
+
 ## 0.7.44 — 2026-10-31
 
 ### Fixed

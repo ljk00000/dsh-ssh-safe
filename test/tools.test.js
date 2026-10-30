@@ -399,3 +399,18 @@ test('an invalid port in the credential file is shown as configured, not as 22',
     assert.match(doctor, /\[FAIL\] configuration: port 99999 from the file/)
   } finally { restore() }
 })
+test('the doctor probe line hides the port under machineInventory: alias', async () => {
+  // ssh_machines says "host, port and key paths are hidden"; the TCP stage
+  // printed "port 2299 accepts connections" regardless.
+  const { tools, restore } = capture({
+    defaultMachine: 'box',
+    machineInventory: 'alias',
+    connectTimeoutMs: 1000,
+    machines: { box: { host: '127.0.0.1', port: 2299, user: 'root', keyPath: '/tmp/k' } },
+  })
+  try {
+    const doctor = String((await tools['ssh_doctor'].execute({}, {})).text)
+    assert.doesNotMatch(doctor, /2299/, doctor)
+    assert.match(doctor, /the configured port|configuration: <host hidden>/)
+  } finally { restore() }
+})

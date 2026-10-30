@@ -431,7 +431,13 @@ test('machineInventory: alias hides the host from every tool that prints one', a
       String((await leanTools.ssh_connect.execute({ machine: 't' }, {})).text),
       String((await leanTools.ssh_doctor.execute({ machine: 't' }, {})).text),
     ]
-    for (const text of texts) assert.doesNotMatch(text, /127\.0\.0\.1/, text.slice(0, 120))
+    for (const text of texts) {
+      assert.doesNotMatch(text, /127\.0\.0\.1/, text.slice(0, 120))
+      // The setting hides host AND port (that is what ssh_machines promises), so
+      // a probe line naming the port is a leak too.
+      assert.ok(!new RegExp('(^|[^0-9])' + own.port + '([^0-9]|$)').test(text),
+        'the port must not appear: ' + text.slice(0, 200))
+    }
     assert.match(texts[2], /<host hidden>/, 'ssh_connect still names the target, without the address')
   } finally {
     await leanTools.ssh_close.execute({ force: true }, {})

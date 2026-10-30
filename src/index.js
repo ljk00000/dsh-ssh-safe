@@ -1523,13 +1523,17 @@ function assertKnownArgs(args, known, toolName) {
       }
 
       // 2. TCP reachability
+      // machineInventory: 'alias' hides host AND port (that is what
+      // ssh_machines promises), so the probe's detail line must not name it.
+      const lean = cfg.machineInventory === 'alias'
       const port = m.port || 22
+      const portText = lean ? 'the configured port' : 'port ' + port
       const tcp = await new Promise((resolve) => {
         const socket = net.connect({ host: m.host, port })
         const done = (ok, detail) => { try { socket.destroy() } catch {} ; resolve({ ok, detail }) }
         socket.setTimeout(pick(cfg.connectTimeoutMs, 15000))
-        socket.once('connect', () => done(true, 'port ' + port + ' accepts connections'))
-        socket.once('timeout', () => done(false, 'no answer on port ' + port + ' within the timeout'))
+        socket.once('connect', () => done(true, portText + ' accepts connections'))
+        socket.once('timeout', () => done(false, 'no answer on ' + portText + ' within the timeout'))
         socket.once('error', (err) => {
           const code = err && /** @type {{code?: string}} */ (err).code
           done(false, code || 'connect failed')
