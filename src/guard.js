@@ -213,6 +213,78 @@ function scanWindows(text) {
 }
 
 /**
+ * Human names for the rules this plugin ships.
+ *
+ * The refusal used to paste the regular expression into the message --
+ * `Command refused: (?:^|[\s;&|()`])rm\s+-[rf]{1,2}\s+/+...` -- which tells a
+ * user that something matched but not what they typed or how to proceed. A user
+ * rule (added to denyPatterns) has no name here and is quoted instead.
+ */
+export const DEFAULT_DENY_RULES = [
+  {
+    // '/' alone, or '/' followed by a glob: 'rm -rf /' and 'rm -rf /*' both
+    // destroy the filesystem, so the target must be '/' and not the start of a
+    // longer path. The boundary set includes a backtick: '`rm -rf /`' is a
+    // command substitution, the same as '$(rm -rf /)'.
+    pattern: '(?:^|[\\s;&|()\`])rm\\s+-[rf]{1,2}\\s+/+(?:\\*|\\.{1,2})?(?:\\s|$|[)\`])',
+    why: 'it deletes the filesystem root (rm -rf / and its spellings //, /*, /., /..)',
+  },
+  {
+    // The home directory is the other root-shaped target. '~/*' deletes
+    // everything in it and '~/.*' the dotfiles: the same accident as 'rm -rf ~'.
+    pattern: '(?:^|[\\s;&|()\`])rm\\s+-[rf]{1,2}\\s+(?:~|\\$(?:\\{HOME\\}|HOME))/?(?:\\*|\\.\\*)?(?:\\s|$|[)\`])',
+    why: 'it deletes the home directory (rm -rf ~, $HOME, ~/*, ~/.*)',
+  },
+  {
+    // 'cd / && rm -rf *' deletes the root one level at a time. The rule above
+    // cannot see it: the slash belongs to the cd, not to the rm.
+    pattern: '\\bcd\\s+(?:/+|~|\\$(?:\\{HOME\\}|HOME))\\s*(?:&&|;|\\|\\|)\\s*(?:(?:sudo|doas|env|nohup)\\s+)?(?:-{1,2}\\S+(?:\\s+\\S+)?\\s+)*(?:[\\w./-]*/)?rm\\s+-[a-z]*r[a-z]*\\s+(?:\\./)?\\*',
+    why: 'it changes to / or ~ and then deletes everything there (cd / && rm -rf *)',
+  },
+  {
+    // Only a device is a disk. 'mkfs.ext4 ./disk.img' builds a filesystem in a
+    // file, which is ordinary work for loopback mounts and swap images.
+    pattern: '\\bmkfs(?:\\.\\w+)?\\b[^\n]*\\s/dev/',
+    why: 'it builds a filesystem on a device (mkfs on /dev/...)',
+  },
+  {
+    pattern: '\\bdd\\s+if=.*\\bof=/dev/[sn]',
+    why: 'it overwrites a device with dd (of=/dev/sd... or /dev/nv...)',
+  },
+  {
+    // 'find / -delete' walks the whole tree and deletes every file.
+    pattern: '\\bfind\\s+/+(?:\\s|$)[^\n]*-delete\\b',
+    why: 'it deletes every file it can reach (find / -delete)',
+  },
+  {
+    pattern: '\\bfind\\s+/+(?:\\s|$)[^\n]*-exec\\s+(?:[\\w./-]*/)?rm\\b',
+    why: 'it deletes every file it can reach through find -exec rm',
+  },
+  { pattern: ':\\(\\)\\s*\\{\\s*:\\|:\\s*&\\s*\\};:', why: 'it is the fork bomb :(){ :|:& };:' },
+  {
+    // Only at a command position. The bare word anywhere refused ordinary work:
+    // 'grep -c shutdown /etc/hostname' and 'echo reboot' were both blocked.
+    pattern: '(?:^|[;&|]+\\s*|\\(\\s*)(?:(?:sudo|doas|nohup|nice|setsid|command|exec|env|time)\\s+(?:-{1,2}\\S+(?:\\s+\\S+)?\\s+)*)*(?:timeout\\s+\\S+\\s+)?(?:systemctl\\s+(?:-\\S+\\s+)*)?(?:shutdown|reboot|halt|poweroff)\\b',
+    why: 'it shuts the machine down or restarts it (shutdown, reboot, halt, poweroff)',
+  },
+]
+
+/**
+ * Describe a matched rule for a person.
+ *
+ * @param {string} pattern the pattern that matched
+ * @returns {string}
+ */
+export function describeRule(pattern) {
+  // Matched by the pattern itself, not by position: a user rule added in front
+  // of the defaults used to shift every label by one.
+  const rule = DEFAULT_DENY_RULES.find((entry) => entry.pattern === String(pattern))
+  if (rule) return rule.why
+  const text = String(pattern || '').trim()
+  return 'it matches a denyPatterns rule (' + (text.length > 80 ? text.slice(0, 77) + '...' : text) + ')'
+}
+
+/**
  * Commands whose quoted arguments are DATA, not code.
  *
  * `grep 'rm -rf /' notes.md` and `git commit -m "fix rm -rf /"` were refused:

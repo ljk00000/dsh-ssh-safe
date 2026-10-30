@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.52 — 2026-10-31
+
+### Fixed
+- **A refusal pasted the regular expression at the user.** `ssh_exec` said
+  `Command refused: (?:^|[\s;&|()`])rm\s+-[rf]{1,2}\s+/+(?:\*|\.{1,2})?...` --
+  something matched, but not something a person can act on. Each shipped rule has
+  a name now: `Command refused: it deletes the filesystem root (rm -rf / and its
+  spellings //, /*, /., /..). Adjust denyPatterns in the plugin config if this is
+  intentional.` A rule added by the user has no name here and is quoted instead.
+- **The rule list lived in two places.** The patterns were in the Config default
+  and the names would have been in guard.js, so renaming a rule or reordering the
+  list could silently attach the wrong description. `DEFAULT_DENY_RULES` is the
+  single definition, and the name is looked up by pattern -- the first cut looked
+  it up by position, which shifted every label when a user rule was added in
+  front of the defaults.
+
+### Verified, no change needed
+- Audit kinds correlate one-to-one with events: twelve calls (connect ok and
+  failed, exec ok / non-zero / refused, read ok and missing, write ok and bad
+  parent, list ok and missing, exec against an unreachable host) produced exactly
+  twelve records with the right `kind` and `outcome`.
+
+### Added — tests
+- The refusal names the rule and never shows a regex; a pipeline refusal keeps its
+  own wording.
+- A user rule is quoted, and adding one before the defaults does not relabel them.
+
 ## 0.7.51 — 2026-10-31
 
 ### Fixed

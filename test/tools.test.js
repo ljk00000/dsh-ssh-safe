@@ -484,3 +484,48 @@ test('a gated read says read, not write', async () => {
     )
   } finally { restore() }
 })
+test('a refused command is described, not quoted as a regular expression', async () => {
+  // The message used to read 'Command refused: (?:^|[\s;&|()`])rm\s+-[rf]{1,2}...'
+  // -- something matched, but nothing a person can act on.
+  const { tools, restore } = capture({ execGuard: 'allow' }, {
+    DSH_SSH_T_HOST: '127.0.0.1', DSH_SSH_T_PORT: '1', DSH_SSH_T_USER: 'u', DSH_SSH_T_PASSWORD: 'p',
+  })
+  try {
+    await assert.rejects(
+      () => tools['ssh_exec'].execute({ machine: 't', command: 'rm -rf /' }),
+      (err) => {
+        assert.match(err.message, /it deletes the filesystem root/)
+        assert.doesNotMatch(err.message, /\^\|\[\\s/)
+        assert.match(err.message, /Adjust denyPatterns/)
+        return true
+      },
+    )
+    await assert.rejects(
+      () => tools['ssh_exec'].execute({ machine: 't', command: 'echo hi | bash' }),
+      (err) => {
+        assert.match(err.message, /pipes into bash/)
+        return true
+      },
+    )
+  } finally { restore() }
+})
+
+test('a rule the user added is quoted, and keeps its own order', async () => {
+  // A custom rule placed before the defaults must not shift the labels of the
+  // defaults: the name is looked up by pattern, not by position.
+  const { tools, restore } = capture({
+    execGuard: 'allow',
+    denyPatterns: ['\\bkillall\\b', '\\brm\\s+-rf\\s+/+keyword\\b'],
+  }, {
+    DSH_SSH_T_HOST: '127.0.0.1', DSH_SSH_T_PORT: '1', DSH_SSH_T_USER: 'u', DSH_SSH_T_PASSWORD: 'p',
+  })
+  try {
+    await assert.rejects(
+      () => tools['ssh_exec'].execute({ machine: 't', command: 'killall nginx' }),
+      (err) => {
+        assert.match(err.message, /it matches a denyPatterns rule \(\\bkillall\\b\)/)
+        return true
+      },
+    )
+  } finally { restore() }
+})

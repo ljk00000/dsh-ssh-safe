@@ -35,7 +35,7 @@ import {
   machineDefinition,
 } from './machines.js'
 import { storePath } from './hostkey.js'
-import { checkCommand } from './guard.js'
+import { DEFAULT_DENY_RULES, checkCommand, describeRule } from './guard.js'
 import { exitLine, formatListing, plural } from './format.js'
 import { AuditLog, summarize } from './audit.js'
 import {
@@ -194,35 +194,9 @@ export const Config = z.object({
    */
   pipeToShell: z.union(['refuse', 'allow']).default('refuse'),
 
-  denyPatterns: z.array(z.string()).default([
-    // '/' alone, or '/' followed by a glob: 'rm -rf /' and 'rm -rf /*' both
-    // destroy the filesystem, so the target must be '/' and not the start of
-    // a longer path.
-    // The boundary set includes a backtick: '\`rm -rf /\`' is a command
-    // substitution, the same as '$(rm -rf /)', but nothing matched it.
-    '(?:^|[\\s;&|()\`])rm\\s+-[rf]{1,2}\\s+/+(?:\\*|\\.{1,2})?(?:\\s|$|[)\`])',
-    // The home directory is the other root-shaped target: 'rm -rf ~' is the
-    // same accident at a different path.
-    // '~/*' deletes everything in the home directory and '~/.*' the dotfiles:
-    // the same accident as 'rm -rf ~', which the plain form already refused.
-    '(?:^|[\\s;&|()\`])rm\\s+-[rf]{1,2}\\s+(?:~|\\$(?:\\{HOME\\}|HOME))/?(?:\\*|\\.\\*)?(?:\\s|$|[)\`])',
-    // 'cd / && rm -rf *' deletes the root one level at a time. The rule above
-    // cannot see it: the slash belongs to the cd, not to the rm. Only the
-    // root-targeting form is refused, so 'cd /tmp && rm -rf *' still works.
-    '\\bcd\\s+(?:/+|~|\\$(?:\\{HOME\\}|HOME))\\s*(?:&&|;|\\|\\|)\\s*(?:(?:sudo|doas|env|nohup)\\s+)?(?:-{1,2}\\S+(?:\\s+\\S+)?\\s+)*(?:[\\w./-]*/)?rm\\s+-[a-z]*r[a-z]*\\s+(?:\\./)?\\*',
-    // Only a device is a disk. 'mkfs.ext4 ./disk.img' builds a filesystem in a
-    // file, which is ordinary work for loopback mounts and swap images.
-    '\\bmkfs(?:\\.\\w+)?\\b[^\n]*\\s/dev/',
-    '\\bdd\\s+if=.*\\bof=/dev/[sn]',
-    // 'find / -delete' walks the whole tree and deletes every file; the same
-    // run through -exec rm is the spelled-out version.
-    '\\bfind\\s+/+(?:\\s|$)[^\\n]*-delete\\b',
-    '\\bfind\\s+/+(?:\\s|$)[^\\n]*-exec\\s+(?:[\\w./-]*/)?rm\\b',
-    ':\\(\\)\\s*\\{\\s*:\\|:\\s*&\\s*\\};:',
-    // Only at a command position. The bare word anywhere refused ordinary work:
-    // 'grep -c shutdown /etc/hostname' and 'echo reboot' were both blocked.
-    '(?:^|[;&|]+\\s*|\\(\\s*)(?:(?:sudo|doas|nohup|nice|setsid|command|exec|env|time)\\s+(?:-{1,2}\\S+(?:\\s+\\S+)?\\s+)*)*(?:timeout\\s+\\S+\\s+)?(?:systemctl\\s+(?:-\\S+\\s+)*)?(?:shutdown|reboot|halt|poweroff)\\b',
-  ]),
+  // One definition, in guard.js: the refusal message names the rule that matched,
+  // so the pattern and its name must not be able to drift apart.
+  denyPatterns: z.array(z.string()).default(DEFAULT_DENY_RULES.map((rule) => rule.pattern)),
 })
 
 /** Where the host-key store lives. */
@@ -583,7 +557,11 @@ function assertKnownArgs(args, known, toolName) {
       const remedy = String(verdict.reason || '').startsWith('pipes into ')
         ? 'Set pipeToShell: allow in the plugin config to permit pipelines into interpreters.'
         : 'Adjust denyPatterns in the plugin config if this is intentional.'
-      throw new Error('Command refused' + where + ': ' + verdict.pattern + '. ' + remedy)
+      // A rule has a name here; a regular expression tells the user nothing.
+      const what = verdict.reason === 'matches deny pattern'
+        ? describeRule(verdict.pattern)
+        : verdict.pattern
+      throw new Error('Command refused' + where + ': ' + what + '. ' + remedy)
     }
   }
 
