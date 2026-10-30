@@ -80,3 +80,40 @@ test('the refusal names the pattern so it can be tuned', () => {
 test('an empty pattern list blocks nothing', () => {
   assert.equal(checkCommand('rm -rf /', []).blocked, false)
 })
+test('quoting the target does not launder the command', () => {
+  // Blanking quoted text for reading commands must not become a bypass: the
+  // dangerous part of these sits outside the quotes.
+  for (const cmd of [
+    'rm -rf "/"',
+    "rm -rf '/'",
+    'sudo rm -rf "/"',
+    'sh -c "rm -rf /"',
+    "sh -c 'rm -rf /'",
+    "sudo sh -c 'rm -rf /'",
+    "xargs sh -c 'rm -rf /'",
+    "find . -exec sh -c 'rm -rf /' \\;",
+    'echo "rm -rf /" | bash',
+  ]) {
+    assert.equal(blocked(cmd), true, 'should refuse: ' + cmd)
+  }
+})
+
+test('reading or printing the text is not the command', () => {
+  // 'grep "rm -rf /" notes.md' was refused, and a rail that blocks searching
+  // for a dangerous string is one the user turns off.
+  const full = [
+    '(?:^|[\\s;&|()])rm\\s+-[rf]{1,2}\\s+/+(?:\\*|\\.{1,2})?(?:\\s|$|[)])',
+    '\\b(?:shutdown|reboot|halt|poweroff)\\b',
+  ]
+  for (const cmd of [
+    "grep 'rm -rf /' notes.md",
+    "egrep -c 'reboot' /var/log/syslog",
+    "git commit -m \"guard: stop refusing rm -rf / mentions\"",
+    "echo 'shutdown -h now' >> todo.txt",
+    "man rm",
+  ]) {
+    assert.equal(checkCommand(cmd, full).blocked, false, 'should allow: ' + cmd)
+  }
+  // The unquoted part is still checked.
+  assert.equal(checkCommand('grep x notes.md && rm -rf /', full).blocked, true)
+})

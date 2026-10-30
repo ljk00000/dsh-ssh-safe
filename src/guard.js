@@ -212,11 +212,75 @@ function scanWindows(text) {
   return [text.slice(0, MAX_SCAN_CHARS), text.slice(-MAX_SCAN_CHARS)]
 }
 
+/**
+ * Commands whose quoted arguments are DATA, not code.
+ *
+ * `grep 'rm -rf /' notes.md` and `git commit -m "fix rm -rf /"` were refused:
+ * the text inside the quotes matched, and a rail that blocks searching for a
+ * dangerous string is one the user turns off. For these heads the quoted spans
+ * are blanked before matching; the unquoted part of the command is still
+ * checked, so `grep x && rm -rf /` is refused as before.
+ *
+ * Anything that can execute its argument (bash -c, eval, awk, ssh, xargs,
+ * find -exec, docker, an editor, ...) keeps the old behaviour.
+ */
+const DATA_HEADS = new Set([
+  'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'echo', 'printf', 'cat', 'ls',
+  'stat', 'head', 'tail', 'wc', 'diff', 'man', 'less', 'more', 'history',
+  'type', 'which', 'whereis', 'alias', 'whatis', 'apropos', 'info', 'tac',
+  'nl', 'cut', 'sort', 'uniq', 'file', 'du', 'df', 'git', 'journalctl',
+])
+
+/** Head word of a command, looking through prefixes like sudo/env/timeout. */
+function headWord(command) {
+  let rest = String(command || '').trim()
+  for (let i = 0; i < 6; i++) {
+    const word = rest.split(/\s+/)[0] || ''
+    if (!word) return ''
+    const bare = word.replace(/^[\w./-]*\//, '')
+    const isPrefix = PIPE_PREFIXES.has(bare) || ['timeout', 'nice', 'setsid', 'ionice'].includes(bare)
+    if (!isPrefix) return bare
+    rest = rest.slice(word.length).trim()
+    // Wrapper options: 'sudo -u root bash' -> 'bash'.
+    rest = rest.replace(/^(?:-{1,2}\S+(?:\s+\S+)?\s+)+/, '')
+  }
+  return ''
+}
+
+/**
+ * Blank the inside of quoted spans, keeping the quotes and everything else.
+ *
+ * `rm -rf "/"` is unaffected in the dangerous part (`rm -rf` and the target are
+ * outside the quotes), so it is still refused; only text wholly inside quotes
+ * disappears.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function blankQuoted(text) {
+  let out = ''
+  let quote = null
+  for (const ch of String(text)) {
+    if (quote) {
+      if (ch === quote) { quote = null; out += ch } else out += ' '
+      continue
+    }
+    if (ch === '"' || ch === "'") { quote = ch; out += ch; continue }
+    out += ch
+  }
+  return out
+}
+
 export function checkCommand(command, patterns, options = {}) {
   const list = Array.isArray(patterns) ? patterns : []
   if (list.length === 0) return { blocked: false }
 
-  const raw = String(command ?? '')
+  let raw = String(command ?? '')
+  // See DATA_HEADS: for a command that only reads text, what is inside quotes
+  // is the text, not instructions.
+  if (DATA_HEADS.has(headWord(normalizeCommand(raw).split(/\s+/)[0] || ''))) {
+    raw = blankQuoted(raw)
+  }
   const normalized = normalizeCommand(raw)
   const canonical = canonicalizeRm(normalized)
 

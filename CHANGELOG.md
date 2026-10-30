@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.48 — 2026-10-31
+
+### Fixed
+- **Searching for a dangerous string was refused.** `grep 'rm -rf /' notes.md`,
+  `git commit -m "fix rm -rf / crash"` and `echo 'shutdown -h now' >> todo.txt`
+  all matched the deny patterns, because the text inside the quotes was treated
+  as if it were the command. A rail that blocks searching for a string is one the
+  user turns off, so the cost of a false positive is higher than the cost of a
+  miss here. For commands that only read or print text (`grep`, `echo`, `git`,
+  `cat`, `man`, `history`, ...) quoted spans are blanked before matching; the
+  unquoted part is still checked, so `grep x && rm -rf /` is refused.
+- **A pipeline inside quotes was a false positive too**: `grep 'a | bash' f` read
+  as a pipe into an interpreter.
+
+### Safety, kept
+- Quoting the dangerous part does not launder anything: `rm -rf "/"`,
+  `sh -c "rm -rf /"`, `sudo sh -c '...'`, `xargs sh -c '...'`,
+  `find -exec sh -c '...'`, `echo "..." | bash` and `cd / && rm -rf *` are all
+  still refused. Interpreters (`python3 -c`, `awk`, `ssh`, `docker`, editors)
+  keep the old behaviour -- their quoted argument is code, not data.
+
+### Added — tests
+- Nine quoted-target forms that must still be refused.
+- Five text-only mentions that must be allowed, plus the unquoted-part check.
+
 ## 0.7.47 — 2026-10-31
 
 ### Added — tests
