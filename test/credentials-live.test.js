@@ -103,3 +103,30 @@ test('useCredentialFile: false ignores the file', { skip }, async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+test('ssh_doctor also ignores a disabled credential file', { skip }, async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-cred-'))
+  process.env.DSH_HOME = home
+  writeCredentialFile(home, 'box', {
+    host: '127.0.0.1',
+    port: 22,
+    user: 'tester',
+    passwordDpapi: encryptDpapi('test-pass'),
+  })
+  const tools = {}
+  await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    defaultMachine: 'box',
+    hostKeyPolicy: 'tofu',
+    healthCheckIdleMs: 0,
+    useCredentialFile: false,
+    machines: {},
+  })
+  try {
+    const text = String((await tools.ssh_doctor.execute({}, {})).text)
+    assert.match(text, /\[FAIL\] configuration: missing DSH_SSH_BOX_HOST/)
+    assert.match(text, /Stopped: fix the above/)
+    assert.doesNotMatch(text, /\[ok\] configuration/, 'the disabled file must not provide a host')
+  } finally {
+    delete process.env.DSH_HOME
+    rmSync(home, { recursive: true, force: true })
+  }
+})

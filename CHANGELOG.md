@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.14 — 2026-10-31
+
+### Fixed
+- **A settings-form alias written in any case was unusable.** The alias is
+  lower-cased before it reaches the settings lookup, so a machine keyed `BOX`
+  or `mixedCase` was reported by `ssh_machines` as `box` with no host at all,
+  and every command answered "not configured". The lookup is case-insensitive
+  now (still own-property only: `constructor` and `toString` remain
+  non-machines).
+
+### Added — tests
+- A settings-form machine in three spellings runs from all of them, and the
+  listing shows a real host.
+- `ssh_doctor` ignores a disabled credential file too.
+- A command killed at its deadline keeps the stdout and stderr it had already
+  printed, and does not show the tail that never arrived.
+- The alias that was evicted mid-command reconnects on its next call.
+
 ## 0.7.13 — 2026-10-31
 
 ### Fixed — security

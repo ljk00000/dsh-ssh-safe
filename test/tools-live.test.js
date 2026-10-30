@@ -266,3 +266,10 @@ test('ssh_write refuses more than maxFileBytes and accepts exactly that much', a
   assert.match(wrote, /Wrote 1048576 bytes/)
   assert.equal(srv.vfs.getFile('/tmp/exact.txt').length, 1048576)
 })
+test('a command killed at the deadline keeps what it had already printed', async () => {
+  const text = await run('ssh_exec', { command: 'slowout', timeoutMs: 250 })
+  assert.match(text, /started/, 'stdout produced before the deadline must survive')
+  assert.match(text, /\[stderr\]\nwarming up/, 'so must stderr')
+  assert.doesNotMatch(text, /finished/, 'the tail never arrived')
+  assert.match(text, /\[timed out after 250ms\]/)
+})

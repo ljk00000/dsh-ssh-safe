@@ -364,3 +364,26 @@ test('the idle probe replaces a connection the server dropped', async () => {
     await pool.closeAll({ force: true })
   }
 })
+test('the alias that was evicted reconnects on its next call', async () => {
+  const pool = poolFor({
+    a: machineFor('a', srv.port),
+    b: machineFor('b', srv.port),
+    c: machineFor('c', srv.port),
+  }, { maxConnections: 2 })
+  try {
+    await pool.exec('a', 'echo warm', {})
+    const running = pool.exec('a', 'sleep 3', {})
+    await new Promise((r) => setTimeout(r, 150))
+    await pool.exec('b', 'echo b', {})
+    await pool.exec('c', 'echo c', {})          // evicts a mid-command
+    await running.catch(() => {})                // it settles, either way
+
+    // The eviction reset the entry; the next call must reconnect rather than
+    // reuse a closed client or sit in a cooldown.
+    const after = await pool.exec('a', 'echo back', {})
+    assert.match(after.stdout, /back/)
+    assert.equal(after.code, 0)
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})

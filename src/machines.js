@@ -90,8 +90,20 @@ export function loadCredentialFile(dshHome) {
  */
 function ownEntry(object, key) {
   if (!object || typeof object !== 'object') return {}
-  if (!Object.hasOwn(object, key)) return {}
-  const value = /** @type {Record<string, any>} */ (object)[key]
+  const direct = String(key)
+  const has = (name) => Object.hasOwn(object, name)
+  // Settings-form keys are typed by hand and keep their case ('Prod',
+  // 'mixedCase'). The alias is lower-cased before it reaches this lookup, so a
+  // case-sensitive read made such a machine "not configured" while ssh_machines
+  // still listed it with no host at all.
+  let name = direct
+  if (!has(name)) {
+    const wanted = direct.toLowerCase()
+    const match = Object.keys(object).find((candidate) => candidate.toLowerCase() === wanted)
+    if (match === undefined) return {}
+    name = match
+  }
+  const value = /** @type {Record<string, any>} */ (object)[name]
   return value && typeof value === 'object' ? value : {}
 }
 

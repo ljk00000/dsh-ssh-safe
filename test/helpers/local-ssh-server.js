@@ -91,6 +91,13 @@ export function startServer({ port = 0, user = 'tester', password = 'test-pass',
             const n = Number((command.match(/big\s+(\d+)/) || [])[1] || 1000)
             return finish(0, 'x'.repeat(n))
           }
+          if (/^slowout\b/.test(command)) {
+            // Says something, then keeps going: a command killed mid-output.
+            stream.write('started\n')
+            stream.stderr.write('warming up\n')
+            setTimeout(() => { try { stream.write('finished\n'); stream.exit(0); stream.end() } catch {} }, 600)
+            return
+          }
           if (/^crlf\b/.test(command)) {
             return finish(0, 'line one\r\nline two\r\n')
           }
