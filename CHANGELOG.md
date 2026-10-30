@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.25 — 2026-10-31
+
+### Fixed
+- **A command too large for one SSH request failed as "Unable to exec".**
+  RFC 4253 caps a transport packet at 35000 bytes; measured against the test
+  server, 34900 works and 35000 does not. ssh2 refuses the request before
+  sending and says nothing about the size, so a 100 KB command looked like a
+  server refusal. Commands over 34000 bytes are now refused up front, before a
+  connection is opened, with the size, the limit and the way out (write the
+  script with `ssh_write` and run it from there).
+
+### Fixed — tests
+- The test SSH server attached no `error` listener to its client, so a
+  malformed packet (the oversized command above) crashed the whole test process
+  instead of ending that connection.
+
+### Added — tests
+- An oversized command is refused with the message and no connection attempt; a
+  command just under the limit still runs.
+
 ## 0.7.24 — 2026-10-31
 
 ### Fixed

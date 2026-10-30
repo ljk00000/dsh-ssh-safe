@@ -98,6 +98,16 @@ export function connectFailure(err, m) {
   return new Error('Could not connect to ' + target + ': ' + raw + (hint ? ' (' + hint[1] + ')' : ''))
 }
 
+/**
+ * Largest command that fits one SSH exec request.
+ *
+ * RFC 4253 caps a transport packet at 35000 bytes, and ssh2 refuses the request
+ * before sending when the command does not fit: the caller got a bare
+ * "Unable to exec" with no hint that the command was 100 KB. Measured boundary
+ * is between 34900 (ok) and 35000 (fails); this keeps a margin for framing.
+ */
+export const MAX_COMMAND_BYTES = 34000
+
 /** Mark an error that must not arm the reconnect cooldown. */
 function noCooldown(err) {
   /** @type {any} */ (err).noCooldown = true
@@ -571,6 +581,15 @@ export class SshPool {
    * @param {{timeoutMs?: number, sessionPassword?: string}} [inline]
    */
   async exec(alias, command, { timeoutMs, sessionPassword } = {}) {
+    // Refuse a command that cannot be sent before opening a connection for it.
+    const bytes = Buffer.byteLength(String(command ?? ''), 'utf8')
+    if (bytes > MAX_COMMAND_BYTES) {
+      throw noCooldown(new Error(
+        'The command for "' + alias + '" is ' + bytes + ' bytes; a single SSH exec request carries at most ' +
+        MAX_COMMAND_BYTES + ' (the transport packet limit is 35000). Write the script with ssh_write and ' +
+        'run it from there, or split the command.'
+      ))
+    }
     const client = await this.connect(alias, { sessionPassword })
     this.beginOp(alias)
     try {

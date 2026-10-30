@@ -364,3 +364,21 @@ test('a write that never opened does not claim the file was damaged', async () =
     },
   )
 })
+test('a command that cannot fit in one SSH request is refused with a reason', async () => {
+  // ssh2 answers 'Unable to exec' for a command over the transport packet
+  // limit, with nothing to say it was the size. Refuse it first, and do not
+  // open a connection to discover the problem.
+  const before = srv.clientCount()
+  await assert.rejects(
+    () => run('ssh_exec', { command: 'echo ' + 'a'.repeat(40000) }),
+    (err) => {
+      assert.match(err.message, /a single SSH exec request carries at most 34000/)
+      assert.match(err.message, /Write the script with ssh_write/)
+      return true
+    },
+  )
+  assert.equal(srv.clientCount(), before, 'nothing should be sent for a doomed command')
+
+  const ok = await run('ssh_exec', { command: 'echo ' + 'b'.repeat(33000) })
+  assert.match(ok, /\[exit 0\]/, 'a command under the limit still runs')
+})

@@ -52,6 +52,9 @@ export function startServer({ port = 0, user = 'tester', password = 'test-pass',
   const clients = new Set()
   const server = new Server({ hostKeys: [hostKey] }, (client) => {
     clients.add(client)
+    // A malformed packet must end that connection, not the test process: ssh2
+    // emits 'error' on the client, and an unhandled event takes Node down.
+    client.on('error', () => {})
     client.on('close', () => clients.delete(client))
     client.on('authentication', (ctx) => {
       if (ctx.method === 'password' && ctx.username === user && ctx.password === password) ctx.accept()
