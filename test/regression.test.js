@@ -94,3 +94,16 @@ test('the character cap counts code points, not UTF-16 units', () => {
   c.push(Buffer.from('中文字', 'utf8'))
   assert.equal(c.toString(), '中文字')
 })
+test('the output cap never ends on half of a surrogate pair', () => {
+  const emoji = '😀'
+  // 2 code units per emoji; an odd cap lands mid-pair.
+  for (const cap of [1, 3, 5, 199999]) {
+    const budget = new OutputBudget(cap)
+    const state = { text: '', truncated: false }
+    budget.append(state, emoji.repeat(200000))
+    assert.ok(state.text.length <= cap, 'cap ' + cap + ' exceeded: ' + state.text.length)
+    const last = state.text.charCodeAt(state.text.length - 1)
+    assert.ok(!(last >= 0xd800 && last <= 0xdbff), 'cap ' + cap + ' left a lone high surrogate')
+    assert.equal(state.truncated, true)
+  }
+})

@@ -53,7 +53,14 @@ export class OutputBudget {
       this.truncated = true
       return ''
     }
-    const take = text.length > room ? text.slice(0, room) : text
+    let take = text.length > room ? text.slice(0, room) : text
+    // Never end on half of a surrogate pair. An unpaired surrogate survives
+    // JSON.stringify (as \ud83d) but renders as a replacement character
+    // downstream, and strict consumers reject it outright.
+    if (take.length > 0 && take.length < text.length) {
+      const last = take.charCodeAt(take.length - 1)
+      if (last >= 0xd800 && last <= 0xdbff) take = take.slice(0, -1)
+    }
     state.text += take
     this.used += take.length
     if (take.length < text.length) {

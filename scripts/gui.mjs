@@ -105,6 +105,39 @@ function settingsUseCredentialFile() {
   return true
 }
 
+/**
+ * Read one YAML scalar the way the plugin's parser will.
+ *
+ * 'host: "10.0.0.5"   # quoted' used to arrive as '10.0.0.5"   # quoted': the
+ * leading quote was stripped, the trailing one and the comment were kept. The
+ * page then showed -- and tested -- a host the plugin would never use.
+ *
+ * @param {string} raw
+ * @returns {string}
+ */
+function parseScalar(raw) {
+  const text = String(raw).trim()
+  if (!text) return ''
+  const quote = text[0]
+  if (quote === '"' || quote === "'") {
+    let out = ''
+    for (let i = 1; i < text.length; i++) {
+      const ch = text[i]
+      if (quote === '"' && ch === '\\' && i + 1 < text.length) { out += text[i + 1]; i++; continue }
+      if (ch === quote) {
+        // A single-quoted YAML string escapes a quote by doubling it.
+        if (quote === "'" && text[i + 1] === "'") { out += "'"; i++; continue }
+        return out
+      }
+      out += ch
+    }
+    return out
+  }
+  // Unquoted: a comment starts at '#' only after whitespace.
+  const comment = text.search(/\s#/)
+  return (comment >= 0 ? text.slice(0, comment) : text).trim()
+}
+
 function settingsMachines() {
   const block = pluginBlock()
   if (!block) return {}
@@ -128,9 +161,8 @@ function settingsMachines() {
     }
     const pair = line.match(/^\s*([\w.-]+):\s*(.*)$/)
     if (pair && current && indent > machinesIndent + 2) {
-      let value = pair[2].trim()
+      let value = parseScalar(pair[2])
       if (value === '' || value === 'null' || value === '~') continue
-      value = value.replace(/^["']|["']$/g, '')
       if (/^\d+$/.test(value)) value = Number(value)
       if (value === 'true') value = true
       if (value === 'false') value = false

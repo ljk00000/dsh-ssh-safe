@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.23 — 2026-10-31
+
+### Fixed
+- **The page misread quoted YAML values with a trailing comment.**
+  `host: "10.0.0.5"   # quoted` arrived as `10.0.0.5"   # quoted`: the leading
+  quote was stripped, the trailing one and the comment were kept. The page then
+  showed -- and the test button tried -- a host the plugin would never use.
+  Scalars are parsed properly now: matching quotes, \"-escapes, YAML's doubled
+  single quote, and `#` comments only where YAML allows them. `port: "2222"`
+  is still a number.
+- **The output cap could end on half of a surrogate pair.** A 200k-emoji command
+  cut at an odd character count left a lone surrogate, which survives
+  JSON.stringify but renders as a replacement character downstream.
+
+### Added — tests
+- Quoted values, comments, an escaped quote and a quoted port, through
+  `/api/state`.
+- Four caps that land mid-pair, none of which may leave a lone high surrogate.
+
 ## 0.7.22 — 2026-10-31
 
 ### Fixed

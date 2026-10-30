@@ -588,3 +588,38 @@ test('an alias that cannot be used is refused, not silently rewritten', async ()
     rmSync(home, { recursive: true, force: true })
   }
 })
+test('quoted values and trailing comments in the settings form parse like YAML', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    machines:',
+    '      prod:',
+    '        host: "10.0.0.5"          # quoted, with a comment',
+    "        user: 'deploy'",
+    '        port: "2222"',
+    '        keyPath: /home/deploy/.ssh/id_rsa # comment after an unquoted value',
+    '      odd:',
+    String.raw`        user: "a\"b"`,
+    '        host: 10.0.0.6 # comment',
+  ].join('\n'))
+  const { child, base, token } = await start(home)
+  try {
+    const state = await call(base, token, '/api/state')
+    const prod = state.body.machines.find((m) => m.alias === 'prod')
+    // This used to arrive as 10.0.0.5"   # quoted: the page showed, and the
+    // test button tried, a host the plugin would never use.
+    assert.equal(prod.host, '10.0.0.5')
+    assert.equal(prod.username, 'deploy')
+    assert.equal(prod.port, 2222, 'a quoted number is still a number')
+    assert.equal(prod.keyPath, '/home/deploy/.ssh/id_rsa')
+    const odd = state.body.machines.find((m) => m.alias === 'odd')
+    assert.equal(odd.username, 'a"b', 'an escaped quote inside double quotes')
+    assert.equal(odd.host, '10.0.0.6')
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
