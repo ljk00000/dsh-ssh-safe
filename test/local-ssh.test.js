@@ -310,3 +310,28 @@ test('fifty aliases under a ceiling of eight leave eight connections', async () 
     await pool.closeAll({ force: true })
   }
 })
+test('a connection closed mid-command is reported as incomplete', async () => {
+  // maxConnections 2 with three aliases: the third connect force-closes the
+  // oldest, which is running a command. The caller must not be told the
+  // command finished normally with no output.
+  const pool = poolFor({
+    a: machineFor('a', srv.port),
+    b: machineFor('b', srv.port),
+    c: machineFor('c', srv.port),
+  }, { maxConnections: 2 })
+  try {
+    await pool.exec('a', 'echo warm', {})
+    const running = pool.exec('a', 'sleep 3', {})
+    await new Promise((r) => setTimeout(r, 200))
+    await pool.exec('b', 'echo b', {})
+    await pool.exec('c', 'echo c', {})   // evicts a, whose command is running
+
+    const result = await Promise.race([running, new Promise((r) => setTimeout(() => r('HUNG'), 5000))])
+    assert.notEqual(result, 'HUNG', 'the evicted call must settle')
+    const value = await running
+    assert.equal(value.dropped, true, 'a channel that died without an exit status is incomplete')
+    assert.equal(value.timedOut, false)
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})

@@ -658,7 +658,7 @@ export async function apply(ctx, config) {
         kind: 'exec',
         machine: alias,
         command: summarize(command),
-        outcome: r.timedOut ? 'timeout' : (r.code === 0 ? 'ok' : 'exit'),
+        outcome: r.timedOut ? 'timeout' : (r.dropped ? 'incomplete' : (r.code === 0 ? 'ok' : 'exit')),
         exitCode: r.code,
         truncated: r.truncated,
         ms: Date.now() - startedAt,
@@ -695,6 +695,12 @@ export async function apply(ctx, config) {
       }
       if (r.truncated) parts.push('[output truncated at maxOutputChars]')
       if (r.timedOut) parts.push('[timed out after ' + (budget || cfg.commandTimeoutMs) + 'ms]')
+      // 'exit unknown' alone is ambiguous; the commonest cause is a connection
+      // that died mid-command, and the caller needs to know the output is only
+      // what arrived before that.
+      if (r.dropped) {
+        parts.push('[connection closed before the command reported an exit status — the output above is partial]')
+      }
       // A killed process has no exit code; naming the signal is the only
       // honest answer, and '[exit unknown]' reads like the harness lost it.
       parts.push(exitLine(r))

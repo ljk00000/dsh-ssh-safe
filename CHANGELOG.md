@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.8 — 2026-10-31
+
+### Fixed
+- **A command whose channel died mid-flight looked like one that printed
+  nothing.** ssh2 reports an exit status or a signal when a command ends; when
+  the connection drops there is neither, and the old code turned that into
+  "no output, `[exit unknown]`". The pool now marks the result `dropped` and
+  `ssh_exec` prints "connection closed before the command reported an exit
+  status — the output above is partial"; the audit record says `incomplete`.
+  This also covers the plugin's own eviction: with `maxConnections` reached, a
+  running command's connection can be closed to honour the ceiling, and the
+  caller now knows why it stopped.
+
+### Added
+- `test/exec-incomplete.test.js` drives that path through the tool.
+- The loopback pool test asserts the evicted call settles (never hangs) and is
+  marked incomplete.
+
 ## 0.7.7 — 2026-10-31
 
 ### Fixed

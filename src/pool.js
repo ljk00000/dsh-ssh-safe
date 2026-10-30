@@ -540,6 +540,7 @@ export class SshPool {
           code: null,
           signal: null,
           timedOut: true,
+          dropped: false,
           truncated: budget.truncated,
           timeline,
         }
@@ -565,12 +566,19 @@ export class SshPool {
         })
         // close(code, signal): a process killed by a signal reports no code.
         s.on('close', (code, signal) => {
+          const named = typeof signal === 'string' && signal.length > 0
           settle({
             stdout: out.text,
             stderr: err.text,
             code: typeof code === 'number' ? code : null,
-            signal: typeof signal === 'string' && signal.length > 0 ? signal : null,
+            signal: named ? signal : null,
             timedOut: false,
+            // A shell always reports something when the command ends: an exit
+            // status or a signal. Neither means the channel died under it — a
+            // dropped network, or this plugin evicting the connection — and the
+            // output is only what arrived before that. Saying so is the
+            // difference between "it printed nothing" and "we lost the rest".
+            dropped: typeof code !== 'number' && !named,
             truncated: budget.truncated,
             timeline,
           })
