@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.49 — 2026-10-31
+
+### Fixed
+- **`R=rm; $R -rf /` was allowed.** The module header has listed that exact
+  shape since the first version as one of the paths this closes, but nothing ever
+  resolved the variable — the string contains no `rm` after a boundary. Leading
+  `NAME=value` assignments on the same command line are substituted before
+  matching now (so `R=rm; F=-rf; $R $F /` is refused too), and an unknown
+  variable is left alone.
+- **A backtick substitution hid the command.** `\`rm -rf /\`` was allowed while
+  `$(rm -rf /)` was refused: the boundary set had `(` but not a backtick.
+- **`rm -rf ~/*` was allowed** while `rm -rf ~` was refused — the same deletion
+  of the home directory. `~/.*` (the dotfiles) is covered too; `~/build` and
+  `~/.cache` still work.
+
+### Note
+- Still outside the rail by design (no pattern matches them): `chmod -R 777 /`,
+  `mv /* /tmp/`, `kill -9 -1`, and deletions of a single top-level directory
+  such as `/home` or `/etc`. The README calls the list a starting point; adding
+  these is a matter of appending to `denyPatterns`.
+
+### Added — tests
+- The three shapes above plus `$HOME/*` and the two-variable form.
+- The near misses that must keep working: `~/build`, `~/.cache`, `/tmp/build`,
+  and an unassigned variable.
+
 ## 0.7.48 — 2026-10-31
 
 ### Fixed

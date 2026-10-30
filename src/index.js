@@ -198,10 +198,14 @@ export const Config = z.object({
     // '/' alone, or '/' followed by a glob: 'rm -rf /' and 'rm -rf /*' both
     // destroy the filesystem, so the target must be '/' and not the start of
     // a longer path.
-    '(?:^|[\\s;&|()])rm\\s+-[rf]{1,2}\\s+/+(?:\\*|\\.{1,2})?(?:\\s|$|[)])',
+    // The boundary set includes a backtick: '\`rm -rf /\`' is a command
+    // substitution, the same as '$(rm -rf /)', but nothing matched it.
+    '(?:^|[\\s;&|()\`])rm\\s+-[rf]{1,2}\\s+/+(?:\\*|\\.{1,2})?(?:\\s|$|[)\`])',
     // The home directory is the other root-shaped target: 'rm -rf ~' is the
     // same accident at a different path.
-    '(?:^|[\\s;&|()])rm\\s+-[rf]{1,2}\\s+(?:~|\\$(?:\\{HOME\\}|HOME))/?(?:\\s|$|[)])',
+    // '~/*' deletes everything in the home directory and '~/.*' the dotfiles:
+    // the same accident as 'rm -rf ~', which the plain form already refused.
+    '(?:^|[\\s;&|()\`])rm\\s+-[rf]{1,2}\\s+(?:~|\\$(?:\\{HOME\\}|HOME))/?(?:\\*|\\.\\*)?(?:\\s|$|[)\`])',
     // 'cd / && rm -rf *' deletes the root one level at a time. The rule above
     // cannot see it: the slash belongs to the cd, not to the rm. Only the
     // root-targeting form is refused, so 'cd /tmp && rm -rf *' still works.

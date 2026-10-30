@@ -66,7 +66,7 @@ export function normalizeCommand(command) {
  * rm -fr /  ->  rm -rf / ;  rm --recursive --force /  ->  rm -rf /
  */
 export function canonicalizeRm(text) {
-  const re = /(?:^|[\s;&|()])(?:[\w./-]*\/)?rm\s+([^;|&\n]*)/g
+  const re = /(?:^|[\s;&|()`])(?:[\w./-]*\/)?rm\s+([^;|&\n]*)/g
   return String(text).replace(re, (_m, rawArgs) => {
     const args = String(rawArgs)
 
@@ -271,6 +271,28 @@ function blankQuoted(text) {
   return out
 }
 
+/**
+ * Substitute simple leading variable assignments.
+ *
+ * The module header has always listed `R=rm; $R -rf /` among the shapes this
+ * closes, but nothing resolved the variable: the string contains no 'rm' right
+ * after a boundary, so it was allowed. Only plain `NAME=value` pairs from the
+ * same command line are expanded, which is exactly the lazy form people type.
+ *
+ * @param {string} command
+ * @returns {string}
+ */
+export function expandAssignments(command) {
+  const text = String(command ?? '')
+  const values = new Map()
+  for (const match of text.matchAll(/(?:^|[;&|(]\s*)([A-Za-z_][A-Za-z0-9_]*)=([^\s;&|()]+)/g)) {
+    values.set(match[1], match[2])
+  }
+  if (values.size === 0) return text
+  return text.replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g, (whole, name) =>
+    values.has(name) ? String(values.get(name)) : whole)
+}
+
 export function checkCommand(command, patterns, options = {}) {
   const list = Array.isArray(patterns) ? patterns : []
   if (list.length === 0) return { blocked: false }
@@ -281,10 +303,12 @@ export function checkCommand(command, patterns, options = {}) {
   if (DATA_HEADS.has(headWord(normalizeCommand(raw).split(/\s+/)[0] || ''))) {
     raw = blankQuoted(raw)
   }
+  // 'R=rm; $R -rf /' is the lazy spelling the header promises to close.
+  const expanded = expandAssignments(raw)
   const normalized = normalizeCommand(raw)
   const canonical = canonicalizeRm(normalized)
 
-  for (const candidate of new Set([raw, normalized, canonical])) {
+  for (const candidate of new Set([raw, expanded, normalized, canonicalizeRm(normalizeCommand(expanded))])) {
     for (const window of scanWindows(candidate)) {
       for (const pattern of list) {
         let re

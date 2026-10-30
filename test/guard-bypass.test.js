@@ -94,3 +94,29 @@ test('ordinary pipes are left alone', () => {
     assert.equal(r.found, false, 'should allow: ' + cmd)
   }
 })
+test('variable indirection, backticks and the home glob are closed', async () => {
+  // The module header has always listed 'R=rm; $R -rf /' among the shapes it
+  // closes, but nothing resolved the variable. Backticks were the same gap next
+  // to '$()', and '~/*' deleted the home directory the way '~' does.
+  const { checkCommand, expandAssignments } = await import('../src/guard.js')
+  const { Config } = await import('../src/index.js')
+  const patterns = Config({}).denyPatterns
+  const D = String.fromCharCode(36)
+  const mustBlock = [
+    'R=rm; ' + D + 'R -rf /',
+    'R=rm; F=-rf; ' + D + 'R ' + D + 'F /',
+    '\`rm -rf /\`',
+    'echo \`rm -rf /\`',
+    'rm -rf ~/*',
+    'rm -rf ~/.*',
+    'rm -rf ' + D + 'HOME/*',
+  ]
+  for (const command of mustBlock) assert.equal(checkCommand(command, patterns).blocked, true, 'should refuse: ' + command)
+
+  // The expansion is not a blunt substitution: an ordinary path keeps working,
+  // and an unknown variable is left alone.
+  assert.equal(checkCommand('R=rm; ' + D + 'R -rf /tmp/build', patterns).blocked, false)
+  assert.equal(checkCommand('rm -rf ~/build', patterns).blocked, false)
+  assert.equal(checkCommand('rm -rf ~/.cache', patterns).blocked, false)
+  assert.equal(expandAssignments('X=' + D + 'X; echo ' + D + 'Y'), 'X=' + D + 'X; echo ' + D + 'Y')
+})
