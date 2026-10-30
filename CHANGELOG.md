@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.53 — 2026-10-31
+
+### Fixed
+- **A typo in `denyPatterns` turned that rule off without saying so.**
+  `checkCommand` skips a pattern it cannot compile -- right for one call, wrong
+  for a configuration: `"dd if=.*("` stayed visible in the settings while never
+  matching anything, so the protection the user believed in was not there. The
+  plugin now refuses to load and names the entry:
+  `denyPatterns[1] is not a valid regular expression (Unterminated group): dd if=.*(`.
+  This matches how the plugin already treats an unknown setting that looks like a
+  typo.
+
+### Added — tests
+- An invalid pattern refuses to load, with the index and the pattern in the
+  message; a valid custom pattern still loads.
+
 ## 0.7.52 — 2026-10-31
 
 ### Fixed

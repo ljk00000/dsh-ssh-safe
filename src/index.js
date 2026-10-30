@@ -35,7 +35,7 @@ import {
   machineDefinition,
 } from './machines.js'
 import { storePath } from './hostkey.js'
-import { DEFAULT_DENY_RULES, checkCommand, describeRule } from './guard.js'
+import { DEFAULT_DENY_RULES, checkCommand, describeRule, invalidPatterns } from './guard.js'
 import { exitLine, formatListing, plural } from './format.js'
 import { AuditLog, summarize } from './audit.js'
 import {
@@ -248,6 +248,19 @@ export async function apply(ctx, config) {
       'dsh-ssh-safe: unknown setting "' + suspicious[0][0] + '" — did you mean "' + suspicious[0][1] + '"? ' +
       'Fix the plugin config listed under "dsh-ssh-safe" in cordis.patch.yml. ' +
       'A misspelled security setting would otherwise be ignored while looking enabled.'
+    )
+  }
+
+  // A rule that does not compile is skipped at match time, so a typo here turns
+  // a protection off while leaving it visible in the config. Refuse to load.
+  const broken = invalidPatterns(config && typeof config === 'object' ? config.denyPatterns : undefined)
+  if (broken.length > 0) {
+    const first = broken[0]
+    throw new Error(
+      'dsh-ssh-safe: invalid configuration — denyPatterns[' + first.index + '] is not a valid regular expression (' +
+      first.message + '): ' + first.pattern +
+      '. That rule would be skipped silently, so the plugin refuses to load. ' +
+      'Fix or remove the entry in the plugin config listed under "dsh-ssh-safe" in cordis.patch.yml.'
     )
   }
 

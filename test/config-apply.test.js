@@ -89,3 +89,20 @@ test('apply and Config agree on the effective values', async () => {
     assert.match(text, new RegExp(key + '\\s+"' + direct[key] + '"'), key)
   }
 })
+test('a deny pattern that does not compile refuses to load', async () => {
+  // checkCommand skips a pattern it cannot compile, so a typo here turned a
+  // protection off while the setting still looked active in the config.
+  await assert.rejects(
+    () => apply(ctx(), { denyPatterns: ['ok-rule', 'dd if=.*('] }),
+    (err) => {
+      assert.match(err.message, /denyPatterns\[1\] is not a valid regular expression/)
+      assert.match(err.message, /dd if=\.\*\(/)
+      assert.match(err.message, /refuses to load/)
+      return true
+    },
+  )
+})
+
+test('a valid custom deny pattern still loads', async () => {
+  await assert.doesNotReject(() => apply(ctx(), { denyPatterns: ['\\bkillall\\b'] }))
+})

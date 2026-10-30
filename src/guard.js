@@ -270,6 +270,34 @@ export const DEFAULT_DENY_RULES = [
 ]
 
 /**
+ * Find the patterns that do not compile.
+ *
+ * checkCommand() skips a pattern it cannot compile, which is right for a single
+ * call but wrong for a configuration: a typo in denyPatterns left that rule
+ * silently dead while the setting still looked active. apply() refuses to start
+ * on a non-empty result, so the mistake is loud and immediate.
+ *
+ * @param {unknown[]} patterns
+ * @returns {Array<{index: number, pattern: string, message: string}>}
+ */
+export function invalidPatterns(patterns) {
+  const list = Array.isArray(patterns) ? patterns : []
+  const broken = []
+  list.forEach((pattern, index) => {
+    try {
+      new RegExp(String(pattern))
+    } catch (err) {
+      broken.push({
+        index,
+        pattern: String(pattern),
+        message: String(err && /** @type {any} */ (err).message ? /** @type {any} */ (err).message : err),
+      })
+    }
+  })
+  return broken
+}
+
+/**
  * Describe a matched rule for a person.
  *
  * @param {string} pattern the pattern that matched
