@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { request as httpRequest } from 'node:http'
+import { startServer } from './helpers/local-ssh-server.js'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -17,10 +18,10 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const script = path.join(here, '..', 'scripts', 'gui.mjs')
 
 /** Start the server, wait for the URL it prints, hand back the token. */
-function start(home) {
+function start(home, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [script, '--no-open', '--port', '0',
-      '--dsh-home', home, '--idle-ms', '60000'], { stdio: ['ignore', 'pipe', 'pipe'] })
+      '--dsh-home', home, '--idle-ms', String(options.idleMs || 60000)], { stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
     const timer = setTimeout(() => {
       child.kill()
@@ -383,6 +384,85 @@ test('an oversized body is refused with 413', async () => {
     assert.ok(!existsSync(path.join(home, 'dsh-ssh-safe', 'credentials.json')), 'nothing may be stored')
   } finally {
     child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+test('the test button walks every stage against a reachable server', async () => {
+  const srv = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    const saved = await call(base, token, '/api/save', {
+      alias: 'live', host: '127.0.0.1', port: srv.port, user: 'tester', password: 'test-pass',
+    })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+
+    const tested = await call(base, token, '/api/test', { alias: 'live' })
+    assert.equal(tested.status, 200)
+    const text = tested.body.lines.join('\n')
+    assert.equal(tested.body.ok, true, text)
+    assert.match(text, /\[ok\] 配置/)
+    assert.match(text, /\[ok\] TCP/)
+    assert.match(text, /\[ok\] 认证/)
+    assert.match(text, /\[ok\] 命令通道/)
+    assert.match(text, /SHA256:/)
+    assert.match(text, /仅报告，未记录/, 'a test must not change the trust state')
+  } finally {
+    child.kill()
+    await srv.close()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('the test button reports an unreachable host instead of hanging', async () => {
+  const dead = await startServer()
+  const port = dead.port
+  await dead.close()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    await call(base, token, '/api/save', { alias: 'gone', host: '127.0.0.1', port, user: 'tester', password: 'pw' })
+    const tested = await call(base, token, '/api/test', { alias: 'gone' })
+    assert.equal(tested.body.ok, false)
+    const text = tested.body.lines.join('\n')
+    assert.match(text, /\[FAIL\] TCP/, text)
+    assert.match(text, /已停止/)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+test('an unauthenticated probe does not keep the page alive', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base } = await start(home, { idleMs: 1200 })
+  const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)))
+  try {
+    // A scanner hitting the port must not be able to postpone the idle exit.
+    await new Promise((r) => setTimeout(r, 400))
+    await fetch(base + '/').catch(() => {})
+    const code = await Promise.race([exited, new Promise((r) => setTimeout(() => r('timeout'), 5000))])
+    assert.equal(code, 0, 'the page should still have exited on its own')
+  } finally {
+    try { child.kill() } catch {}
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('an authenticated call keeps the page alive', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home, { idleMs: 1200 })
+  const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)))
+  try {
+    // Touch it twice inside the window; the second call happens after the
+    // original deadline, so only the first one can have extended it.
+    await new Promise((r) => setTimeout(r, 500))
+    await call(base, token, '/api/state')
+    await new Promise((r) => setTimeout(r, 900))
+    await call(base, token, '/api/state')
+    const early = await Promise.race([exited, new Promise((r) => setTimeout(() => r('alive'), 300))])
+    assert.equal(early, 'alive', 'the page must still be running after the touches')
+  } finally {
+    try { child.kill() } catch {}
     rmSync(home, { recursive: true, force: true })
   }
 })

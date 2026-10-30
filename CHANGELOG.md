@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.7 — 2026-10-31
+
+### Fixed
+- **The guard could be made to hang.** Two of the default rules have the shape
+  "keyword … later-token", which costs one scan per start position: a 400 KB
+  command made of `find / ` repeated took **19.5 seconds** to check. A command
+  made of `sudo ` repeated never finished at all, because every token unwrapped
+  one wrapper level and re-scanned the remainder — 80,000 levels of recursion.
+  Patterns now run against the first and last 8 KB of a candidate, and wrapper
+  unwrapping stops at four levels. Real commands are far shorter than that
+  window, and a dangerous command at either end of a huge line is still caught
+  (there is a test for both ends). A command long enough to hide something in
+  the middle of 400 KB can also spell the same thing differently.
+
+### Added — tests
+- The guard takes under 500 ms on a megabyte of spaces, 400 KB of `find /`,
+  and 400 KB of `sudo` tokens.
+
 ## 0.7.6 — 2026-10-31
 
 ### Fixed

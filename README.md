@@ -382,6 +382,8 @@ ssh_read { machine: "prod", path: "/opt/app/.env", raw: true }
 - `shutdown` / `reboot` / `halt` / `poweroff`，且只在**命令位置**匹配（`grep -c shutdown 日志` 不再被误拦）
 
 **注意**：这是防手滑的安全带，不是安全边界。shell 总有别的路径可达。
+默认规则只匹配命令的开头与结尾各 8 KB，避免病态超长输入把检查拖成平方级；
+真实命令远短于这个窗口。
 
 
 ### 可选：原生加速绑定（`ERR_PNPM_IGNORED_BUILDS`）
@@ -623,6 +625,10 @@ Nine patterns ship by default:
 - `mkfs.*`, `dd if=... of=/dev/sd*`, fork bombs
 - `shutdown`/`reboot`/`halt`/`poweroff`, matched only in **command position**
   (`grep -c shutdown syslog` is no longer refused)
+
+Patterns are matched against the first and last 8 KB of a command, so a
+pathological input cannot make the check quadratic. A real command is far
+shorter than that window.
 
 A safety rail against catastrophic typos — **not** a security boundary.
 

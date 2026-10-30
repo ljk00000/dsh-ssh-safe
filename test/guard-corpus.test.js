@@ -82,3 +82,34 @@ for (const command of benign) {
     assert.equal(verdict.blocked, false, command + ' must be allowed, refused by ' + verdict.pattern)
   })
 }
+// ── pathological input ────────────────────────────────────────────────
+// The rules have the shape 'keyword ... later-token', which costs O(n) per
+// start position: a 400 KB line of 'find / ' repeated took 19.5 s, and a line
+// of 'sudo ' repeated never finished because every token unwrapped one level.
+test('a huge line of find / does not take seconds', () => {
+  const started = Date.now()
+  const verdict = checkCommand('find / '.repeat(20000), patterns)
+  const ms = Date.now() - started
+  assert.equal(verdict.blocked, false, 'there is no -delete in it')
+  assert.ok(ms < 500, 'took ' + ms + 'ms')
+})
+
+test('a huge line of sudo tokens does not recurse forever', () => {
+  const started = Date.now()
+  const verdict = checkCommand('sudo '.repeat(80000), patterns)
+  const ms = Date.now() - started
+  assert.equal(verdict.blocked, false)
+  assert.ok(ms < 500, 'took ' + ms + 'ms')
+})
+
+test('a huge line of spaces is not a problem', () => {
+  const started = Date.now()
+  assert.equal(checkCommand(' '.repeat(1000000), patterns).blocked, false)
+  assert.ok(Date.now() - started < 500)
+})
+
+test('a dangerous command at the end of a very long line is still refused', () => {
+  const filler = 'x'.repeat(200000)
+  assert.equal(checkCommand('echo hi; ' + filler + ' ; find / -delete', patterns).blocked, true)
+  assert.equal(checkCommand('echo hi; ' + filler + ' ; rm -rf /', patterns).blocked, true)
+})

@@ -191,6 +191,27 @@ export function checkPipeline(normalized) {
   return { found: false }
 }
 
+/**
+ * How much of a candidate each pattern is run against, from each end.
+ *
+ * Several of the default rules have the shape "keyword ... later-token", and a
+ * pattern of that shape costs O(n) per start position, so a single enormous
+ * line is quadratic. Measured on the loopback box: a 400 KB line made of
+ * 'find / ' repeated took 19.5 s. Real commands are far shorter than this
+ * window; the guard is a rail, and a command long enough to hide something in
+ * the middle of 400 KB can also spell the same thing differently.
+ */
+const MAX_SCAN_CHARS = 8192
+
+/** How deep a command may be unwrapped (sudo sudo sudo ...). */
+const MAX_WRAPPER_DEPTH = 4
+
+/** The head and tail of a candidate, bounded by MAX_SCAN_CHARS each. */
+function scanWindows(text) {
+  if (text.length <= MAX_SCAN_CHARS * 2) return [text]
+  return [text.slice(0, MAX_SCAN_CHARS), text.slice(-MAX_SCAN_CHARS)]
+}
+
 export function checkCommand(command, patterns, options = {}) {
   const list = Array.isArray(patterns) ? patterns : []
   if (list.length === 0) return { blocked: false }
@@ -200,10 +221,12 @@ export function checkCommand(command, patterns, options = {}) {
   const canonical = canonicalizeRm(normalized)
 
   for (const candidate of new Set([raw, normalized, canonical])) {
-    for (const pattern of list) {
-      let re
-      try { re = new RegExp(pattern) } catch { continue }
-      if (re.test(candidate)) return { blocked: true, reason: 'matches deny pattern', pattern }
+    for (const window of scanWindows(candidate)) {
+      for (const pattern of list) {
+        let re
+        try { re = new RegExp(pattern) } catch { continue }
+        if (re.test(window)) return { blocked: true, reason: 'matches deny pattern', pattern }
+      }
     }
   }
 
@@ -219,11 +242,15 @@ export function checkCommand(command, patterns, options = {}) {
     }
   }
 
-  const wrapper = findWrapper(normalized)
+  // 'sudo sudo sudo ...' is a wrapper every time: without a depth limit each
+  // level re-scanned the whole remainder, which is quadratic and also recursed
+  // once per token (a 400 KB line of 'sudo ' never finished).
+  const depth = Number.isInteger(options.depth) ? options.depth : 0
+  const wrapper = depth < MAX_WRAPPER_DEPTH ? findWrapper(normalized) : null
   if (wrapper) {
     const inner = extractWrapped(normalized, wrapper)
     if (inner && inner !== normalized) {
-      const nested = checkCommand(inner, list, options)
+      const nested = checkCommand(inner, list, { ...options, depth: depth + 1 })
       if (nested.blocked) {
         return { blocked: true, reason: 'inside ' + wrapper, pattern: nested.pattern }
       }
