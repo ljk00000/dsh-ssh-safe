@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.279 — 2026-11-01
+
+### Fixed — `rm -rf \/`, `find / -ok rm` and `find / -execdir rm` were allowed
+Three spellings of an act the deny list already refuses:
+```
+allowed before   rm -rf \/            find / -ok rm {} ;      find / -execdir rm {} ;
+refused now      all three
+```
+- `\/` is the same path as `/` once the shell has read it. `normalizeCommand()` unescaped `\\w`,
+  `.`, `+` and `-` but not the separator, so the rule saw a backslash.
+- `-ok` (asks per file) and `-execdir` (runs per directory) delete the same tree as `-exec rm`; only the
+  plain spelling was covered.
+Control cases stay allowed: `find . -execdir rm {} ;`, `cd ~/proj && rm -rf *`, `cd /tmp && rm -rf build`.
+
+### Also covered
+- `cd / && rm -rf .*` — the dotfile spelling of the root wipe. `cd ~ && rm -rf .*` is refused too, and
+  `cd ~ && rm -rf ./tmp` still passes.
+
+### README
+The rule list now names `-ok`, `-execdir`, the `\/` and `"/"` spellings of `rm -rf /`, and the `.*`
+spelling of the `cd / && rm -rf *` rule, with the control case beside each.
+
+### Tests
+- One new guard case: the three shapes are refused and the three controls stay allowed.
+  Suite 863 / 858 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.278 — 2026-11-01
 
 ### Fixed — `>: /dev/sda` slipped past the deny list, although the README named it

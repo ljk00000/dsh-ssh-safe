@@ -68,7 +68,9 @@ export function normalizeCommand(command) {
   s = s.replace(/`[^`]*`/g, '')
   s = s.replace(/['"]/g, '')
   s = s.replace(/^(\/(?:[\w.+-]+\/)*)([\w.+-]+)/, '$2')
-  s = s.replace(/\\([\w.+-])/g, '$1')
+  // A backslash escapes any character, including the path separator: the shell
+  // turns 'rm -rf \/ ' into 'rm -rf /', and the deny rule saw the backslash.
+  s = s.replace(/\\([\w.+\-/])/g, '$1')
   return s
 }
 
@@ -253,7 +255,7 @@ export const DEFAULT_DENY_RULES = [
   {
     // 'cd / && rm -rf *' deletes the root one level at a time. The rule above
     // cannot see it: the slash belongs to the cd, not to the rm.
-    pattern: '\\bcd\\s+(?:/+|~|\\$(?:\\{HOME\\}|HOME))\\s*(?:&&|;|\\|\\|)\\s*(?:(?:sudo|doas|env|nohup)\\s+)?(?:-{1,2}\\S+(?:\\s+\\S+)?\\s+)*(?:[\\w./-]*/)?rm\\s+-[a-z]*r[a-z]*\\s+(?:\\./)?\\*',
+    pattern: '\\bcd\\s+(?:/+|~|\\$(?:\\{HOME\\}|HOME))\\s*(?:&&|;|\\|\\|)\\s*(?:(?:sudo|doas|env|nohup)\\s+)?(?:-{1,2}\\S+(?:\\s+\\S+)?\\s+)*(?:[\\w./-]*/)?rm\\s+-[a-z]*r[a-z]*\\s+(?:\\./)?\\.?\\*',
     why: 'it changes to / or ~ and then deletes everything there (cd / && rm -rf *)',
   },
   {
@@ -275,7 +277,9 @@ export const DEFAULT_DENY_RULES = [
     why: 'it deletes every file it can reach (find / -delete)',
   },
   {
-    pattern: '\\bfind\\s+/+(?:\\s|$)[^\n]*-exec\\s+(?:[\\w./-]*/)?rm\\b',
+    // -ok asks per file and -execdir runs per directory; both still delete the
+    // tree, and only the plain -exec spelling was covered.
+    pattern: '\\bfind\\s+/+(?:\\s|$)[^\n]*-(?:exec|execdir|ok)\\s+(?:[\\w./-]*/)?rm\\b',
     why: 'it deletes every file it can reach through find -exec rm',
   },
   {

@@ -205,3 +205,20 @@ test('a script fetched from the network is refused without a pipe as well', () =
     assert.equal(checkCommand(command, patterns).blocked, false, command)
   }
 })
+
+test(
+  'an escaped slash and the interactive find flags are refused too',
+  () => {
+    // Measured slipping through:
+    //   'rm -rf \/'          -- the shell turns \/ into /
+    //   'find / -ok rm'      -- -ok asks per file, -execdir per directory
+    const patterns = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
+    for (const command of ['rm -rf \\/', 'find / -ok rm {} ;', 'find / -execdir rm {} ;']) {
+      assert.equal(checkCommand(command, patterns).blocked, true, command)
+    }
+    // The controls must stay allowed: a project directory is not the root.
+    for (const command of ['find . -execdir rm {} ;', 'cd ~/proj && rm -rf *', 'cd /tmp && rm -rf build']) {
+      assert.equal(checkCommand(command, patterns).blocked, false, command)
+    }
+  }
+)
