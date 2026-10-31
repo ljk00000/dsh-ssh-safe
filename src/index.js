@@ -677,6 +677,15 @@ function assertKnownArgs(args, known, toolName) {
 
   const guard = (command, confirmed, machine) => {
     if (cfg.execGuard === 'confirm' && confirmed !== true) {
+      // A deny-pattern refusal was recorded; this one was not, so the log showed
+      // an operator the refusals that matched a rule and none of the ones stopped
+      // by the confirmation gate.
+      audit.write({
+        kind: 'refused',
+        machine,
+        command: summarize(command),
+        reason: 'execGuard is "confirm" and confirm was not passed',
+      })
       throw new Error('execGuard is "confirm": pass confirm: true to run this command.')
     }
     const verdict = cfg.pipeToShell === 'allow'
@@ -713,8 +722,17 @@ function assertKnownArgs(args, known, toolName) {
    * confirmation. Writing is often the more dangerous half of an agent's work,
    * so the guard covers it too.
    */
-  const guardWrite = (confirmed, direction = 'write to') => {
+  const guardWrite = (confirmed, direction = 'write to', machine = '', subject = '') => {
     if (cfg.execGuard === 'confirm' && confirmed !== true) {
+      // The exec gate recorded its refusals; this one did not, so the log showed
+      // no trace of a write or read that the confirmation gate stopped.
+      audit.write({
+        kind: 'refused',
+        machine,
+        path: subject,
+        direction,
+        reason: 'execGuard is "confirm" and confirm was not passed',
+      })
       // The direction matters: a refused read used to say "pass confirm: true to
       // write to the remote host", which describes the wrong tool entirely.
       const why = direction === 'read from'
@@ -1109,8 +1127,8 @@ function assertKnownArgs(args, known, toolName) {
     isConcurrencySafe: () => true,
     async execute(args, execution) {
       const alias = machineFor(args)
-      guardWrite(optionalFlag(args.confirm, 'confirm'), 'read from')
       const remotePath = requireText(args.path, 'path')
+      guardWrite(optionalFlag(args.confirm, 'confirm'), 'read from', alias, remotePath)
       const startedAt = Date.now()
       let r
       try {
@@ -1196,9 +1214,9 @@ function assertKnownArgs(args, known, toolName) {
     // command on the same or another machine wait for it.
     isConcurrencySafe: () => true,
     async execute(args, execution) {
-      guardWrite(optionalFlag(args.confirm, 'confirm'))
       const alias = machineFor(args)
       const remotePath = requireText(args.path, 'path')
+      guardWrite(optionalFlag(args.confirm, 'confirm'), 'write to', alias, remotePath)
       // Content is required and must be a string: String(null) silently wrote
       // the four characters "null" into a file.
       if (typeof args.content !== 'string') {
@@ -1673,6 +1691,10 @@ function assertKnownArgs(args, known, toolName) {
         if (r.redacted === true) detail.push('redacted')
         if (r.ms !== undefined) detail.push(r.ms + 'ms')
         if (r.reason) detail.push('reason=' + r.reason)
+        // 'matches deny pattern' is the matcher talking. The rule it matched is
+        // what tells an operator whether the refusal was right.
+        if (r.pattern) detail.push('rule: ' + describeRule(String(r.pattern)))
+        if (r.direction) detail.push(String(r.direction))
         if (r.error) detail.push('error: ' + r.error)
         return detail.length > 0 ? head + '\n    ' + detail.join('  ') : head
       })

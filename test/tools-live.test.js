@@ -985,3 +985,40 @@ test('both streams present says the order between them is not guaranteed', async
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('every refused call is in the audit log, and the row names the rule', async () => {
+  // The confirmation gate refused in silence: only deny-pattern refusals were
+  // recorded, and their rows said 'matches deny pattern' without saying which.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-audref-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const srv2 = await startServer()
+    try {
+      const own = {}
+      await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+        defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+        execGuard: 'confirm', auditLog: true,
+        connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+        machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+      })
+      await own.ssh_exec.execute({ machine: 't', command: 'echo gated' }, {}).catch(() => {})
+      await own.ssh_write.execute({ machine: 't', path: '/tmp/x', content: 'x' }, {}).catch(() => {})
+      await own.ssh_read.execute({ machine: 't', path: '/tmp/x' }, {}).catch(() => {})
+      await own.ssh_exec.execute({ machine: 't', command: 'rm -rf /', confirm: true }, {}).catch(() => {})
+
+      const shown = String((await own.ssh_audit.execute({ limit: 10 }, {})).text)
+      const refusals = shown.split('\n').filter((line) => line.includes(' refused '))
+      assert.equal(refusals.length, 4, 'every refusal is recorded: ' + shown)
+      assert.match(shown, /rule: it deletes the filesystem root/)
+      assert.match(shown, /write to/)
+      assert.match(shown, /read from/)
+    } finally {
+      await srv2.close()
+    }
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

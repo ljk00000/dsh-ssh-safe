@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.120 — 2026-10-31
+
+### Fixed
+- **A refusal by the confirmation gate left no trace in the audit log.**
+  `execGuard: "confirm"` stopped the call and returned an error, but only
+  deny-pattern refusals were recorded, and `ssh_write` / `ssh_read` refusals were
+  not recorded at all. Three of four refusals were invisible:
+  ```
+  before: (only)  refused rm -rf /   reason=matches deny pattern
+  after : refused echo gated   reason=execGuard is "confirm" and confirm was not passed
+          refused /tmp/x       reason=… write to
+          refused /tmp/x       reason=… read from
+          refused rm -rf /     reason=matches deny pattern  rule: it deletes the
+                               filesystem root (rm -rf / and its spellings //, /*, …)
+  ```
+  The rule description is rendered too: "matches deny pattern" said nothing about
+  which rule matched, so an operator could not tell a correct refusal from a
+  mis-aimed one.
+
+### Verified, no change needed
+- A refused command opens no connection: the server saw 0 clients after both a
+  deny-pattern refusal and a confirmation refusal. The guard runs before the dial.
+
 ## 0.7.119 — 2026-10-31
 
 ### Added
