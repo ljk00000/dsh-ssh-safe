@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.259 — 2026-11-01
+
+### Fixed — `ssh_credentials` promised a rotation check it could not do
+Its description said "use this after a password rotation to confirm the plugin is reading the new
+one", but the output only named the source: an old and a new password produced identical text, so the
+promise was untestable by the user. It now reports when the credential file last changed:
+```
+  credential file …\credentials.json  (changed 2026-11-01T03:44:12Z; re-read on every connection)
+  credential file …\credentials.json  (not created yet)
+```
+The plugin re-reads the file on every connection (that is why a rotation needs no restart), so the
+mtime is the honest signal — and it says nothing about the value. The description now promises exactly
+that instead of a comparison the tool cannot make.
+
+### Tests
+- Two new cases.
+  - One test runs the four listing tools against a machine whose password is `PASSWORDMARKER`, a key
+    file whose body is real, and a remote file containing `FILECONTENTMARKER`: `ssh_machines`,
+    `ssh_config`, `ssh_credentials`, `ssh_audit` and two `ssh_doctor` runs must contain none of the
+    three. The same test asserts `ssh_read` *does* return `FILECONTENTMARKER`, so the markers are
+    known to be present and a silent absence cannot pass.
+  - One for the mtime line: `(not created yet)` before the file exists, `(changed …; re-read on every
+    connection)` after, and the settings-form secret never appears either way.
+  Suite 846 / 841 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.258 — 2026-11-01
 
 ### Fixed — three tool descriptions that had drifted from the tools

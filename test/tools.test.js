@@ -1113,3 +1113,32 @@ test('ssh_config says when the credential file cannot be created', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('ssh_credentials shows when the credential file changed, not the secret', async () => {
+  // The description promised 'use this after a password rotation to confirm the plugin
+  // is reading the new one', but an old and a new password produced the same output.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-credage-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', useCredentialFile: true,
+      machines: { m: { host: 'h', user: 'u', password: 'CONFIGSECRET' } },
+    })
+    const before = String((await own.ssh_credentials.execute({}, {})).text)
+    assert.match(before, /\(not created yet\)/, 'no file yet')
+    assert.doesNotMatch(before, /CONFIGSECRET/)
+
+    // Something writes the file: the mtime must appear and stay value-free.
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), '{"m":{"host":"h"}}\n')
+    const after = String((await own.ssh_credentials.execute({}, {})).text)
+    assert.match(after, /changed \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z; re-read on every connection/)
+    assert.doesNotMatch(after, /CONFIGSECRET/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

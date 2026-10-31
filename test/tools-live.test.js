@@ -2953,3 +2953,57 @@ test('the doctor description names every stage the doctor reports', async () => 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('no listing tool ever prints a password, a key body or file content', async () => {
+  // Four tool descriptions promise exactly this ('never returns a password',
+  // 'secrets are never included', 'never includes command output, file contents or
+  // credentials'). Promises in prose need a test or they rot.
+  const srv2 = await startServer()
+  const ssh2 = (await import('ssh2')).default
+  const pair = ssh2.utils.generateKeyPairSync('ed25519')
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-nopromise-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const keyPath = path.join(home, 'id_ed25519')
+  writeFileSync(keyPath, String(pair.private))
+  srv2.vfs.putFile('/secret.txt', Buffer.from('FILECONTENTMARKER\n'))
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000, auditLog: true, useCredentialFile: true,
+      machines: {
+        t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' },
+        p: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'PASSWORDMARKER' },
+        k: { host: '127.0.0.1', port: srv2.port, user: 'tester', keyPath },
+      },
+    })
+    const text = async (p, args = {}) => {
+      try { return String((await own[p].execute(args, {})).text) } catch (err) { return 'ERR: ' + err.message }
+    }
+    assert.match(await text('ssh_read', { machine: 't', path: '/secret.txt' }), /FILECONTENTMARKER/)
+    const outputs = {
+      machines: await text('ssh_machines'),
+      config: await text('ssh_config'),
+      credentials: await text('ssh_credentials'),
+      audit: await text('ssh_audit', { limit: 20 }),
+      doctorPassword: await text('ssh_doctor', { machine: 'p' }),
+      doctorKey: await text('ssh_doctor', { machine: 'k' }),
+    }
+    // The middle line of the key is body: shorter than the header, longer than the tail.
+    const keyBody = String(pair.private).split('\n')[2]
+    for (const [name, out] of Object.entries(outputs)) {
+      assert.doesNotMatch(out, /PASSWORDMARKER/, name + ' must not print the password')
+      assert.doesNotMatch(out, /FILECONTENTMARKER/, name + ' must not print file content')
+      assert.ok(!out.includes(keyBody), name + ' must not print key material')
+    }
+    // The audit row says the read happened without carrying what it read.
+    assert.match(outputs.audit, /read ok \/secret\.txt/)
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1500))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

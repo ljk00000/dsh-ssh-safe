@@ -2005,13 +2005,35 @@ function blockingFileAbove(dir) {
     },
   })
 
+/**
+ * When the credential file last changed, for a rotation check.
+ *
+ * The description promised "confirm the plugin is reading the new one", but the
+ * output only named the source: an old and a new password looked identical. The
+ * file is re-read on every connection, so its mtime is the honest signal — and it
+ * says nothing about the value itself.
+ *
+ * @param {string} file
+ * @returns {string}
+ */
+function credentialFileAge(file) {
+  try {
+    const at = statSync(file).mtime
+    return '  (changed ' + at.toISOString().replace(/\.\d{3}Z$/, 'Z') + '; re-read on every connection)'
+  } catch (err) {
+    return err && /** @type {{code?: string}} */ (err).code === 'ENOENT'
+      ? '  (not created yet)'
+      : '  (cannot be read)'
+  }
+}
   // ── ssh_credentials ──────────────────────────────────────────────────
   registerTool({
     name: 'ssh_credentials',
     description:
       'Show where each machine`s credentials come from: the settings form, the credential ' +
-      'file, or the environment. Reports the source, never the value. Use this after a ' +
-      'password rotation to confirm the plugin is reading the new one.',
+      'file, or the environment. Reports the source and the credential file mtime, never the ' +
+      'value. After a rotation, that mtime shows the change took hold: the plugin re-reads the ' +
+      'file on every connection, so the next call uses the new secret.',
     parameters: {},
     output: textOut,
     // Every call owns its own SSH channel, so two calls never share one; the
@@ -2029,7 +2051,8 @@ function blockingFileAbove(dir) {
       const head = [
         'Credential sources (values are never shown):',
         '  settings form   machines.<alias> in the plugin config',
-        '  credential file ' + file + (cfg.useCredentialFile === true ? '' : '  [DISABLED]'),
+        '  credential file ' + file + (cfg.useCredentialFile === true ? '' : '  [DISABLED]') +
+          credentialFileAge(file),
         '  environment     DSH_SSH_<ALIAS>_*',
         // Matches credentialFor(): any usable password outranks a key, and a key
         // outranks the agent. Listing only three of the six sources sent users
