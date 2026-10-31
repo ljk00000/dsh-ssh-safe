@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.246 — 2026-11-01
+
+### Fixed
+- **A connection the server dropped left in-flight transfers waiting for their own timeout.** With a
+  stalled read, a stalled listing and a stalled write each caught by a killed connection:
+  ```
+  before: ERR: reading /big.txt did not complete within 5000ms — the remote channel may have
+          dropped, or the filesystem is not answering                      (measured 5267 ms)
+  after : ERR: reading /big.txt did not finish — the connection dropped    (measured 126 ms)
+
+  before: ERR: listing /dir did not complete within 5000ms — …              (measured 5020 ms)
+  after : ERR: listing /dir did not finish — the connection dropped         (measured 136 ms)
+
+  before: ERR: writing /w.txt did not complete within 5000ms — …            (measured 5285 ms)
+  after : ERR: writing /w.txt did not finish; the file was opened (which truncates it) but no data
+          was sent, so it is empty now (…) — the connection dropped       (measured 123 ms)
+  ```
+  `closeOne({force:true})` already aborted the entry's transfers (0.7.228), but an unexpected close
+  from the server did not. The client close handler now aborts them — deferred with `setImmediate`
+  for the same reason as there, since settling inside the event rejected the caller first.
+
+### Also changed
+- A transfer stopped this way says "did not finish — the connection dropped" instead of "was
+  cancelled", which described an action nobody had taken.
+
+### Tests
+- One new case stalls reads, kills the connection 120 ms in, and asserts both the sentence and that
+  the call returns in under 2500 ms (it took over 5000 before). Suite 828 / 823 pass / 5 skipped /
+  0 fail, `tsc` clean.
+
 ## 0.7.245 — 2026-11-01
 
 ### Fixed

@@ -2782,3 +2782,46 @@ test('a refused channel is reported as a session limit, not a dead connection', 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a dropped connection stops in-flight transfers instead of waiting for the timeout', async () => {
+  // The server closed the socket while a stalled read/listing/write was waiting:
+  // each one sat until its own 5000 ms timeout and then guessed that the channel
+  // 'may have dropped'.
+  const srv2 = await startServer()
+  srv2.vfs.putFile('/big.txt', Buffer.alloc(8 * 1024 * 1024, 0x61))
+  srv2.vfs.putDir('/dir')
+  for (let i = 0; i < 50; i += 1) srv2.vfs.putFile('/dir/f' + i + '.txt', Buffer.from('x'))
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-dropmid-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000, sftpTimeoutMs: 5000,
+      maxFileBytes: 32 * 1024 * 1024,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    const attempt = async (name, args) => {
+      const started = Date.now()
+      let text
+      try { text = String((await own[name].execute(args, {})).text) } catch (err) { text = 'ERR: ' + err.message }
+      return { text, ms: Date.now() - started }
+    }
+    // Warm the connection so the drop lands on an established session.
+    await attempt('ssh_exec', { machine: 't', command: 'echo warm' })
+    srv2.vfs.control.stallReads = true
+    const readPromise = attempt('ssh_read', { machine: 't', path: '/big.txt' })
+    setTimeout(() => { srv2.killClients(); srv2.vfs.control.stallReads = false }, 120)
+    const read = await readPromise
+    assert.match(read.text, /reading \/big.txt did not finish — the connection dropped/)
+    assert.doesNotMatch(read.text, /was cancelled/)
+    assert.ok(read.ms < 2500, 'the read must not wait for its 5000 ms timeout, took ' + read.ms)
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1500))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

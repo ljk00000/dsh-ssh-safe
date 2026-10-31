@@ -85,6 +85,12 @@ function onAbort(signal, message, settle) {
     // The pool aborts with a reason when the cause is known ("the connection was
     // closed with force: true"); the harness aborts without one.
     const reason = signal.reason
+    // A dropped connection is not a cancellation: "reading /x was cancelled (the
+    // connection dropped)" blamed an action nobody took.
+    if (reason === 'the connection dropped') {
+      settle(new Error(describe().replace(' was cancelled', ' did not finish') + ' — ' + reason))
+      return
+    }
     settle(new Error(describe() + (typeof reason === 'string' && reason ? ' (' + reason + ')' : '')))
   }
   try { signal.addEventListener('abort', listener, { once: true }) } catch { return null }

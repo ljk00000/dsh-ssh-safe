@@ -1013,6 +1013,19 @@ export class SshPool {
           e.fingerprint = null
           e.credentialIdentity = undefined
           e.nextAttemptAt = 0
+          // A connection the SERVER closed left every transfer on it waiting for its
+          // own timeout: a stalled read reported "did not complete within 5000ms — the
+          // remote channel may have dropped" five seconds after the drop. Abort them
+          // the way a forced close does. Deferred for the same reason as there:
+          // settling synchronously inside the close event rejected the caller before
+          // this handler returned.
+          if (e.aborter) {
+            const aborter = e.aborter
+            e.aborter = new AbortController()
+            setImmediate(() => {
+              try { aborter.abort('the connection dropped') } catch {}
+            })
+          }
         }
         if (!settled) fail(new Error('connection closed before the handshake completed'))
       })
