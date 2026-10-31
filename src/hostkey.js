@@ -342,9 +342,13 @@ export function checkOpenSshHostKey({ text, file, host, port, keyBlob, policy, t
   }
   return {
     ok: false,
-    reason: 'Unknown host ' + id + ' with fingerprint ' + presented + '. This machine is not in ' +
-      file + ' (an OpenSSH known_hosts file, verified but not written by this plugin). Verify the ' +
-      'fingerprint out of band, then add it with: ssh-keyscan -p ' + port + ' ' + host + ' >> "' +
+    // The same file-state note the tofu branch uses: under the default strict
+    // policy a mistyped knownHosts path is the commonest way to land here, and
+    // the old text recommended an append into a directory that does not exist.
+    reason: 'Unknown host ' + id + ' with fingerprint ' + presented + '. ' +
+      file + ' is an OpenSSH known_hosts file, which this plugin verifies but does not write to. ' +
+      storeState(file) +
+      'Verify the fingerprint out of band, then add it with: ssh-keyscan -p ' + port + ' ' + host + ' >> "' +
       file + '" — or call ssh_connect with trustHostKey: true for this one connection.',
     fp,
     firstSeen: true,

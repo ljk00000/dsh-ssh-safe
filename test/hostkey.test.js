@@ -297,6 +297,31 @@ test('a known_hosts file with no entries is unknown, not a broken format', () =>
   rmSync(home, { recursive: true, force: true })
 })
 
+
+test('the strict unknown-host advice fits a knownHosts path that cannot be written', () => {
+  // Under the default strict policy a mistyped knownHosts path is the commonest
+  // way to reach 'Unknown host', and the advice told the caller to append into a
+  // directory that does not exist -- a command that fails where it is offered.
+  const home2 = mkdtempSync(path.join(tmpdir(), 'dsh-khdir-'))
+  const dir = path.join(home2, 'sub')
+  mkdirSync(dir, { recursive: true })
+  const missingFile = path.join(dir, 'kh')
+  const missingDir = path.join(dir, 'nope', 'kh')
+  const blob = Buffer.from('not a real key')
+  const call = (file) => checkHostKey({
+    dshHome: home2, host: 'h.example', port: 2222, keyBlob: blob,
+    policy: 'strict', trustHostKey: false, knownHostsFile: file,
+  })
+  try {
+    const fileNote = call(missingFile).reason
+    assert.match(fileNote, /The file does not exist yet/)
+    assert.doesNotMatch(fileNote, /create the directory first/)
+    const dirNote = call(missingDir).reason
+    assert.match(dirNote, /neither does the directory/)
+    assert.match(dirNote, /create the directory first \(mkdir -p /)
+  } finally { rmSync(home2, { recursive: true, force: true }) }
+})
+
 test('a plain known_hosts entry covers port 22 and no other port', () => {
   // OpenSSH looks up '[host]:port' off port 22, so a plain entry does not cover a
   // custom port. Accepting it anyway extended trust from one port to all of them,

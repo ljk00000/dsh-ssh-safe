@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.203 — 2026-10-31
+
+### Fixed
+- **Under `hostKeyPolicy: strict`, the unknown-host advice pointed at an append that cannot work.**
+  With `knownHosts` pointing into a directory that does not exist — a mistyped path is the
+  commonest way to reach this message — the reply said "add it with: ssh-keyscan … >> <path>" and
+  that command fails where it is offered. The tofu branch already had a `storeState()` sentence
+  for exactly this; strict now uses it too:
+  ```
+  … is an OpenSSH known_hosts file, which this plugin verifies but does not write to.
+  The file does not exist, and neither does the directory C:\…\no-such-dir, so the append below
+  would fail: create the directory first (mkdir -p "C:\…\no-such-dir"). Verify the fingerprint
+  out of band, then add it with: ssh-keyscan -p 13501 127.0.0.1 >> "…\kh" — or call ssh_connect
+  with trustHostKey: true for this one connection.
+  ```
+  When only the file is missing the reply says the append will create it, and a plain connect is
+  unchanged. A test pins all three shapes.
+
 ## 0.7.202 — 2026-10-31
 
 ### Fixed
