@@ -563,10 +563,16 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
       let mode
       try {
         if (typeof sftp.lstat === 'function') {
-          const attrs = await callSftp(sftp, 'lstat', target)
+          let attrs = await callSftp(sftp, 'lstat', target)
           if (attrs && typeof attrs.isSymbolicLink === 'function' && attrs.isSymbolicLink() &&
             typeof sftp.readlink === 'function') {
             linkTarget = String(await callSftp(sftp, 'readlink', target))
+            // A link's own mode is 0777 on a real server and says nothing about the
+            // file the bytes landed in: stat() the target when there is a link.
+            try {
+              const real = await callSftp(sftp, 'stat', target)
+              if (real && typeof real.mode === 'number') attrs = real
+            } catch { /* the target may be gone; keep the link's attrs */ }
           }
           // The permissions the file ended up with are not the ones asked for on
           // every server (umask applies), and they decide who can read the file

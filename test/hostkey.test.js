@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, statSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, statSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { checkHostKey, fingerprint, keyId, storePath, fingerprintsEqual } from '../src/hostkey.js'
+import { checkHostKey, checkOpenSshHostKey, fingerprint, keyId, storePath, fingerprintsEqual } from '../src/hostkey.js'
 
 const keyA = Buffer.from('key-A')
 const keyB = Buffer.from('key-B')
@@ -129,4 +129,38 @@ test('a recorded entry without a fingerprint is not reported as a changed key', 
     assert.match(verdict.reason, /Host key verification failed/)
     assert.match(verdict.reason, /no usable fingerprint/)
   }
+})
+test('the OpenSSH store advice matches whether the file exists', () => {
+  // 'Unknown host' with a custom knownHosts path is usually a typo, and the
+  // message recommended appending to a directory that does not exist — a command
+  // that fails exactly where it is offered.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-store-'))
+  try {
+    const missing = path.join(home, 'nope', 'known_hosts')
+    const absent = checkOpenSshHostKey({
+      text: '', file: missing, host: 'h', port: 22, keyBlob: Buffer.from('k'),
+      policy: 'tofu', trustHostKey: false, fp: 'SHA256:x',
+    })
+    assert.equal(absent.ok, false)
+    assert.match(absent.reason, /neither does the directory/)
+    assert.match(absent.reason, /create the directory first/)
+
+    // The directory exists but the file does not: the append will create it.
+    const dirOnly = path.join(home, 'known_hosts')
+    const half = checkOpenSshHostKey({
+      text: '', file: dirOnly, host: 'h', port: 22, keyBlob: Buffer.from('k'),
+      policy: 'tofu', trustHostKey: false, fp: 'SHA256:x',
+    })
+    assert.match(half.reason, /The file does not exist yet/)
+    assert.doesNotMatch(half.reason, /neither does the directory/)
+
+    // An existing, empty store needs no extra sentence.
+    mkdirSync(path.dirname(dirOnly), { recursive: true })
+    writeFileSync(dirOnly, '')
+    const present = checkOpenSshHostKey({
+      text: '', file: dirOnly, host: 'h', port: 22, keyBlob: Buffer.from('k'),
+      policy: 'tofu', trustHostKey: false, fp: 'SHA256:x',
+    })
+    assert.doesNotMatch(present.reason, /does not exist/)
+  } finally { rmSync(home, { recursive: true, force: true }) }
 })

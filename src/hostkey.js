@@ -13,7 +13,7 @@
 // never a username, password, or key.
 
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync, existsSync } from 'node:fs'
 import path from 'node:path'
 
 const STORE_VERSION = 1
@@ -215,6 +215,30 @@ export function parseOpenSshKnownHosts(text) {
 }
 
 /**
+ * A sentence about the store file itself, for the unknown-host message.
+ *
+ * 'Unknown host' with a custom knownHosts path is usually a typo, and the advice
+ * used to recommend appending to a directory that does not exist — a command that
+ * fails exactly where it is offered.
+ *
+ * @param {string} file
+ * @returns {string}
+ */
+function storeState(file) {
+  try {
+    if (existsSync(file)) return ''
+    const dir = path.dirname(file)
+    if (existsSync(dir)) {
+      return 'The file does not exist yet, so every connection is a first contact; the append below creates it. '
+    }
+    return 'The file does not exist, and neither does the directory ' + dir +
+      ', so the append below would fail: create the directory first (mkdir -p "' + dir + '"). '
+  } catch {
+    return ''
+  }
+}
+
+/**
  * Verify a presented host key against an OpenSSH known_hosts file.
  *
  * Read-only on purpose: writing OpenSSH format back is a different promise, and
@@ -268,10 +292,15 @@ export function checkOpenSshHostKey({ text, file, host, port, keyBlob, policy, t
     }
   }
   if (policy === 'tofu') {
+    // The advice has to match the file's state: appending to a path whose
+    // directory does not exist fails, and a mistyped knownHosts path is the
+    // commonest reason to land here.
+    const storeNote = storeState(file)
     return {
       ok: false,
       reason: 'Unknown host ' + id + ' with fingerprint ' + presented + '. ' + file +
         ' is an OpenSSH known_hosts file, which this plugin verifies but does not write to. ' +
+        storeNote +
         'Add the host with: ssh-keyscan -p ' + port + ' ' + host + ' >> "' + file + '" — after ' +
         'confirming the fingerprint out of band — or call ssh_connect with trustHostKey: true ' +
         'for this one connection.',

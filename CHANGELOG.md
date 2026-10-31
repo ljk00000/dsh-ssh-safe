@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.106 — 2026-10-31
+
+### Fixed
+- **A write through a symlink reported the link's mode, not the file's.**
+  ```
+  before: Wrote 3 bytes to /link.txt (mode 0777) — asked for 0600 but the file already existed …
+  after : Wrote 3 bytes to /link.txt (mode 0644) — …
+  ```
+  0777 is what `lstat` reports for a link and says nothing about who can read the
+  file the bytes landed in. The target is stat'ed now when the path is a link.
+- **The OpenSSH store advice recommended a command that fails where it is offered.**
+  A mistyped `knownHosts` path is the usual reason for "Unknown host", and the
+  message said to append with `ssh-keyscan >> <path>` — which fails when the
+  directory does not exist. It now states the file's state first:
+  ```
+  The file does not exist, and neither does the directory …\nope, so the append
+  below would fail: create the directory first (mkdir -p "…\nope").
+  ```
+  Three cases, one sentence each: file present (none), directory present, directory
+  missing.
+
+### Verified, no change needed
+- A `knownHosts` store that does not exist still refuses under `tofu` rather than
+  accepting every connection: fail-closed, and the changed-key case stays visible.
+
 ## 0.7.105 — 2026-10-31
 
 ### Fixed
