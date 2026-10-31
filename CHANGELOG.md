@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.283 — 2026-11-01
+
+### Hardened — the `timeoutMs: 0` contract now has a test
+All four `timeoutMs` parameters say *0 = configured value*, and nothing checked it. A regression that
+turned 0 into "time out immediately" would pass every existing test.
+```
+timeoutMs: 1    → timed out after 1ms          (a real override)
+timeoutMs: 0    → runs with commandTimeoutMs   (the documented meaning)
+timeoutMs: -1   → timeoutMs must be a positive number (received -1)
+```
+
+### Verified this round (no defect found)
+- `pipeToShell: "allow"` lets `curl x | bash` and `wget -qO- x | sh` through while `rm -rf /` stays
+  refused; with the default `refuse`, the piped forms are refused and name the setting.
+- `trustHostKey: true` does **not** override a recorded key that changed: `HOST KEY CHANGED … recorded
+  SHA256:AAA…, presented SHA256:i7a…`. `ssh_exec` refuses the argument outright.
+- Odd credential-store states are all named: an empty file, `null`, `[]`, `42`, a directory, and the
+  nested `{machines: {…}}` shape; the last one is reported as a configuration problem rather than a parse
+  error.
+- The settings page validates the port (`22a`, `99999`, `-1` → 400) and trims the host; a host or user
+  with a pasted newline is trimmed by the plugin, which prints `u@h.example:22`.
+- `normalizeRemotePath` resolves `/a/../../b` to `/b`, keeps spaces, refuses `~`, a relative path and a
+  Windows path on POSIX.
+- `ssh_write` names each path-typing refusal: `cannot create the parent directories of this path: … is a
+  file, not a directory`, `cannot reach …`, `not a file: / (it is a directory; use ssh_list)`.
+- `ssh_workspace` create/refresh/remove are idempotent and say which happened.
+
+### My own mistakes
+- A probe of the host-key store failed twice: first a `SyntaxError` from a parenthesis inside an `await`
+  expression, then `version undefined` because I wrote the store without its `version` field. The plugin
+  was right both times; my fixture was wrong.
+
+### Tests
+- One new live case for the three `timeoutMs` behaviours above.
+  Suite 867 / 862 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.282 — 2026-11-01
 
 ### Fixed — the confirmation gate offered a `confirm: true` that could never work

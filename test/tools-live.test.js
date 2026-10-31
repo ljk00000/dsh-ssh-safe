@@ -3272,3 +3272,36 @@ test('the dropped-character count is exact at the maxOutputChars boundary', asyn
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('timeoutMs: 0 means the configured value, and a negative one is refused', async () => {
+  // The parameter description promises '0 = configured value'. That sentence had
+  // no test, and it is the kind of promise that rots: a caller passing 0 got the
+  // configured timeout, a caller passing -1 got a clear error.
+  const own = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-timeoutzero-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own2 = {}
+  try {
+    await apply({ tools: { register: (d) => { own2[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 8000,
+      machines: { t: machineFor('t', own.port) },
+    })
+    const run = async (args) => String((await own2.ssh_exec.execute({ machine: 't', ...args }, {})).text)
+    // 1ms is a real override, so it must time out; 0 must not.
+    const tiny = await run({ command: 'sleep 1; echo late', timeoutMs: 1 })
+    assert.match(tiny, /timed out after 1ms/)
+    const zero = await run({ command: 'echo ontime', timeoutMs: 0 })
+    assert.match(zero, /ran: echo ontime/)
+    assert.doesNotMatch(zero, /timed out/)
+    const negative = await run({ command: 'echo hi', timeoutMs: -1 }).catch((err) => 'ERR: ' + err.message)
+    assert.match(negative, /timeoutMs must be a positive number/)
+  } finally {
+    try { await own2.ssh_close.execute({ force: true }, {}) } catch {}
+    await own.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
