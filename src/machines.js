@@ -63,13 +63,13 @@ export function loadCredentialFile(dshHome) {
  * with no password.
  *
  * @param {string} dshHome
- * @returns {{data: Record<string, object>, problem: string}}
+ * @returns {{data: Record<string, object>, problem: string, ignored: Array<{alias: string, shape: string}>}}
  */
 export function readCredentialFile(dshHome) {
   // '' means the file is disabled (useCredentialFile: false). Joining it would
   // read 'dsh-ssh-safe/credentials.json' relative to the process working
   // directory -- a file the plugin was told to ignore, in a place nobody chose.
-  if (!dshHome) return { data: {}, problem: '' }
+  if (!dshHome) return { data: {}, problem: '', ignored: [] }
   const file = credentialsPath(dshHome)
   let text
   try {
@@ -82,9 +82,10 @@ export function readCredentialFile(dshHome) {
     // A missing file is the normal case (nothing stored yet); anything else is
     // a file that exists and cannot be read, which the caller should know about.
     const code = err && /** @type {{code?: string}} */ (err).code
-    if (code === 'ENOENT') return { data: {}, problem: '' }
+    if (code === 'ENOENT') return { data: {}, problem: '', ignored: [] }
     return {
       data: {},
+      ignored: [],
       problem: 'credentials.json could not be read (' + (code || (err && err.message) || 'unknown error') +
         '); no credential was used from it',
     }
@@ -93,6 +94,8 @@ export function readCredentialFile(dshHome) {
     // A BOM is what "UTF-8 with BOM" leaves behind; JSON.parse rejects it.
     const parsed = JSON.parse(stripBom(text))
     const data = {}
+    /** Entries that exist but are not an object of fields: they used to vanish. */
+    const ignored = []
     // A JSON array is an object to typeof, and its indices became machines:
     // '[{"host":...}]' produced a machine named "0" that looked connectable.
     // The file is a map from alias to entry; anything else is not this format.
@@ -105,12 +108,18 @@ export function readCredentialFile(dshHome) {
           Object.defineProperty(data, String(alias).toLowerCase(), {
             value: entry, enumerable: true, writable: true, configurable: true,
           })
+        } else {
+          // The alias is defined and plainly unusable. Dropping it silently made
+          // the machine "not configured", which sends the reader to the settings
+          // form for something the file does define.
+          ignored.push({ alias: String(alias), shape: describeEntryValue(entry) })
         }
       }
-      return { data, problem: '' }
+      return { data, problem: '', ignored }
     }
     return {
       data,
+      ignored: [],
       problem: 'credentials.json is not an object of machines (it holds ' +
         (Array.isArray(parsed) ? 'an array' : JSON.stringify(parsed === null ? null : typeof parsed)) +
         '); no credential was used from it',
@@ -120,6 +129,7 @@ export function readCredentialFile(dshHome) {
     // must not look like "this machine has no password" either.
     return {
       data: {},
+      ignored: [],
       problem: 'credentials.json could not be parsed (' + String(err && err.message ? err.message : err).slice(0, 80) +
         '); no credential was used from it',
     }
@@ -138,6 +148,21 @@ export function readCredentialFile(dshHome) {
  * @param {string} key
  * @returns {Record<string, any>}
  */
+/**
+ * Name the shape of a value without printing it (it may be a secret).
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function describeEntryValue(value) {
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return 'an array'
+  if (typeof value === 'string') return 'a string'
+  if (typeof value === 'number') return 'a number'
+  if (typeof value === 'boolean') return 'a boolean'
+  return 'not an object'
+}
+
 function ownEntry(object, key) {
   if (!object || typeof object !== 'object') return {}
   const direct = String(key)
@@ -230,7 +255,17 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
   // the prototype setter for the latter, so an alias that collides with them
   // would read invented fields instead of "not configured".
   const cfg = ownEntry(machines, alias)
-  const file = ownEntry(loadCredentialFile(dshHome), alias)
+  const fileRead = readCredentialFile(dshHome)
+  const file = ownEntry(fileRead.data, alias)
+  // The file defines this alias but the value is not an object of fields: say so
+  // instead of reporting the machine as never configured.
+  const ignoredEntry = (fileRead.ignored || []).find((entry) => entry.alias === alias)
+  const entryProblem = ignoredEntry
+    ? 'The credential file entry for "' + alias + '" is ' + ignoredEntry.shape +
+      ', not an object of fields; it is ignored'
+    : ''
+  // The file defines this alias but the value is not an object of fields: say so
+  // instead of reporting the machine as never configured.
 
   const host = firstSet([['config', cfg.host], ['env', env.host], ['file', file.host]])
   const user = firstSet([
@@ -330,6 +365,8 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
     portProblem,
     /** The first field whose value cannot be text, or ''. */
     fieldProblem,
+    /** Set when the credential file defines this alias without a field object. */
+    entryProblem,
     username: String(user.value || '').trim(),
     // Never carries plaintext: a DPAPI entry has to be decrypted on demand.
     password: '',
@@ -392,6 +429,9 @@ export function credentialFor(alias, {
   // The file exists but says nothing usable: without this the caller sees only
   // "no credentials", and the broken file it edited is never named.
   if (credentialFile.problem) warnings.push(credentialFile.problem)
+  // The file defines this alias but not as an object of fields. Without this the
+  // caller reads "not configured" and goes looking at the settings form.
+  if (m.entryProblem) warnings.push(m.entryProblem + '.')
 
   // A session password is the LAST resort: the settings form, the credential
   // file and the environment all win. Supplying one while a stored credential

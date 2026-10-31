@@ -1308,3 +1308,41 @@ test('a record that parses but carries nothing is not printed as a bare question
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a credential-file entry that is not an object is named, not silently dropped', async () => {
+  // readCredentialFile() keeps only object entries, so a hand edit like
+  // '"str": "user@host"' vanished: the alias was not listed at all and a call for
+  // it answered 'not configured', pointing at the settings form.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-ignored-entry-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      str: 'just-a-string',
+      arr: [1, 2],
+      nul: null,
+      good: { host: 'h.example', user: 'u' },
+    }, null, 2))
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, connectTimeoutMs: 1000, commandTimeoutMs: 1000,
+    })
+    const inventory = String((await own.ssh_machines.execute({}, {})).text)
+    assert.match(inventory, /Ignored credential-file entries/)
+    assert.match(inventory, /"str" is a string, so it is ignored/)
+    assert.match(inventory, /"arr" is an array, so it is ignored/)
+    assert.match(inventory, /"nul" is null, so it is ignored/)
+    // The good machine is still listed normally.
+    assert.match(inventory, /u@h\.example:22/)
+    // And the connection error says why instead of only 'not configured'.
+    const refused = await own.ssh_exec.execute({ machine: 'str', command: 'echo hi' }, {}).then(
+      (r) => String(r.text), (err) => 'ERR: ' + err.message)
+    assert.match(refused, /is not configured/)
+    assert.match(refused, /credential file entry for "str" is a string/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

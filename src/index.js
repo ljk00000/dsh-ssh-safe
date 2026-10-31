@@ -31,6 +31,7 @@ import {
   credentialState,
   credentialsPath,
   credentialsTemplate,
+  describeEntryValue,
   knownAliases,
   loadCredentialFile,
   machineDefinition,
@@ -1009,7 +1010,8 @@ function assertKnownArgs(args, known, toolName) {
           // told its host variable was missing too.
           (missingFields.length ? '\n    MISSING: ' + missingFields.join(', ') : '') +
           (m.portProblem ? '\n    BAD PORT: ' + m.portProblem : '') +
-          (m.fieldProblem ? '\n    BAD FIELD: ' + m.fieldProblem : '')
+          (m.fieldProblem ? '\n    BAD FIELD: ' + m.fieldProblem : '') +
+          (m.entryProblem ? '\n    BAD ENTRY: ' + m.entryProblem : '')
         )
       }
       if (lean) {
@@ -1018,6 +1020,14 @@ function assertKnownArgs(args, known, toolName) {
       // Field typos in the settings form are dropped by the schema, so the
       // machine silently looks unconfigured; the inventory is where a user
       // checks their config, so it is where the misspelling is actionable.
+      // A credential-file entry that is not an object (a hand edit left a string,
+      // an array or null) was invisible: the alias was not listed at all, and a
+      // call for it answered "not configured".
+      const ignoredEntries = readCredentialFile(credentialHome).ignored
+        .map((entry) => '  ' + JSON.stringify(entry.alias) + ' is ' + entry.shape + ', so it is ignored')
+      if (ignoredEntries.length > 0) {
+        out.push('', 'Ignored credential-file entries (each alias needs an object of fields):', ...ignoredEntries)
+      }
       const typos = machineFieldProblems()
       if (typos.length) out.push('', 'Configuration problems:', ...typos.map((t) => '  ' + t))
       return { text: out.join('\n') }

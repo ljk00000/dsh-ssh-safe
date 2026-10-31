@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.7.289 — 2026-11-01
+
+### Fixed — a credential-file entry that is not an object vanished without a word
+`readCredentialFile()` keeps only entries that are objects of fields, which is right for reading them —
+and it dropped the rest in silence. A hand edit like `"prod": "ubuntu@10.0.0.5"` therefore looked like
+nothing at all:
+```
+before  ssh_machines   (prod not listed)
+        ssh_exec       Machine "prod" is not configured: missing DSH_SSH_PROD_HOST, …
+                       — the reader goes looking at the settings form for a machine the file defines
+
+after   ssh_machines   Ignored credential-file entries (each alias needs an object of fields):
+                         "prod" is a string, so it is ignored
+        ssh_exec       … or as the environment variable(s) DSH_SSH_PROD_HOST, …
+                       The credential file entry for "prod" is a string, not an object of fields;
+                       it is ignored.
+```
+The reader now returns what it skipped (`ignored: [{alias, shape}]`), the inventory lists it, and the
+connection error carries it as a note. The wording names the shape only — never the value, which may be
+a secret.
+
+### My own mistakes — four attempts at one small wiring
+1. The first version referenced `describeEntryValue` from `index.js` without exporting it: a
+   `ReferenceError` inside a `.map`, and the section silently never appeared.
+2. The scan then found nothing at all, because `loadCredentialFile()` had already filtered the entries
+   out. The filter had to move into the reader, where the information still exists.
+3. Inserting `+ (m.entryProblem ? …)` produced `ERR: (intermediate value)… is not a function` — the
+   previous line ended a concatenation chain and the new one needed its own `+`.
+4. A stray mangled line broke `node --check` with `Expected ident`; the line was re-inserted by position.
+Plus a duplicate `entryProblem` declaration, and 8 `tsc` errors from the return type not naming `ignored`.
+
+### Verified this round (no change needed)
+- `host: 123` is allowed on purpose (a numeric host name is plausible) while an array `user` is flagged
+  `BAD FIELD`, and a non-numeric port is flagged `BAD PORT` with the offending value shown.
+
+### Tests
+- One new case: three unusable entries are listed with their shapes, the good machine still lists, and
+  the connection error names the file entry.
+  Suite 873 / 868 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.288 — 2026-11-01
 
 ### Fixed — a damaged audit line printed as a bare `?`
