@@ -395,3 +395,27 @@ test('a save never truncates the file a reader is about to parse', () => {
     assert.deepEqual(leftovers, [], 'a successful save must not leave its temp file')
   } finally { rmSync(home, { recursive: true, force: true }) }
 })
+
+test('a refused CLI run leaves the DSH home untouched', () => {
+  // Pure argument checks used to run after the read-modify-write section, which
+  // creates dsh-ssh-safe to hold the store lock: a command that refused still
+  // left a directory behind. Two of the four checks were also duplicated inside
+  // the clear blocks, and the copies had already drifted in wording.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-sprefuse-'))
+  try {
+    const cases = [
+      ['--port abc', ['--alias', 'p', '--port', 'abc', '--host', 'h', '--user', 'u']],
+      ['--port 0', ['--alias', 'p', '--port', '0', '--host', 'h', '--user', 'u']],
+      ['--port 70000', ['--alias', 'p', '--port', '70000', '--host', 'h', '--user', 'u']],
+      ['bad alias', ['--alias', 'a b', '--host', 'h', '--user', 'u']],
+      ['clear + password', ['--alias', 'p', '--clear-password', '--password', 'x']],
+      ['clear + plaintext', ['--alias', 'p', '--clear-password', '--plaintext']],
+      ['clear passphrase + value', ['--alias', 'p', '--clear-key-passphrase', '--key-passphrase', 'x']],
+    ]
+    for (const [label, args] of cases) {
+      const r = spawnSync(process.execPath, ['scripts/set-password.mjs', '--dsh-home', home, ...args], { encoding: 'utf8', timeout: 20000 })
+      assert.equal(r.status, 2, label + ' must refuse: ' + (r.stderr || r.stdout))
+      assert.deepEqual(readdirSync(home), [], label + ' left something behind in the DSH home')
+    }
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})

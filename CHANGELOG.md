@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.300 — 2026-11-01
+
+### Fixed — a refused CLI run left a directory behind, and four checks existed twice
+The credential-file lock is created inside `dsh-ssh-safe`, so the read-modify-write section made the
+directory. Argument checks that ran *after* it therefore left the directory behind when they refused:
+```
+before  set-password.mjs --alias p --port abc --host h --user u
+        exit 2 … and the DSH home now holds ["dsh-ssh-safe"]
+after   exit 2 … and the DSH home holds []
+```
+The port range and the three contradictory-flag checks now run before anything touches the filesystem. The
+copies that lived inside the clear blocks are gone — and they had already drifted: one said "when storing a
+**passphrase**", the other "when storing a **secret**" for the same situation. The surviving wording is the
+original one.
+
+### Also cleaned
+- `scripts/gui.mjs` imported `withStoreLock` but only ever used `acquireStoreLock`; the unused import is
+  gone.
+
+### Verified this round (no defect found)
+- `ssh_workspace` after the placeholder is deleted behind the plugin's back: `remove` says "占位目录本来就不存在 …
+  远端主机上的文件没有被动过" instead of claiming a removal, and `list` reports "未创建" rather than a stale
+  entry.
+- `ssh_workspace create/list/remove` all hide host, port and user under `machineInventory: alias`
+  (`<host hidden>`), like the other tools.
+- The pool is closed on plugin unload (`ctx.effect(() => () => pool.closeAll({ force: true }))`), so a
+  reload does not leak connections.
+
+### My own mistake
+A probe of the workspace tool invented `action: "refresh"`, which does not exist — the refusal was correct
+and the probe was wrong. Reading the error saved me from "fixing" a non-feature.
+
+### Tests
+- One new case: seven refused invocations, each must exit 2 **and** leave the DSH home empty.
+  Suite 886 / 881 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.299 — 2026-11-01
 
 ### Hardened — an unwritable DSH home is reported by every surface that writes there

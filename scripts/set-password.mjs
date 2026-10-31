@@ -133,6 +133,35 @@ if (!alias) {
   process.exit(2)
 }
 
+// Pure argument checks run before anything touches the filesystem: a refused
+// command used to leave an empty dsh-ssh-safe directory behind, because the
+// read-modify-write section (and the mkdir it needs) came first.
+if (args.port !== undefined) {
+  const port = Number(args.port)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    console.error('--port must be an integer between 1 and 65535 (received ' + JSON.stringify(args.port) + ')')
+    process.exit(2)
+  }
+}
+if (args['clear-password'] === true && args.password !== undefined) {
+  console.error('--clear-password removes the stored password, so it cannot be combined with --password.')
+  console.error('Run the clear on its own, then store the new password with a second command.')
+  process.exit(2)
+}
+if (args['clear-password'] === true && args.plaintext !== undefined) {
+  console.error('--plaintext only applies when storing a password; drop it when clearing.')
+  process.exit(2)
+}
+if (args['clear-key-passphrase'] === true && args['key-passphrase'] !== undefined) {
+  console.error('--clear-key-passphrase removes the stored passphrase, so it cannot be combined with --key-passphrase.')
+  console.error("Run the clear on its own, then store the new passphrase with a second command.")
+  process.exit(2)
+}
+if (args['clear-key-passphrase'] === true && args.plaintext !== undefined) {
+  console.error('--plaintext only applies when storing a secret; drop it when clearing.')
+  process.exit(2)
+}
+
 /**
  * Rename over the credential file, retrying while Windows says it is busy.
  *
@@ -265,17 +294,8 @@ const entry = { ...(store[alias] && typeof store[alias] === 'object' ? store[ali
 // '--host "   "' stored an empty string: not wrong, but it printed "host" with
 // nothing after it and looked like a setting had been saved.
 if (args.host && String(args.host).trim()) entry.host = String(args.host).trim()
-if (args.port !== undefined) {
-  // 'abc' used to be stored as null and '70000' as-is: JSON turns NaN into
-  // null, the resolver falls back to 22, and the account ends up trying to
-  // reach a port nobody asked for. The page validates this; so should the CLI.
-  const port = Number(args.port)
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    console.error('--port must be an integer between 1 and 65535 (received ' + JSON.stringify(args.port) + ')')
-    process.exit(2)
-  }
-  entry.port = port
-}
+// Already validated above, before anything touched the filesystem.
+if (args.port !== undefined) entry.port = Number(args.port)
 if (args.user && String(args.user).trim()) entry.user = String(args.user).trim()
 if (args['key-path'] && String(args['key-path']).trim()) entry.keyPath = String(args['key-path']).trim()
 
@@ -303,17 +323,7 @@ if (passphraseInput !== undefined) {
 // flag for it. The only way to revoke a DPAPI blob was to delete the machine or
 // edit credentials.json by hand.
 if (args['clear-password'] === true) {
-  // Two contradictory instructions used to be resolved silently: the clear ran
-  // first, exited 0 and said "Cleared", while --password was never stored.
-  if (args.password !== undefined) {
-    console.error('--clear-password removes the stored password, so it cannot be combined with --password.')
-    console.error('Run the clear on its own, then store the new password with a second command.')
-    process.exit(2)
-  }
-  if (args.plaintext !== undefined) {
-    console.error('--plaintext only applies when storing a password; drop it when clearing.')
-    process.exit(2)
-  }
+  // Contradictory flags were rejected above, before the store was touched.
   const had = Boolean(entry.password || entry.passwordDpapi)
   delete entry.password
   delete entry.passwordDpapi
@@ -337,15 +347,7 @@ if (args['clear-password'] === true) {
 // passphrase meant editing credentials.json by hand, and a rotated key left the
 // old passphrase behind with nothing that said so.
 if (args['clear-key-passphrase'] === true) {
-  if (args['key-passphrase'] !== undefined) {
-    console.error('--clear-key-passphrase removes the stored passphrase, so it cannot be combined with --key-passphrase.')
-    console.error("Run the clear on its own, then store the new passphrase with a second command.")
-    process.exit(2)
-  }
-  if (args.plaintext !== undefined) {
-    console.error('--plaintext only applies when storing a secret; drop it when clearing.')
-    process.exit(2)
-  }
+  // Contradictory flags were rejected above, before the store was touched.
   const had = Boolean(entry.keyPassphrase || entry.keyPassphraseDpapi)
   delete entry.keyPassphrase
   delete entry.keyPassphraseDpapi
