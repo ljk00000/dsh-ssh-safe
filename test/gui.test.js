@@ -887,3 +887,27 @@ test('an invalid settings-form port is reported, not replaced by 22', async () =
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('repeated save/delete cycles never lose an operation to a busy file', async () => {
+  // On Windows a rename over the credential file fails with EPERM while another
+  // handle has it open (a scanner, a sync client, or this page's own icacls).
+  // Measured before the retry: one cycle in forty answered 500 and the machine
+  // list still held both entries.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    for (let i = 0; i < 20; i++) {
+      const a = await call(base, token, '/api/save', { alias: 'a', host: 'h', user: 'u' })
+      const b = await call(base, token, '/api/save', { alias: 'b', host: 'h', user: 'u' })
+      const del = await call(base, token, '/api/delete', { alias: 'a' })
+      assert.equal(a.status, 200, 'save a: ' + JSON.stringify(a.body))
+      assert.equal(b.status, 200, 'save b: ' + JSON.stringify(b.body))
+      assert.equal(del.status, 200, 'delete a: ' + JSON.stringify(del.body))
+      const s = await call(base, token, '/api/state')
+      assert.deepEqual(s.body.machines.map((m) => m.alias), ['b'], 'cycle ' + i)
+    }
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

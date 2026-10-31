@@ -23,7 +23,7 @@
 // Usage:
 //   node scripts/gui.mjs [--dsh-home DIR] [--profile DIR] [--port N] [--no-open] [--idle-ms N]
 
-import { spawn } from 'node:child_process'
+import { spawn , spawnSync } from 'node:child_process'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
@@ -240,6 +240,38 @@ function readStore() {
   } catch { return {} }
 }
 
+/** Block this event loop for a moment (there is no sync sleep in Node). */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/**
+ * Rename over the credential file, retrying while Windows says it is busy.
+ *
+ * On Windows a rename fails with EPERM when any other handle has the target open:
+ * an antivirus scan, a sync client, or the icacls call this page itself starts after
+ * each write. Measured: one save/delete cycle in forty answered 500 with
+ * "EPERM: operation not permitted, rename ...", and the page then showed both
+ * machines because the delete had not happened.
+ */
+function renameWithRetry(from, to) {
+  const retryable = new Set(['EPERM', 'EBUSY', 'EACCES'])
+  let last = null
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    try {
+      renameSync(from, to)
+      return
+    } catch (err) {
+      last = err
+      if (!retryable.has(String(err && err.code))) throw err
+      sleepSync(15 * attempt)
+    }
+  }
+  throw new Error('could not replace ' + path.basename(to) + ' after 6 attempts (' +
+    String(last && last.code) + '): another program is holding the file open — an' +
+    ' antivirus, a sync client, or a concurrent writer. Try again.')
+}
+
 function writeStore(store) {
   mkdirSync(path.dirname(credFile), { recursive: true })
   // Write beside the file and rename over it.
@@ -252,7 +284,7 @@ function writeStore(store) {
   const tmp = credFile + '.tmp-' + process.pid
   writeFileSync(tmp, text, { encoding: 'utf8', mode: 0o600 })
   try {
-    renameSync(tmp, credFile)
+    renameWithRetry(tmp, credFile)
   } catch (err) {
     try { rmSync(tmp, { force: true }) } catch { /* nothing left to do */ }
     throw err
@@ -262,8 +294,10 @@ function writeStore(store) {
       ? process.env.USERDOMAIN + '\\' + process.env.USERNAME
       : process.env.USERNAME
     try {
-      spawn('icacls', [credFile, '/inheritance:r', '/grant:r', me + ':(R,W)', '/grant:r', 'SYSTEM:(R,W)'],
-        { windowsHide: true, stdio: 'ignore' })
+      // Synchronously: the asynchronous version could still hold the file when the
+      // next save tried to rename over it (that was the EPERM above).
+      spawnSync('icacls', [credFile, '/inheritance:r', '/grant:r', me + ':(R,W)', '/grant:r', 'SYSTEM:(R,W)'],
+        { windowsHide: true, stdio: 'ignore', timeout: 15000 })
     } catch { /* best effort */ }
   } else {
     try { chmodSync(credFile, 0o600) } catch { /* best effort */ }

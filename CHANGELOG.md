@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.161 — 2026-10-31
+
+### Fixed
+- **A save or delete could fail on Windows with `EPERM: rename …` and do nothing.**
+  `writeStore` writes beside the file and renames over it (so a reader never sees a
+  truncated file). On Windows that rename fails while any other handle has the target
+  open — a scanner, a sync client, or the `icacls` call the page itself starts after each
+  write. Reproduced by hammering the API:
+  ```
+  before: 40 save/save/delete/state cycles → 1 answered 500 with
+          "EPERM: operation not permitted, rename …credentials.json.tmp-…"
+          and the state still listed both machines (the delete did not happen)
+  after : 40 cycles → 0 failures, 0 mismatches
+  ```
+  Two changes: the rename retries six times with a short back-off and, when it still
+  cannot, says which program is holding the file; the ACL step is now synchronous, so it
+  cannot overlap the next write. Save latency measured at min 22 / median 26 / max 68 ms.
+
+### Added
+- A test that runs twenty save/save/delete/state cycles and asserts every response and
+  the resulting machine list — the flake this started as
+  (`delete removes the entry and keeps the others`, once in a parallel run) now has a
+  deterministic reproduction and a guard.
+
+### Verified
+- Three consecutive full-suite runs: 746 tests, 741 pass, 5 skipped, 0 fail.
+
 ## 0.7.160 — 2026-10-31
 
 ### Fixed
