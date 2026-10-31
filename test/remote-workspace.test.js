@@ -368,3 +368,34 @@ test('a registry delete that does nothing is not reported as removed', async () 
     )
   } finally { restore3() }
 })
+
+test('two concurrent creates leave one registration, not two', async () => {
+  // Both calls read "not registered" before either had registered, and the
+  // sidebar ended up with two entries pointing at the same directory.
+  const store = []
+  const slow = {
+    list: () => store.slice(),
+    create: async (dir, title) => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      const workspace = { id: 'w' + store.length, path: dir, title }
+      store.push(workspace)
+      return workspace
+    },
+    delete: async (id) => {
+      const index = store.findIndex((workspace) => workspace.id === id)
+      if (index < 0) return false
+      store.splice(index, 1)
+      return true
+    },
+  }
+  const { tools, restore } = await toolsFor({ DSH_SSH_A_HOST: 'h', DSH_SSH_A_USER: 'u' }, slow)
+  try {
+    const results = await Promise.all([
+      tools.ssh_workspace.execute({ action: 'create', machine: 'a' }, {}),
+      tools.ssh_workspace.execute({ action: 'create', machine: 'a' }, {}),
+    ])
+    for (const result of results) assert.match(String(result.text), /已注册到侧栏工作区/)
+    assert.equal(store.length, 1, 'one directory must not produce two sidebar entries')
+    assert.equal(store[0].title, remoteTitle('a'))
+  } finally { restore() }
+})

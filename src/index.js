@@ -1395,6 +1395,17 @@ function assertKnownArgs(args, known, toolName) {
             // a stub returning {} produced "已注册到侧栏工作区" while the next
             // list call answered "有占位目录，但未注册". Read it back.
             const created = workspace && (workspace.id || workspace.path)
+            // Two concurrent creates both answered "not registered" before either
+            // had registered, and the sidebar got two entries for one directory.
+            // Reading the registry back is the moment to drop the extras: this
+            // needs no lock and both racers run it.
+            try {
+              const mine = listWorkspaces(registry).items.filter((w) =>
+                w && String(w.path || '').toLowerCase() === String(dir).toLowerCase())
+              for (const duplicate of mine.slice(1)) {
+                if (typeof registry.delete === 'function') await registry.delete(duplicate.id)
+              }
+            } catch { /* a failed cleanup must not fail the create */ }
             const after = listWorkspaces(registry)
             const landed = !after.error && Boolean(findWorkspace({ list: () => after.items }, dir))
             if (landed || created) {

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.104 — 2026-10-31
+
+### Fixed
+- **Two concurrent `ssh_workspace create` calls registered the same directory
+  twice.** Both read "not registered" before either had registered, so the sidebar
+  ended up with two entries pointing at one placeholder (measured: 2 entries, one
+  path). A later `remove` would delete one and leave the other behind. The create
+  path now reads the registry back and drops the extra entries; measured after the
+  fix: two concurrent creates, one entry.
+
+### Verified, no change needed
+- `ssh_workspace list` renders the three states distinctly and in order (registered,
+  directory without registration, not created), and `machineInventory: alias` hides
+  `user@host:port` there too.
+
 ## 0.7.103 — 2026-10-31
 
 ### Fixed
