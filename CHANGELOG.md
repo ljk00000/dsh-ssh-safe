@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.219 — 2026-11-01
+
+### Fixed
+- **A dropped connection reached the caller as ssh2's bare "No response from server".** Measured
+  5/5 by killing the peer just after a write: every following SFTP call answered exactly that — no
+  machine, no advice, and it reads like a plugin bug:
+  ```
+  before: ERR: No response from server
+  after : ERR: The connection to "t" stopped answering before the operation finished
+          (No response from server). It did not complete; the next call opens a new connection.
+  ```
+  `explainGone()` knew "Not connected" and "Channel open failure" but not the message ssh2 emits for
+  a request on a dead socket; it now covers "No response from server", "Channel closed",
+  "Connection lost" and ECONNRESET. The promise in the new text is true — the next call evicts the
+  dead entry and reconnects (asserted).
+
+### Verified, no change needed
+- Ordinary errors are untouched: a missing file still answers `no such file: /g/nope.txt`.
+- `maxConnections: 0` is described as `1 live (no limit)` in both `ssh_connect` and `ssh_config`,
+  not as `1 live / 0 max`.
+- Env aliases containing underscores (`DSH_SSH_A_B_HOST`) resolve to `a_b` and do not leak into
+  `a`; settings keys with capitals (`GPU`) are listed lowercase and match any casing in `ssh_exec`.
+
+### Tests
+- One new live case: after `killClients()` the message names the dropped connection (or the call
+  reconnected silently), never the bare ssh2 text, and the following call succeeds.
+  Suite 799 / 794 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.218 — 2026-11-01
 
 ### Fixed

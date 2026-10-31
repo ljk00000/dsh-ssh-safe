@@ -2084,3 +2084,22 @@ test('closing every connection leaves a record for each one', async () => {
   assert.deepEqual({ machine: added[0].machine, outcome: added[0].outcome }, { machine: 't', outcome: 'ok' })
   assert.deepEqual({ machine: added[1].machine, outcome: added[1].outcome }, { machine: undefined, outcome: 'none' })
 })
+
+test('an operation on a dropped connection explains itself and the next one reconnects', async () => {
+  // ssh2 answers a request on a dead socket with a bare 'No response from server':
+  // no machine, no advice, and it reads like a plugin bug. Measured 5/5 after the
+  // peer dropped: every SFTP call said exactly that until the entry was evicted.
+  srv.vfs.putDir('/gone')
+  await run('ssh_exec', { command: 'echo warm' })
+  srv.killClients()
+  // run() rejects on failure, so the message is captured here rather than thrown.
+  let first
+  try { first = await run('ssh_list', { path: '/gone' }) } catch (err) { first = 'ERR: ' + err.message }
+  if (/^ERR:/.test(first)) {
+    assert.match(first, /stopped answering before the operation finished/)
+    assert.match(first, /next call opens a new connection/)
+    assert.doesNotMatch(first, /^ERR: No response from server$/, 'the raw ssh2 text must not be the whole message')
+  }
+  const next = await run('ssh_list', { path: '/gone' })
+  assert.doesNotMatch(next, /^ERR:/, 'the next call must reconnect: ' + next)
+})

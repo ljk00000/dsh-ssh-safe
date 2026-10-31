@@ -343,6 +343,16 @@ function liveOrGone(e, alias) {
  */
 function explainGone(err, alias) {
   const message = String((err && /** @type {any} */ (err).message) || err || '')
+  // ssh2 answers a request on a socket that has gone away with a bare "No
+  // response from server": no machine, no advice, and it reads like a plugin
+  // bug. Measured after the peer dropped: every SFTP call in flight said exactly
+  // that until the entry was evicted.
+  if (/No response from server|Channel closed|Connection lost|ECONNRESET/i.test(message)) {
+    return new Error(
+      'The connection to "' + alias + '" stopped answering before the operation finished (' + message +
+      '). It did not complete; the next call opens a new connection.'
+    )
+  }
   if (!/Not connected|not connected|Channel open failure/i.test(message)) return err instanceof Error ? err : new Error(message)
   return goneError(alias)
 }
