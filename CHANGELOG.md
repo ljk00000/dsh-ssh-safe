@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.84 — 2026-10-31
+
+### Fixed
+- **A non-SSH port reported a bare errno on Linux.** Windows says `ECONNRESET`
+  when a peer closes the socket during the handshake; Linux says `EPIPE`, or
+  `Connection lost before handshake`, and only the first had a hint. All of them
+  now come with the same sentence: the server closed the connection during the
+  handshake, so the port may not be sshd.
+
+### CI
+- **The Ubuntu jobs failed for months with no way to read why.** The job log needs
+  repository admin rights; the annotation API does not. The suite now runs under
+  the TAP reporter and `scripts/ci-annotations.mjs` turns every `not ok` line into
+  an error annotation carrying the test name and the assertion message. That is
+  how the nine failures below were found.
+- `test/gui.test.js`: six tests save a password through the settings page, which
+  needs DPAPI. They now skip on platforms without it instead of failing for an
+  unrelated reason; the alias-normalisation test no longer saves a password at
+  all, so it keeps running everywhere.
+- The shared-connect test measured its connection count on a server the whole
+  file shares, so a neighbour test’s connection was counted as a duplicate. It
+  gets its own server, and the failure message now reports what it saw.
+
+### Result
+- All six jobs pass: ubuntu-latest and windows-latest, Node 20, 22 and 24.
+
 ## 0.7.83 — 2026-10-31
 
 ### Fixed
