@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.288 — 2026-11-01
+
+### Fixed — a damaged audit line printed as a bare `?`
+The audit reader already labelled unparsable lines `[unreadable record] <text>`, but a line that parses
+to nothing — `{}` from a hand edit — took the normal renderer and every column came out empty:
+```
+before  2026-01-01 00:00:01Z m exec ok exit=0 good-1
+        ?
+        [unreadable record] not json at all
+
+after   2026-01-01 00:00:01Z m exec ok exit=0 good-1
+        [unreadable record] {}
+        [unreadable record] not json at all
+```
+A row of nothing but `?` reads as a rendering bug, not as a damaged record. The check runs after the
+row is assembled: if the only content is the `?` placeholder for a missing kind, the raw object is
+shown the same way the unparsable lines are.
+
+### Verified this round (no change needed)
+- `audit.ndjson` replaced by a **directory**: `ssh_exec` still works, `ssh_audit` reports "1 audit write
+  failed since the plugin started (EISDIR: illegal operation on a directory, write), so these records are
+  incomplete", the read failure is named with its path, and `ssh_doctor` mentions the audit problem.
+- A log with a truncated line, plain text, `{}`, `[1,2,3]` and control bytes: the good records still
+  render, every damaged line is labelled, and nothing throws.
+
+### Tests
+- One new case: a log holding a good record, `{}` and plain text lists all three correctly and contains
+  no line that is only `?`.
+  Suite 872 / 867 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.287 — 2026-11-01
 
 ### Fixed — a half-written marker let `deleteFiles: true` delete the directory anyway

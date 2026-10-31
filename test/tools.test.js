@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1274,6 +1274,34 @@ test('a denied command is refused before the confirmation gate asks for confirm'
     // A command the deny list allows still needs the confirmation.
     const needsConfirm = await run({ command: 'echo hi' })
     assert.match(needsConfirm, /execGuard is "confirm": pass confirm: true/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a record that parses but carries nothing is not printed as a bare question mark', async () => {
+  // A hand-edited log line '{}' rendered as '?' on its own row, which reads as a
+  // rendering bug rather than as a damaged record.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-auditempty-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    const file = path.join(home, 'dsh-ssh-safe', 'audit.ndjson')
+    appendFileSync(file, JSON.stringify({ kind: 'exec', machine: 'm', command: 'good', outcome: 'ok', exitCode: 0, ms: 1, at: '2026-01-01T00:00:01Z' }) + '\n')
+    appendFileSync(file, '{}\n')
+    appendFileSync(file, 'not json\n')
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', auditLog: true, machines: {},
+    })
+    const out = String((await own.ssh_audit.execute({ limit: 10 }, {})).text)
+    assert.match(out, /good/)
+    assert.match(out, /\[unreadable record\] \{\}/)
+    assert.match(out, /\[unreadable record\] not json/)
+    assert.doesNotMatch(out, /^\?$/m, 'no row may be a lone question mark')
   } finally {
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous

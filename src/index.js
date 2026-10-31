@@ -2001,6 +2001,12 @@ function blockingFileAbove(dir) {
         const subject = printable(r.command || r.path || r.pattern || '')
         if (subject) parts.push(subject)
         const head = parts.filter(Boolean).join(' ')
+        // A record that parses but carries nothing renderable (a bare {} from a
+        // hand edit) printed a single '?' on its own line. Say the same thing the
+        // unparsable lines say, with the text that produced it.
+        if (head.replace('?', '').trim() === '') {
+          return '[unreadable record] ' + printable(clipText(JSON.stringify(r), 200))
+        }
 
         // The detail fields are what make a record actionable; the earlier
         // renderer dropped every one of them.
