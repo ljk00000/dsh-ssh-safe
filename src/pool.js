@@ -593,7 +593,8 @@ export class SshPool {
       throw new Error(
         'Refusing to retry ' + alias + ' for another ' + Math.ceil(waitMs / 1000) + 's ' +
         '(last failure: ' + (e.lastError || 'unknown') + '). ' +
-        'Pass force: true to try immediately.'
+        'Pass force: true to try immediately, or trustHostKey: true on ssh_connect to ' +
+        'accept a first-contact key and retry in the same call.'
       )
     }
     if (e.ready) return e.ready

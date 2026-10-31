@@ -827,10 +827,15 @@ function assertKnownArgs(args, known, toolName) {
       const alias = machineFor(args)
       const startedAt = Date.now()
       try {
+        const trustHostKey = optionalFlag(args.trustHostKey, 'trustHostKey')
         await pool.connect(alias, {
           sessionPassword: optionalText(args.password, 'password'),
-          trustHostKey: optionalFlag(args.trustHostKey, 'trustHostKey'),
-          force: optionalFlag(args.force, 'force'),
+          trustHostKey,
+          // The host-key rejection starts the reconnect cooldown, so the advice
+          // "call ssh_connect with trustHostKey: true once" was unusable for the
+          // next 15-60 seconds: the retry was refused before it dialled. An
+          // explicit trustHostKey is a deliberate retry, exactly like force.
+          force: optionalFlag(args.force, 'force') === true || trustHostKey === true,
         })
       } catch (err) {
         audit.write({

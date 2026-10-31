@@ -6,7 +6,7 @@ import path from 'node:path'
 
 import { apply } from '../src/index.js'
 import { looksBinary } from '../src/sftp.js'
-import { startServer, machineFor } from './helpers/local-ssh-server.js'
+import { startServer, machineFor, alternateHostKey } from './helpers/local-ssh-server.js'
 
 // The twelve tool bodies are the largest untested part of src/index.js: they
 // only run with a working connection, and the unit suite has none. These drive
@@ -705,4 +705,56 @@ test('the doctor says when its own run recorded the key', async () => {
   const second = String((await tofu.ssh_doctor.execute({ machine: 't' }, {})).text)
   assert.doesNotMatch(second, /first contact/)
   await tofu.ssh_close.execute({ machine: 't', force: true }, {})
+})
+
+test('trustHostKey retries past the cooldown the rejection just started', async () => {
+  // The host-key error says to call ssh_connect with trustHostKey: true, and the
+  // rejection that produced it also starts a reconnect cooldown, so the advice
+  // used to fail for the next minute. A fresh server on a fresh port keeps the
+  // key unknown to this run's store.
+  const other = await startServer()
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'fresh', hostKeyPolicy: 'strict', allowPlaintextPassword: true,
+      connectTimeoutMs: 4000, commandTimeoutMs: 4000, reconnectCooldownMs: 60000,
+      machines: { fresh: { host: '127.0.0.1', port: other.port, user: 'tester', password: 'test-pass' } },
+    })
+    await assert.rejects(() => own.ssh_connect.execute({}, {}), /Unknown host|not in/)
+
+    const trusted = await own.ssh_connect.execute({ trustHostKey: true }, {})
+    assert.match(String(trusted.text), /Connected:/)
+    assert.match(String(trusted.text), /Host key: SHA256:/)
+    await own.ssh_close.execute({ machine: 'fresh', force: true }, {})
+
+    // The next plain connect uses the record.
+    const second = await own.ssh_connect.execute({}, {})
+    assert.match(String(second.text), /Connected:/)
+    await own.ssh_close.execute({ machine: 'fresh', force: true }, {})
+  } finally {
+    await other.close().catch(() => {})
+  }
+})
+
+test('trustHostKey does not override a changed key', async () => {
+  // One-shot trust is for FIRST contact. A changed key means something else is
+  // answering, and accepting it because the caller repeated trustHostKey would be
+  // the interception this store exists to catch.
+  const first = await startServer()
+  const own = {}
+  await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    defaultMachine: 'chg', hostKeyPolicy: 'strict', allowPlaintextPassword: true,
+    connectTimeoutMs: 4000, commandTimeoutMs: 4000, reconnectCooldownMs: 0,
+    machines: { chg: { host: '127.0.0.1', port: first.port, user: 'tester', password: 'test-pass' } },
+  })
+  await own.ssh_connect.execute({ trustHostKey: true }, {})
+  await own.ssh_close.execute({ machine: 'chg', force: true }, {})
+  await first.close()
+
+  const second = await startServer({ port: first.port, key: alternateHostKey() })
+  try {
+    await assert.rejects(() => own.ssh_connect.execute({ trustHostKey: true }, {}), /HOST KEY CHANGED/)
+  } finally {
+    await second.close().catch(() => {})
+  }
 })

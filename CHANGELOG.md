@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.94 — 2026-10-31
+
+### Fixed
+- **The advice in the host-key error could not be followed.** A first contact under
+  `strict` fails with "…or call ssh_connect with trustHostKey: true once", and that
+  same rejection starts the reconnect cooldown. Calling it as advised answered
+  `Refusing to retry t for another 15s (last failure: Unknown host …)`, so the one
+  action the message recommended was impossible for a minute. An explicit
+  `trustHostKey: true` now retries immediately, the same way `force: true` does:
+  ```
+  connect (unknown key)       → ERR: Unknown host 127.0.0.1:10118 …
+  trustHostKey (same second)  → Connected: tester@127.0.0.1:10118 …
+  ```
+  The cooldown message also mentions that option now.
+
+### Verified, no change needed
+- A recorded key that changes is refused even with `trustHostKey: true` — the
+  store keeps the original fingerprint, so one-shot trust cannot be used to accept
+  an interception.
+
+### Added — tests
+- `trustHostKey` retries past a 60s cooldown in the same call, and the next plain
+  connect uses the record.
+- `trustHostKey` against a changed key still fails with `HOST KEY CHANGED`.
+
 ## 0.7.93 — 2026-10-31
 
 ### Fixed
