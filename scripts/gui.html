@@ -105,6 +105,8 @@
 
   <div class="note" id="fileBad" style="display:none;margin:0 0 12px;color:#f87171"></div>
 
+  <div class="note" id="machinesBad" style="display:none;margin:0 0 12px;color:#f0b429"></div>
+
   <div id="list"></div>
 
   <div class="card">
@@ -155,6 +157,15 @@ async function refresh() {
     bad.style.display = state.fileProblem ? "block" : "none";
     if (state.fileProblem) {
       bad.textContent = "凭据文件读不了，本页已停止写入（避免覆盖）：" + state.fileProblem;
+    }
+  }
+  // Machines the page could not read from cordis.patch.yml: silence here read as
+  // "no machines in the settings form".
+  const machinesBad = document.getElementById("machinesBad");
+  if (machinesBad) {
+    machinesBad.style.display = state.machinesProblem ? "block" : "none";
+    if (state.machinesProblem) {
+      machinesBad.textContent = "设置里的机器没能读出来：" + state.machinesProblem;
     }
   }
   document.getElementById("envNote").innerHTML = state.envAliases.length

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.214 — 2026-11-01
+
+### Fixed
+- **The credential page dropped settings machines it could not parse, without saying so.**
+  `settingsMachines()` matched only the exact shape DSH writes (aliases two spaces under
+  `machines:`, fields below). Measured against four other valid shapes:
+  ```
+  two-space (DSH)        gpu@10.0.0.1
+  four-space indent      (none)      ← was silently empty
+  quoted alias           (none)      ← was silently empty
+  alias with a comment   (none)      ← was silently empty
+  flow style             (none)      + a warning now
+  ```
+  The alias column is now taken from the first child line instead of assumed, quoted keys are
+  read, and `alias:  # comment` is treated as an alias rather than as a machine defined on one
+  line. Anything the page still cannot read (flow style, `gpu: { … }`) produces
+  `machinesProblem` in `/api/state` and an amber banner on the page: "设置里的机器没能读出来：…".
+  Showing no machines used to look exactly like having none.
+
+### Tests
+- Three new cases: four-space indentation, quoted alias and comment-trailing alias all listed
+  (plus `emptyone: {}`); flow style yields an empty list **with** a problem; a file mixing one
+  block machine and one inline machine lists the readable one and names the other. Suite 793 /
+  788 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.213 — 2026-11-01
 
 ### Fixed

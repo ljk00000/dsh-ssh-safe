@@ -200,40 +200,79 @@ function parseScalar(raw) {
   return (comment >= 0 ? text.slice(0, comment) : text).trim()
 }
 
-function settingsMachines() {
+/**
+ * The settings-form machines, in block style, whatever indentation was used.
+ *
+ * This used to assume the exact shape DSH writes: aliases two spaces under
+ * `machines:` and fields below them. Four-space indentation, a quoted alias, an
+ * alias with a trailing comment, or flow style all produced an EMPTY list, so the
+ * page showed no machines while the plugin connected to them fine.
+ *
+ * @returns {{machines: Record<string, Record<string, unknown>>, problem: string}}
+ */
+function machinesBlock() {
+  const empty = { machines: {}, problem: '' }
   const block = pluginBlock()
-  if (!block) return {}
-  const machinesAt = block.findIndex((line) => /^\s*machines:\s*$/.test(line))
-  if (machinesAt < 0) return {}
-  const machinesIndent = (block[machinesAt].match(/^\s*/) || [''])[0].length
+  if (!block) return empty
+  const at = block.findIndex((line) => /^\s*machines\s*:\s*(#.*)?$/.test(line))
+  if (at < 0) {
+    const inline = block.find((line) => /^\s*machines\s*:\s*\S/.test(line))
+    if (inline) {
+      return {
+        machines: {},
+        problem: 'the settings form writes machines on one line (`machines: { … }`), which this page cannot edit; use the tools or edit cordis.patch.yml directly',
+      }
+    }
+    return empty
+  }
+  const machinesIndent = (block[at].match(/^\s*/) || [''])[0].length
 
   const machines = {}
   let current = ''
-  for (let i = machinesAt + 1; i < block.length; i++) {
+  let childIndent = -1
+  let problem = ''
+  for (let i = at + 1; i < block.length; i++) {
     const line = block[i]
     if (!line.trim() || /^\s*#/.test(line)) continue
     const indent = (line.match(/^\s*/) || [''])[0].length
     if (indent <= machinesIndent) break
-
-    const alias = line.match(/^\s*([\w.-]+):\s*$/)
-    if (alias && indent === machinesIndent + 2) {
-      current = alias[1].toLowerCase()
-      machines[current] = {}
+    // The first child line decides the alias column, instead of assuming two
+    // spaces: the old rule matched only the exact shape DSH writes.
+    if (childIndent < 0) childIndent = indent
+    const pair = /^\s*(?:"([^"]*)"|'([^']*)'|([\w.-]+))\s*:\s*(.*)$/.exec(line)
+    if (!pair) continue
+    const key = pair[1] ?? pair[2] ?? pair[3]
+    const rest = String(pair[4] || '')
+    // 'gpu:   # the lab box' is an alias with a comment, not a machine defined
+    // on one line: the leading '#' has to be stripped before the emptiness test.
+    const bare = rest.trim()
+    const valueText = bare.startsWith('#') ? '' : bare.replace(/\s+#.*$/, '').trim()
+    if (indent === childIndent) {
+      if (valueText === '' || valueText === '{}') {
+        current = key.toLowerCase()
+        machines[current] = {}
+        continue
+      }
+      // `gpu: { host: 10.0.0.1 }` -- flow style one level down.
+      problem = problem || 'a machine is written on one line (`' + key + ': { … }`), which this page cannot edit; use the tools or edit cordis.patch.yml directly'
+      current = ''
       continue
     }
-    const pair = line.match(/^\s*([\w.-]+):\s*(.*)$/)
-    if (pair && current && indent > machinesIndent + 2) {
-      let value = parseScalar(pair[2])
+    if (indent > childIndent && current) {
+      let value = parseScalar(rest)
       if (value === '' || value === 'null' || value === '~') continue
       if (/^\d+$/.test(value)) value = Number(value)
       if (value === 'true') value = true
       if (value === 'false') value = false
-      machines[current][pair[1]] = value
+      machines[current][key] = value
     }
   }
-  return machines
+  return { machines, problem }
 }
 
+function settingsMachines() {
+  return machinesBlock().machines
+}
 /** Load ssh2 from the profile, so the test button can make a real connection. */
 function loadSsh2() {
   const candidates = [profileDir, process.cwd(), here]
@@ -395,7 +434,8 @@ function envAliases() {
 }
 
 function state() {
-  const settings = settingsMachines()
+  const parsed = machinesBlock()
+  const settings = parsed.machines
   // With the credential file turned off the plugin never reads it, so listing
   // its machines here would present machines that cannot connect -- and the
   // test button would say so, contradicting the list right above it.
@@ -428,6 +468,9 @@ function state() {
     dpapi: dpapiAvailable(),
     envAliases: envAliases(),
     machines,
+    // A settings file this page could not read is said out loud: showing no
+    // machines is indistinguishable from having none.
+    machinesProblem: parsed.problem,
   }
 }
 

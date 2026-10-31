@@ -1026,3 +1026,84 @@ test('a bad --port or --idle-ms is refused with a message, not a stack trace', a
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the settings parser reads whatever indentation the file uses', async () => {
+  // Only the exact shape DSH writes used to parse: four-space indentation, a
+  // quoted alias, or an alias with a trailing comment produced an EMPTY list, so
+  // the page showed no machines while the plugin connected to them fine.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    machines:',
+    '        fourspace:            # four-space children',
+    '            host: 10.2.2.2',
+    '            user: root',
+    '        "quoted-name":',
+    '            host: 10.3.3.3',
+    '            user: admin',
+    '        commented:   # the lab box',
+    '            host: 10.4.4.4',
+    '            user: ops',
+    '        emptyone: {}',
+  ].join('\n'))
+  const { child, base, token } = await start(home)
+  try {
+    const state = await call(base, token, '/api/state')
+    const byAlias = Object.fromEntries(state.body.machines.map((m) => [m.alias, m]))
+    assert.equal(byAlias.fourspace?.host, '10.2.2.2', 'four-space children: ' + JSON.stringify(state.body.machines))
+    assert.equal(byAlias['quoted-name']?.host, '10.3.3.3', 'quoted alias')
+    assert.equal(byAlias.commented?.host, '10.4.4.4', 'alias with a trailing comment')
+    assert.ok(byAlias.emptyone, 'an empty {} machine is still a machine')
+    assert.equal(state.body.machinesProblem, '')
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('flow-style machines say so instead of looking like none', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    machines: { gpu: { host: 10.5.5.5, user: root } }',
+  ].join('\n'))
+  const { child, base, token } = await start(home)
+  try {
+    const state = await call(base, token, '/api/state')
+    assert.deepEqual(state.body.machines, [])
+    assert.match(state.body.machinesProblem, /one line/)
+    assert.match(state.body.machinesProblem, /cannot edit/)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a machine written on one line is reported, not dropped', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    machines:',
+    '      blocky:',
+    '        host: 10.6.6.6',
+    '      inliney: { host: 10.7.7.7 }',
+  ].join('\n'))
+  const { child, base, token } = await start(home)
+  try {
+    const state = await call(base, token, '/api/state')
+    assert.ok(state.body.machines.find((m) => m.alias === 'blocky'), 'the readable machine is still listed')
+    assert.match(state.body.machinesProblem, /inliney/)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
