@@ -39,7 +39,7 @@ import { redact, envNames } from './credentials.js'
 import { connectOptions, expandHome } from './connect.js'
 import { credentialFor, machineDefinition } from './machines.js'
 import { checkHostKey } from './hostkey.js'
-import { Utf8Collector, OutputBudget } from './buffer.js'
+import { Utf8Collector, OutputBudget, countCodePoints } from './buffer.js'
 import { normalizeRemotePath } from './remote-path.js'
 import { closeClient } from './close.js'
 import { readRemoteFile, writeRemoteFile, listRemoteDir } from './sftp.js'
@@ -883,6 +883,28 @@ export class SshPool {
         // deadline. With EOF the command fails immediately and says why
         // ('sudo: a terminal is required', 'Aborted', ...).
         sendStdinEof(s)
+        // Room the error output may take back from stdout.
+        //
+        // The budget is shared, so a command that prints a lot before failing
+        // ('make' with thousands of lines, then one 'Error 2') spent all of it on
+        // stdout and stderr arrived to nothing: the exit code was 2 and the only
+        // line that explained it had been thrown away. stderr may now trim the
+        // tail of stdout to make room, down to half the budget -- the first half
+        // of the output plus the error is what a person reads anyway.
+        const stdoutFloor = Math.floor(budget.cap / 2)
+        const trimTimelineForStdout = (need) => {
+          for (let i = timeline.length - 1; i >= 0 && need > 0; i--) {
+            const entry = timeline[i]
+            if (entry.stream !== 'out') continue
+            if (entry.text.length <= need) {
+              need -= entry.text.length
+              timeline.splice(i, 1)
+            } else {
+              entry.text = entry.text.slice(0, entry.text.length - need)
+              need = 0
+            }
+          }
+        }
         s.on('data', (d) => {
           // A chunk boundary can fall inside a multi-byte character: decoding each
           // chunk on its own turned one '中' (3 bytes) into three U+FFFD. The
@@ -896,6 +918,19 @@ export class SshPool {
         })
         s.stderr.on('data', (d) => {
           const text = Buffer.isBuffer(d) ? errDecoder.write(d) : String(d)
+          if (budget.remaining === 0 && out.text.length > stdoutFloor) {
+            let need = Math.min(text.length, out.text.length - stdoutFloor)
+            // Do not leave the first half of a surrogate pair behind.
+            const lastKept = out.text.charCodeAt(out.text.length - need - 1)
+            if (lastKept >= 0xd800 && lastKept <= 0xdbff) need += 1
+            const removed = out.text.slice(out.text.length - need)
+            out.text = out.text.slice(0, out.text.length - need)
+            budget.used -= need
+            budget.dropped += countCodePoints(removed)
+            budget.truncated = true
+            out.truncated = true
+            trimTimelineForStdout(need)
+          }
           const kept = budget.append(err, text)
           if (kept) timeline.push({ stream: 'err', text: kept })
         })

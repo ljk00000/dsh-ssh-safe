@@ -20,6 +20,23 @@
  * Two independent accumulators (stdout and stderr) each capped at that value
  * would let one call hold twice the advertised amount, so they share one budget.
  */
+/**
+ * Count characters the way a reader counts them.
+ *
+ * String#length counts UTF-16 units, so an emoji counts as two: '2976 more
+ * characters were dropped' when 1488 emoji went missing is off by a factor of
+ * two for exactly the characters that are hardest to eyeball.
+ *
+ * @param {string} text
+ * @returns {number}
+ */
+export function countCodePoints(text) {
+  const value = String(text ?? '')
+  if (value.length === 0) return 0
+  const surrogatePairs = value.match(/[\uD800-\uDBFF]/g)
+  return value.length - (surrogatePairs ? surrogatePairs.length : 0)
+}
+
 export class OutputBudget {
   /** @param {number} cap total characters across every stream */
   constructor(cap) {
@@ -54,7 +71,7 @@ export class OutputBudget {
     if (room <= 0) {
       state.truncated = true
       this.truncated = true
-      this.dropped += text.length
+      this.dropped += countCodePoints(text)
       return ''
     }
     let take = text.length > room ? text.slice(0, room) : text
@@ -70,7 +87,7 @@ export class OutputBudget {
     if (take.length < text.length) {
       state.truncated = true
       this.truncated = true
-      this.dropped += text.length - take.length
+      this.dropped += countCodePoints(text.slice(take.length))
     }
     return take
   }

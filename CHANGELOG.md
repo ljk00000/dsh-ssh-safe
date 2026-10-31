@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.71 — 2026-10-31
+
+### Fixed
+- **When stdout filled the output budget, the error message was thrown away.**
+  maxOutputChars is shared between the two streams, so a command that prints a
+  lot before failing spent all of it on stdout and stderr arrived to nothing:
+  measured with 4000 lines then `make: *** [build] Error 2`, the result had exit
+  code 2, 1000 characters of ordinary output and an empty stderr. stderr may now
+  take room back from the tail of stdout -- down to half the budget, which is the
+  half a person reads anyway -- so the line that explains the failure survives.
+  The total stays within maxOutputChars and the truncation note still reports it.
+- **The dropped count was in UTF-16 units, not characters.** 2000 emoji with a
+  1024-unit budget reported `2976 more characters were dropped` when 1488 were
+  missing: exactly the characters a reader cannot count by eye were off by a
+  factor of two. The count is in code points now (CJK output is unchanged).
+
+### Added — tests
+- The error line surviving a full budget, and the code-point count.
+
 ## 0.7.70 — 2026-10-31
 
 ### Fixed
