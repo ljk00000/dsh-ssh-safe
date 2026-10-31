@@ -53,17 +53,20 @@ function closeSftp(sftp) {
  * settle() can detach it.
  *
  * @param {AbortSignal|undefined} signal
- * @param {string} message
+ * @param {string|(() => string)} message text, or a function for text that is only known later
  * @param {(error: Error) => void} settle
  * @returns {(() => void)|null}
  */
 function onAbort(signal, message, settle) {
   if (!signal) return null
+  // The message may be a function evaluated at abort time: what a write has done
+  // to the remote file is only known once it starts.
+  const describe = typeof message === 'function' ? message : () => message
   if (signal.aborted) {
-    settle(new Error(message + ' (cancelled before it started)'))
+    settle(new Error(describe() + ' (cancelled before it started)'))
     return null
   }
-  const listener = () => settle(new Error(message))
+  const listener = () => settle(new Error(describe()))
   try { signal.addEventListener('abort', listener, { once: true }) } catch { return null }
   return listener
 }
@@ -316,13 +319,25 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
       else resolve(result)
     }
 
+    // What the remote file looks like right now. "may be truncated or partially
+    // written" was printed even when the write never opened the file: a cancel
+    // before the first byte sent the caller looking for damage that was not
+    // there. Once the stream exists the file HAS been truncated by the open, and
+    // the byte count is the only thing that says how much is missing.
+    const writeState = () => {
+      if (!stream) return 'the file was not touched'
+      const wrote = Number(stream.bytesWritten) || 0
+      if (wrote === 0) return 'the file was opened (which truncates it) but no data was sent, so its previous content is gone'
+      return 'sent ' + wrote + ' byte' + (wrote === 1 ? '' : 's') + ' before it stopped; the file is partial'
+    }
     timer = setTimeout(() => {
       settle(null, new Error(
         'writing ' + target + ' did not complete within ' + timeoutMs + 'ms' +
-        ' — the remote channel may have dropped; the file may be truncated or partially written'
+        ' — the remote channel may have dropped; ' + writeState()
       ))
     }, timeoutMs)
-    abortListener = onAbort(signal, 'writing ' + target + ' was cancelled; the file may be truncated or partially written',
+    // A function, not a string: the state is composed when the abort happens.
+    abortListener = onAbort(signal, () => 'writing ' + target + ' was cancelled; ' + writeState(),
       (error) => settle(null, error))
 
     try {

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.60 — 2026-10-31
+
+### Fixed
+- **A cancelled write claimed damage that did not exist, or hid damage that did.**
+  Every cancel said `the file may be truncated or partially written`, including one
+  that had not opened the file yet -- the caller went looking for a damaged file
+  that was never touched. The message is composed at abort time now and matches
+  what actually happened:
+  - nothing opened: `the file was not touched`;
+  - opened, nothing sent: `the file was opened (which truncates it) but no data
+    was sent, so its previous content is gone` (measured: a 16-byte file became
+    0 bytes -- the old wording did not say the content was already lost);
+  - some bytes sent: `sent N bytes before it stopped; the file is partial`.
+  The deadline message for a stalled write uses the same phrasing.
+- The abort message was built when the listener was registered, i.e. before the
+  stream existed, so it could never report the real state.
+
+### Note
+- The "some bytes sent" branch could not be reproduced in the test rig: the VFS
+  stalls all writes or none, so a cancel lands either before the first chunk or
+  after the last. The wording is shared with the deadline path, which is covered.
+
+### Added — tests
+- A cancel before the file is opened leaves nothing behind and says so.
+
 ## 0.7.59 — 2026-10-31
 
 ### Fixed

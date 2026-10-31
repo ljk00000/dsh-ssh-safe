@@ -168,7 +168,7 @@ test('a stalled write gives up at the deadline and the connection survives', asy
       () => pool.writeFile('t', '/tmp/stall.txt', 'y'.repeat(100000), { timeoutMs: 400 }),
       // The stream truncates on open, so the caller has to be told the file is
       // no longer what it was.
-      /did not complete within 400ms.*truncated or partially written/,
+      /did not complete within 400ms.*the file was opened .* no data was sent/,
     )
     assert.ok(Date.now() - started < 3000, 'the deadline must fire promptly')
   } finally {
@@ -206,7 +206,7 @@ test('a cancelled transfer stops at once instead of running to its deadline', as
   srv.vfs.control.stallWrites = true
   const writing = pool.writeFile('t', '/tmp/cancel.txt', 'y'.repeat(100000), { timeoutMs: 20000, signal: writeController.signal })
   setTimeout(() => writeController.abort(), 100)
-  await assert.rejects(() => writing, /writing \/tmp\/cancel\.txt was cancelled; the file may be truncated/)
+  await assert.rejects(() => writing, /writing \/tmp\/cancel\.txt was cancelled; the file was opened .* no data was sent/)
   srv.vfs.control.stallWrites = false
 
   const listController = new AbortController()
@@ -220,4 +220,16 @@ test('a cancelled transfer stops at once instead of running to its deadline', as
   srv.vfs.putFile('/var/after.txt', 'ok')
   const after = await pool.readFile('t', '/var/after.txt', { maxBytes: 16 })
   assert.equal(after.content, 'ok')
+})
+test('a write cancelled before it starts says the file was not touched', async () => {
+  // The old message was 'the file may be truncated or partially written' for
+  // every cancel, including one that never opened the file: the caller went
+  // looking for damage that was not there.
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(
+    () => pool.writeFile('t', '/tmp/untouched.txt', 'x'.repeat(1000), { signal: controller.signal, createDirs: true }),
+    /was cancelled; the file was not touched \(cancelled before it started\)/,
+  )
+  assert.equal(srv.vfs.getFile('/tmp/untouched.txt'), undefined, 'nothing may be created')
 })
