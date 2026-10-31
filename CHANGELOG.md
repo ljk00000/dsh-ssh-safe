@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.191 — 2026-10-31
+
+### Documented
+- **Setting `denyPatterns` replaces the built-in list; it does not extend it.** Measured:
+  ```
+  denyPatterns: ["my-custom-pattern"]   → rm -rf / NOT blocked, my-custom-pattern blocked
+  denyPatterns: []                      → nothing blocked
+  denyPatterns: ["(unclosed"]            → rejected at load: "denyPatterns[0] is not a valid
+                                          regular expression (Invalid regular expression…)"
+  ```
+  The plugin already reported which set is in force (`13 pattern(s) (the built-in set)` /
+  `2 pattern(s) — replaces the 13 built-in rules` / `0 pattern(s) — the destructive-command
+  guard is OFF`); the README now says so next to the rule list, because losing the defaults
+  by adding one custom rule is the kind of surprise a safety rail must not spring.
+
+### Verified, no change needed
+- `machines` in the settings form: a string or an array is rejected with a schema message;
+  `null` is tolerated and the built-in defaults still apply.
+- Three processes appending to one `audit.ndjson` at once: 900 lines, all parseable, no torn
+  records, 300 per writer.
+
 ## 0.7.190 — 2026-10-31
 
 ### Documented
