@@ -405,7 +405,22 @@ function explainGone(err, alias) {
       '). It did not complete; the next call opens a new connection.'
     )
   }
-  if (!/Not connected|not connected|Channel open failure/i.test(message)) return err instanceof Error ? err : new Error(message)
+  // A refused CHANNEL is not a dead connection: sshd answers "Channel open failure"
+  // when it has reached MaxSessions (10 by default) or the user has too many
+  // sessions. The old mapping said the connection was gone, which sent the reader
+  // to reconnect instead of looking at the limit.
+  if (/Channel open failure/i.test(message)) {
+    return new Error(
+      // '(SSH) Channel open failure: ' with nothing after the colon: the ssh2 prefix
+      // and the empty reason are noise inside a parenthesis of our own.
+      'The server refused to open another channel on the connection to "' + alias + '" (' +
+      message.replace(/^\(SSH\)\s*/, '').replace(/:\s*$/, '') + '). The connection itself is ' +
+      'still up; the usual cause is its session limit ' +
+      '(MaxSessions, 10 by default) — close other sessions on that host, or raise the limit in ' +
+      'sshd_config.'
+    )
+  }
+  if (!/Not connected|not connected/i.test(message)) return err instanceof Error ? err : new Error(message)
   return goneError(alias)
 }
 

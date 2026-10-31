@@ -2724,3 +2724,61 @@ test('an auth refusal says which credential was offered', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a refused channel is reported as a session limit, not a dead connection', async () => {
+  // sshd answers 'Channel open failure' at MaxSessions. The plugin mapped that to
+  // 'The connection ... is gone', which sent the reader to reconnect instead of
+  // looking at the limit.
+  const ssh2 = (await import('ssh2')).default
+  const hostKey = ssh2.utils.generateKeyPairSync('ed25519').private
+  const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
+    let used = 0
+    client.on('authentication', (ctx) => ctx.accept())
+    client.on('ready', () => {
+      client.on('session', (accept, reject) => {
+        // One session per connection: the second request is refused the way a
+        // server at its MaxSessions limit refuses it.
+        used += 1
+        if (used > 1) { if (reject) reject(); return }
+        const session = accept()
+        session.on('exec', (acceptExec) => {
+          const stream = acceptExec()
+          stream.on('close', () => {})
+          stream.exit(0)
+          stream.end('first-ok\n')
+        })
+      })
+    })
+  })
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  const port = server.address().port
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-maxsess-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'n', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 4000,
+      machines: { n: { host: '127.0.0.1', port, user: 'tester', password: 'x' } },
+    })
+    const attempt = async () => {
+      try { return String((await own.ssh_exec.execute({ machine: 'n', command: 'echo hi' }, {})).text) } catch (err) { return 'ERR: ' + err.message }
+    }
+    assert.match(await attempt(), /first-ok/)
+    const refused = await attempt()
+    assert.match(refused, /refused to open another channel/)
+    assert.match(refused, /Channel open failure/)
+    assert.match(refused, /MaxSessions/)
+    assert.match(refused, /still up/)
+    assert.doesNotMatch(refused, /is gone/)
+    // One parenthesis, no stray empty reason.
+    assert.doesNotMatch(refused, /\)\)|\(\s*\)/)
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    server.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

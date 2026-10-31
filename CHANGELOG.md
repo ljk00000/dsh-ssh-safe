@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.245 — 2026-11-01
+
+### Fixed
+- **A channel the server refused was reported as a dead connection.** sshd answers
+  `(SSH) Channel open failure:` when it reaches `MaxSessions` (10 by default) or the account has too
+  many sessions. Measured against a server that allows one session per connection:
+  ```
+  before: The connection to "n" is gone: it was closed while the operation was starting or running
+          (ssh_close, an eviction, a dropped channel, or the server closing the connection). The
+          operation did not complete; call it again to reconnect.
+  after : The server refused to open another channel on the connection to "n" (Channel open
+          failure). The connection itself is still up; the usual cause is its session limit
+          (MaxSessions, 10 by default) — close other sessions on that host, or raise the limit in
+          sshd_config.
+  ```
+  The connection was alive and usable; only the new channel was refused, so "call it again to
+  reconnect" was the one piece of advice that could not help. The ssh2 `(SSH)` prefix and the empty
+  reason after the colon are stripped so the line does not read `((SSH) Channel open failure: )`.
+
+### Tests
+- One new case builds a one-session-per-connection server: the first command runs, the second gets
+  the new sentence, and `is gone` never appears. The assertions also reject a doubled or empty
+  parenthesis. Suite 827 / 822 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.244 — 2026-11-01
 
 ### Fixed
