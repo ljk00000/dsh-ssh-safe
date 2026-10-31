@@ -727,21 +727,8 @@ function assertKnownArgs(args, known, toolName) {
   }
 
   const guard = (command, confirmed, machine) => {
-    if (cfg.execGuard === 'confirm' && confirmed !== true) {
-      // A deny-pattern refusal was recorded; this one was not, so the log showed
-      // an operator the refusals that matched a rule and none of the ones stopped
-      // by the confirmation gate.
-      audit.write({
-        kind: 'refused',
-        // Every record carries an outcome; a refusal had none, so filtering the log
-        // by outcome silently skipped the operations that were stopped on purpose.
-        outcome: 'blocked',
-        machine,
-        command: summarize(command),
-        reason: 'execGuard is "confirm" and confirm was not passed',
-      })
-      throw new Error('execGuard is "confirm": pass confirm: true to run this command.')
-    }
+    // The deny list is evaluated before the confirmation gate: answering "pass
+    // confirm: true" for a command that denyPatterns refuses is a dead end.
     const verdict = cfg.pipeToShell === 'allow'
       ? checkCommand(command, cfg.denyPatterns, { allowPipeline: true })
       : checkCommand(command, cfg.denyPatterns)
@@ -768,6 +755,21 @@ function assertKnownArgs(args, known, toolName) {
         ? describeRule(verdict.pattern)
         : verdict.pattern
       throw new Error('Command refused' + where + ': ' + what + '. ' + remedy)
+    }
+    if (cfg.execGuard === 'confirm' && confirmed !== true) {
+      // A deny-pattern refusal was recorded; this one was not, so the log showed
+      // an operator the refusals that matched a rule and none of the ones stopped
+      // by the confirmation gate.
+      audit.write({
+        kind: 'refused',
+        // Every record carries an outcome; a refusal had none, so filtering the log
+        // by outcome silently skipped the operations that were stopped on purpose.
+        outcome: 'blocked',
+        machine,
+        command: summarize(command),
+        reason: 'execGuard is "confirm" and confirm was not passed',
+      })
+      throw new Error('execGuard is "confirm": pass confirm: true to run this command.')
     }
   }
 

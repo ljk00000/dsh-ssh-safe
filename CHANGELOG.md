@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.282 — 2026-11-01
+
+### Fixed — the confirmation gate offered a `confirm: true` that could never work
+With `execGuard: "confirm"` and the default deny list:
+```
+before  ssh_exec { command: "rm -rf /" }
+        → ERR: execGuard is "confirm": pass confirm: true to run this command.
+        …then, with confirm: true:
+        → ERR: Command refused: it deletes the filesystem root (…)
+
+after   ssh_exec { command: "rm -rf /" }
+        → ERR: Command refused: it deletes the filesystem root (…)
+```
+The confirmation gate ran first, so it promised a path that `denyPatterns` closes anyway: one wasted round
+trip, and the advice taught that `confirm: true` is how you run a refused command. The deny list is now
+evaluated before the gate, so each refusal names the setting that actually decides it. A command the deny
+list allows still asks for `confirm: true` — the two controls stay independent, only the order changed.
+
+### My own mistake
+My first attempt cut the deny block out with a text slice and produced `SyntaxError: Unexpected token
+'?'` — it had taken the `const verdict = … ? … : …` head off with the tail. Restored from git and redone
+by brace-counting the block, which is the reliable way to move a block that contains objects.
+
+### Tests
+- One new case: `rm -rf /` under `execGuard: "confirm"` answers with the deny reason and never with `pass
+  confirm: true`, while `echo hi` still asks for the confirmation.
+  Suite 866 / 861 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.281 — 2026-11-01
 
 ### Hardened — the dropped-character count now has an exact test

@@ -1250,3 +1250,33 @@ test('a credential file that cannot be parsed is named by every tool that reads 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a denied command is refused before the confirmation gate asks for confirm', async () => {
+  // With execGuard: confirm, 'rm -rf /' answered 'pass confirm: true to run this
+  // command' — a confirmation that could never succeed, because denyPatterns
+  // refuses the command either way.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-guardorder-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'n', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 1000, commandTimeoutMs: 1000, execGuard: 'confirm',
+      machines: { n: { host: '127.0.0.1', port: 45999, user: 'u', password: 'x' } },
+    })
+    const run = async (args) => {
+      try { return String((await own.ssh_exec.execute({ machine: 'n', ...args }, {})).text) } catch (err) { return 'ERR: ' + err.message }
+    }
+    const denied = await run({ command: 'rm -rf /' })
+    assert.match(denied, /Command refused: it deletes the filesystem root/)
+    assert.doesNotMatch(denied, /pass confirm: true/, 'the dead-end confirmation must not be offered')
+    // A command the deny list allows still needs the confirmation.
+    const needsConfirm = await run({ command: 'echo hi' })
+    assert.match(needsConfirm, /execGuard is "confirm": pass confirm: true/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
