@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.150 — 2026-10-31
+
+### Fixed
+- **A new, empty `known_hosts` file was called corrupt.** `touch ~/.ssh/known_hosts`
+  is how one starts, and a file holding only comments fell through to the format
+  refusal, quoting an empty first entry as evidence:
+  ```
+  before: … is not in a format this plugin can verify — it is neither an OpenSSH
+          known_hosts file nor the plugin's own store (first entry: "").
+  after : Unknown host 127.0.0.1:4494 with fingerprint SHA256:…. …\known_hosts is
+          an OpenSSH known_hosts file, which this plugin verifies but does not write
+          to. Add the host with: ssh-keyscan -p 4494 127.0.0.1 >> "…" — after
+          confirming the fingerprint out of band — or call ssh_connect with
+          trustHostKey: true for this one connection.
+  ```
+  Measured across five file shapes: empty, comment-only and blank-lines-only are now
+  "Unknown host"; a line of garbage is still refused as the wrong format; a real entry
+  with a different key is still "HOST KEY CHANGED".
+
+### Verified, no change needed
+- `trustHostKey: true` does **not** override a changed key: a recorded key that no
+  longer matches is refused with `HOST KEY CHANGED … recorded … presented …`, against
+  the plugin store and against an OpenSSH file alike.
+- A 4 MiB audit log rotates to `audit.ndjson.1` and `ssh_audit` still shows the newest
+  records across generations in time order.
+- A 2 MiB write is byte-identical (SHA-256 match) in 59ms; above `maxFileBytes` the
+  write is refused rather than half-done.
+- `maxConnections: 0` means unlimited: three aliases stay live with `overLimit: false`.
+
 ## 0.7.149 — 2026-10-31
 
 ### Fixed

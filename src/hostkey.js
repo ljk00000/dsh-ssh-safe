@@ -412,7 +412,15 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
       }
       text = ''
     }
-    if (text !== null && (text.trim() === '' || looksLikeOpenSshKnownHosts(text))) {
+    // A file that is empty, or holds nothing but comments, is a perfectly valid
+    // known_hosts with no entries yet ('touch ~/.ssh/known_hosts'). It used to fall
+    // through to the 'not in a format this plugin can verify' branch and quote an
+    // empty first entry, which is an alarming answer to a file that is simply new.
+    const entryLines = text === null ? [] : text.split(/\r?\n/).filter((line) => {
+      const trimmed = line.trim()
+      return trimmed !== '' && !trimmed.startsWith('#')
+    })
+    if (text !== null && (entryLines.length === 0 || looksLikeOpenSshKnownHosts(text))) {
       return checkOpenSshHostKey({
         text, file, host, port, keyBlob, policy, trustHostKey: trustHostKey === true, fp,
       })

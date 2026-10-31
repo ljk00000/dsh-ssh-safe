@@ -267,3 +267,32 @@ test('a broken trust record says what is wrong with it, in words', () => {
   }
   rmSync(home, { recursive: true, force: true })
 })
+
+test('a known_hosts file with no entries is unknown, not a broken format', () => {
+  // 'touch ~/.ssh/known_hosts' is the normal way to start one. A comment-only or
+  // empty file used to be refused as 'not in a format this plugin can verify',
+  // quoting an empty first entry.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-khempty-'))
+  const blob = Buffer.from('known-hosts-empty-key-0123456789')
+  const file = path.join(home, 'known_hosts')
+  for (const content of ['', '# a comment\n', '\n\n  \n']) {
+    writeFileSync(file, content, 'utf8')
+    const verdict = checkHostKey({
+      dshHome: home, host: 'h.example', port: 22, keyBlob: blob, policy: 'tofu',
+      trustHostKey: false, knownHostsFile: file,
+    })
+    assert.equal(verdict.ok, false)
+    assert.match(verdict.reason, /Unknown host h\.example:22/, JSON.stringify(content))
+    assert.doesNotMatch(verdict.reason, /not in a format this plugin can verify/)
+    // The file exists, so it must not be described as missing either.
+    assert.doesNotMatch(verdict.reason, /The file does not exist/)
+  }
+  // Real garbage still gets the format refusal.
+  writeFileSync(file, 'this is not a known_hosts entry\n', 'utf8')
+  const garbage = checkHostKey({
+    dshHome: home, host: 'h.example', port: 22, keyBlob: blob, policy: 'tofu',
+    trustHostKey: false, knownHostsFile: file,
+  })
+  assert.match(garbage.reason, /not in a format this plugin can verify/)
+  rmSync(home, { recursive: true, force: true })
+})
