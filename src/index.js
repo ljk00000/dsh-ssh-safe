@@ -1077,7 +1077,10 @@ function assertKnownArgs(args, known, toolName) {
           kind: 'exec',
           machine: alias,
           command: summarize(command),
-          outcome: 'error',
+          // Every other tool classifies with outcomeOf(); this path said 'error'
+          // for a handshake timeout and for a call cancelled while dialling, so
+          // the same failure read differently depending on which tool hit it.
+          outcome: outcomeOf(err),
           error: clipText(auditText(alias, err && err.message ? err.message : String(err)), 200),
           ms: Date.now() - startedAt,
         })

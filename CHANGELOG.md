@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.184 — 2026-10-31
+
+### Fixed
+- **A handshake timeout was logged as `error` by `ssh_exec`.** Every other tool classifies
+  with `outcomeOf()`, but the exec failure path hardcoded `error`, so the same failure read
+  two ways depending on the tool. Against a port that accepts TCP and says nothing:
+  ```
+  before: exec/error     (message: "Timed out while waiting for handshake …")
+  after : exec/timeout
+  ```
+  The README lists the handshake under `timeout`, and `ssh_connect` already said `timeout`
+  for the identical failure. A call cancelled while dialling now records `exec/cancel` too
+  (measured: aborted at 250 ms, message "connection to dead was cancelled while dialling").
+
+### Verified, no change needed
+- The message for a silent port is specific about the cause and the deadline holds:
+  `connectTimeoutMs: 1200` → the call returned in 1211 ms with "Timed out while waiting for
+  handshake (no SSH banner arrived — the port may not speak SSH, or a firewall is dropping
+  packets)".
+- `ssh_doctor` on the same port stops at a `connect` stage with that message, after
+  `[ok] tcp: port … accepts connections`, and a healthy machine on another alias still
+  works in the same session.
+
 ## 0.7.183 — 2026-10-31
 
 ### Fixed

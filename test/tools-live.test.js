@@ -1845,6 +1845,46 @@ test('an exit code is shown once, not twice', async () => {
 
 
 
+
+test('a handshake timeout is recorded as timeout, not error', async () => {
+  // pool.exec() throws for a dialling failure, and the catch in ssh_exec wrote a
+  // hardcoded 'error' while outcomeOf() classified the same failure as 'timeout'
+  // for ssh_connect. The README lists the handshake under timeout.
+  const net = await import('node:net')
+  const sockets = []
+  const blackhole = net.createServer((socket) => { sockets.push(socket) })
+  await new Promise((resolve) => blackhole.listen(0, '127.0.0.1', resolve))
+  const port = /** @type {any} */ (blackhole.address()).port
+  const home2 = mkdtempSync(path.join(tmpdir(), 'dsh-handshakefit-'))
+  const own = {}
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home2
+  try {
+    await apply(
+      { tools: { register: (def) => { own[def.name] = def } }, effect: () => {}, get: () => undefined },
+      {
+        defaultMachine: 'dead', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, auditLog: true,
+        reconnectCooldownMs: 0, connectTimeoutMs: 1000, commandTimeoutMs: 1000,
+        machines: { dead: { host: '127.0.0.1', port, user: 'tester', password: 'test-pass' } },
+      },
+    )
+    const message = await own.ssh_exec.execute({ machine: 'dead', command: 'echo hi' }, {})
+      .then(() => 'connected?!', (e) => e.message)
+    assert.match(message, /Timed out while waiting for handshake/)
+    const records = readFileSync(path.join(home2, 'dsh-ssh-safe', 'audit.ndjson'), 'utf8')
+      .split('\n').filter(Boolean).map((line) => JSON.parse(line))
+    const exec = records.find((record) => record.kind === 'exec')
+    assert.ok(exec, 'the failure is recorded')
+    assert.equal(exec.outcome, 'timeout')
+  } finally {
+    for (const socket of sockets) { try { socket.destroy() } catch {} }
+    await new Promise((resolve) => blackhole.close(resolve))
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home2, { recursive: true, force: true })
+  }
+})
+
 test('closing a connection while a command starts says so, instead of a TypeError', async () => {
   // connect() awaits the health probe and the eviction ceiling, and a concurrent
   // ssh_close can null the client inside that await. Returning it unchecked gave
