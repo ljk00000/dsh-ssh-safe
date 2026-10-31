@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.209 — 2026-10-31
+
+### Fixed
+- **`machineInventory: alias` was undone by the workspace instructions.** `ssh_workspace create`
+  answered `绑定 <host hidden>` and then wrote an AGENTS.md that named the address:
+  ```
+  before: 这个目录**不是项目目录**，它只是远程主机 k（secretuser@10.9.9.9:2222）的占位。
+  after : 这个目录**不是项目目录**，它只是远程主机 k（地址按 machineInventory: alias 隐藏）的占位。
+  ```
+  AGENTS.md is read into a session, so it counts as conversation content: hiding the endpoint in
+  the reply while writing it into the instructions achieved nothing. `remoteInstructions()` and
+  `writeRemoteWorkspace()` take the flag now, and the test asserts all three of host, user and
+  port are absent in lean mode while the full form still names them.
+
+### Verified, no change needed
+- Every other describe-tool honours the setting: `ssh_machines` (`<host hidden>`), `ssh_doctor`
+  (`<host hidden>`, "the configured port" without a number), `ssh_connect` (`Connected: <host
+  hidden>`) and `ssh_workspace list`. A sweep for the host, port and user strings found no leak
+  outside the trust line fixed in 0.7.208.
+- `ssh_audit` still shows whatever an error message said, addresses included: the setting is
+  documented as an inventory switch, and an audit row that hides the host could not be acted on.
+  Written down here so the boundary is deliberate rather than accidental.
+
+### My mistake
+- The patch anchor used CRLF in a file whose region is LF — sixth time this class of slip has
+  cost a round. The bytes were dumped before the second attempt, which then applied cleanly.
+
 ## 0.7.208 — 2026-10-31
 
 ### Fixed

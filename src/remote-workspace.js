@@ -113,15 +113,19 @@ function safeField(value) {
   return printable(String(value ?? ''))
 }
 
-export function remoteInstructions(alias, machine = {}, policy = 'strict') {
+export function remoteInstructions(alias, machine = {}, policy = 'strict', hideHost = false) {
   const host = machine.host ? safeField(machine.host) : '<未配置主机>'
   const port = machine.port || 22
   const user = machine.username ? safeField(machine.username) : '<未配置用户>'
+  // machineInventory: alias keeps host, port and user out of the conversation, and
+  // AGENTS.md is read into a session: the file that said 'secretuser@10.9.9.9:2222'
+  // undid the setting the same command had just honoured in its own reply.
+  const endpoint = hideHost ? '地址按 machineInventory: alias 隐藏' : user + '@' + host + ':' + port
   const name = safeField(alias)
   const lines = [
     '# 远程工作区：' + name,
     '',
-    '这个目录**不是项目目录**，它只是远程主机 ' + name + '（' + user + '@' + host + ':' + port + '）的占位。',
+    '这个目录**不是项目目录**，它只是远程主机 ' + name + '（' + endpoint + '）的占位。',
     '目录里除了本文件和 .dsh-remote-workspace.json 之外没有别的内容，远端文件也不在这里。',
     '',
     '## 规则',
@@ -173,7 +177,7 @@ export function readMarker(dshHome, alias) {
  * @param {{host?: string, port?: number, username?: string}} machine
  * @returns {{dir: string, created: boolean}}
  */
-export function writeRemoteWorkspace(dshHome, alias, machine = {}, policy = 'strict') {
+export function writeRemoteWorkspace(dshHome, alias, machine = {}, policy = 'strict', hideHost = false) {
   const dir = remoteDir(dshHome, alias)
   const created = !existsSync(dir)
   // Adopting a directory that already holds someone else's files would make it
@@ -225,7 +229,7 @@ export function writeRemoteWorkspace(dshHome, alias, machine = {}, policy = 'str
     }
   }
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'AGENTS.md'), remoteInstructions(alias, machine, policy), 'utf8')
+  writeFileSync(join(dir, 'AGENTS.md'), remoteInstructions(alias, machine, policy, hideHost), 'utf8')
   writeFileSync(join(dir, MARKER), JSON.stringify({
     alias,
     host: machine.host || '',

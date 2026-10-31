@@ -602,6 +602,21 @@ test('the instructions file cannot be given a new heading by a machine definitio
   }
 })
 
+
+test('machineInventory: alias also hides the endpoint in AGENTS.md', () => {
+  // AGENTS.md is read into a session, so it is conversation content: the file that
+  // said 'secretuser@10.9.9.9:2222' undid the setting the same command had just
+  // honoured in its own reply.
+  const machine = { host: '10.9.9.9', port: 2222, username: 'secretuser' }
+  const lean = remoteInstructions('k', machine, 'strict', true)
+  assert.doesNotMatch(lean, /10\.9\.9\.9/)
+  assert.doesNotMatch(lean, /secretuser/)
+  assert.doesNotMatch(lean, /2222/)
+  assert.match(lean, /machineInventory: alias/)
+  const full = remoteInstructions('k', machine, 'strict')
+  assert.match(full, /secretuser@10\.9\.9\.9:2222/)
+})
+
 test('removing a workspace does not delete files the user put there', () => {
   // deleteFiles: true used to remove the whole directory, including anything the
   // user had added. The create side already refuses to adopt such a directory;
