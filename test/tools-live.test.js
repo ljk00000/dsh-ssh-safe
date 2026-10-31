@@ -1192,3 +1192,37 @@ test('the doctor names a passphrase-protected key before dialling', async () => 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the truncation advice names the ceiling that actually applied', async () => {
+  // The note always said 'raise maxFileBytes', which does nothing when the call's
+  // own maxBytes was the tighter cap.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-capnote-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    srv2.vfs.putDir('/tmp')
+    srv2.vfs.putFile('/tmp/f.txt', 'A'.repeat(2048))
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      connectTimeoutMs: 4000, commandTimeoutMs: 4000, maxFileBytes: 1024,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+
+    const byConfig = String((await own.ssh_read.execute({ machine: 't', path: '/tmp/f.txt' }, {})).text)
+    assert.match(byConfig, /raise maxFileBytes in the plugin config/)
+    assert.doesNotMatch(byConfig, /raise maxBytes in this call/)
+
+    const byMaxBytes = String((await own.ssh_read.execute({ machine: 't', path: '/tmp/f.txt', maxBytes: 10 }, {})).text)
+    assert.match(byMaxBytes, /first 10 bytes/)
+    assert.match(byMaxBytes, /raise maxBytes in this call/,
+      'advice must name the cap that applied: ' + byMaxBytes.slice(0, 160))
+  } finally {
+    await own.ssh_close.execute({}, {}).catch(() => {})
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

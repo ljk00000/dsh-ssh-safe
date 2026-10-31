@@ -1200,8 +1200,14 @@ function assertKnownArgs(args, known, toolName) {
       // The file is larger than the ceiling; say so and say what raises it.
       // maxBytes can only tighten the limit, so pointing at maxFileBytes is the
       // only advice that works.
+      // Which ceiling applied decides what advice works: a call-level maxBytes
+      // tighter than the config cannot be lifted by raising maxFileBytes.
+      const maxBytesArg = optionalBudget(args.maxBytes, 'maxBytes')
+      const truncationAdvice = maxBytesArg !== undefined && maxBytesArg < cfg.maxFileBytes
+        ? 'raise maxBytes in this call (or maxFileBytes in the plugin config) to read more'
+        : 'raise maxFileBytes in the plugin config to read more'
       const truncatedNote = r.truncated
-        ? '[truncated: the first ' + plural(r.bytes, 'byte') + ' of a larger file — raise maxFileBytes in the plugin config to read more]\n'
+        ? '[truncated: the first ' + plural(r.bytes, 'byte') + ' of a larger file — ' + truncationAdvice + ']\n'
         : ''
       // The bytes are decoded as UTF-8 whatever they are, so a PNG or a gzip
       // stream arrives as replacement characters and NULs. Saying so is the

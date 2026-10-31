@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.133 — 2026-10-31
+
+### Fixed
+- **The truncation note named a fix that would not work.** It always said "raise
+  maxFileBytes in the plugin config", but `maxBytes` can only tighten the cap: when
+  the call asked for less than the config allows, raising `maxFileBytes` changes
+  nothing.
+  ```
+  maxFileBytes 1024, maxBytes 10:
+  before: … raise maxFileBytes in the plugin config to read more
+  after : … raise maxBytes in this call (or maxFileBytes in the plugin config) to read more
+  ```
+  Reading with only the config cap still points at the config.
+
+### Verified, no change needed
+- Content is delivered byte for byte: CRLF stays CRLF, a UTF-8 BOM stays, lone CRs
+  stay, and CJK text comes back intact. A Latin-1 byte sequence still triggers the
+  binary note.
+- Byte ceilings are exact at the boundary: a 5-byte file with `maxBytes: 5` has no note,
+  the same file at 6 bytes with `maxBytes: 5` is truncated, and 6 with `maxBytes: 6` is
+  not.
+- A process killed by a signal reports `[signal SIGKILL]`; mixed output keeps the
+  `[stderr]` block with the ordering note and the real exit code.
+
 ## 0.7.132 — 2026-10-31
 
 ### Fixed — a negated host pattern was ignored
