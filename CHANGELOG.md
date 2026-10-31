@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.158 — 2026-10-31
+
+### Fixed
+- **A host with a newline or a tab was reported as "the host contains a space".** The
+  check matched any whitespace and named the wrong character, so someone looking for a
+  space could not find one:
+  ```
+  host "a\tb"        before: the host contains a space
+                     after : the host contains a control character (a newline or a tab
+                             from a pasted value?)
+  host "bad host"    unchanged: the host contains a space
+  ```
+- **A host containing an escape sequence was not refused at all.** `evil\x1b[31mhost`
+  went to DNS and the failure message carried the raw bytes, so the terminal that showed
+  the error obeyed them:
+  ```
+  before: Could not connect to u@evil[31mhost:22: getaddrinfo ENOTFOUND evil[31mhost
+  after : Machine "control" cannot be used: the host field is unusable: the host
+          contains a control character (a newline or a tab from a pasted value?)
+  ```
+  The connect message now also escapes the host it prints, for the shapes that still
+  reach it.
+
+### Verified, no change needed
+- `ssh_machines` already escaped every config-supplied field (`evil\x1b[31mhost` shows as
+  `evil\x1b[31mhost` with a literal backslash-x1b), and `ssh_audit` shows the same.
+
 ## 0.7.157 — 2026-10-31
 
 ### Fixed

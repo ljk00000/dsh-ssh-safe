@@ -1684,3 +1684,38 @@ test('a timed-out or cancelled transfer records the same outcome as exec', async
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a host with a control character is refused before dialling, and named as such', async () => {
+  // A newline or a tab was reported as 'the host contains a space', and a host with
+  // an escape sequence was not refused at all: it went to DNS, and the failure
+  // message carried the raw bytes.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-hostshape-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const own = {}
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'tab', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 2000, commandTimeoutMs: 2000,
+      machines: {
+        space: { host: 'bad host.example', user: 'u', password: 'p' },
+        tab: { host: 'a\tb', user: 'u', password: 'p' },
+        esc: { host: 'evil\u001b[31mhost', user: 'u', password: 'p' },
+      },
+    })
+    const messageFor = (alias) => own.ssh_connect.execute({ machine: alias }, {})
+      .then(() => '', (err) => String(err.message))
+    const tab = await messageFor('tab')
+    assert.match(tab, /the host contains a control character/)
+    assert.doesNotMatch(tab, /contains a space/)
+    const esc = await messageFor('esc')
+    assert.match(esc, /the host field is unusable/)
+    assert.doesNotMatch(esc, /\u001b/, 'the refusal must not carry the raw escape byte')
+    assert.doesNotMatch(esc, /getaddrinfo/, 'it must be refused before dialling')
+    assert.match(await messageFor('space'), /the host contains a space/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

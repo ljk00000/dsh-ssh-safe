@@ -43,6 +43,7 @@ import { Utf8Collector, OutputBudget, countCodePoints } from './buffer.js'
 import { normalizeRemotePath } from './remote-path.js'
 import { closeClient } from './close.js'
 import { readRemoteFile, writeRemoteFile, listRemoteDir } from './sftp.js'
+import { printable } from './format.js'
 
 /** The largest delay setTimeout accepts; anything larger is clamped to 1 ms. */
 const MAX_TIMER_MS = 2147483647
@@ -117,7 +118,10 @@ export function connectFailure(err, m, { lean = false } = {}) {
       ? 'machine "' + (m.alias || 'unknown') + '" (address hidden)'
       // user@::1:22 reads as host "::1:22"; bracketing is how ssh prints an IPv6
       // literal, and it is the only thing that makes the port unambiguous.
-      : (m.username ? m.username + '@' : '') + formatHost(m.host) + ':' + (m.port || 22)
+      // A host from the settings can contain an escape sequence (pasted text). The
+      // inventory escaped these; this message printed the bytes, so the terminal
+      // that showed the failure obeyed them.
+      : printable(m.username ? m.username + '@' : '') + printable(formatHost(m.host)) + ':' + (m.port || 22)
     : 'the remote host'
   /** @type {Array<[RegExp, string]>} */
   const hints = [
@@ -229,6 +233,11 @@ function hostShapeHint(host) {
   // A space in the middle survives trim() and then fails at DNS, where the
   // message is "the host name did not resolve" -- true, and nowhere near the
   // actual problem.
+  // A newline or a tab was reported as "the host contains a space": true of the
+  // regex, and useless to someone looking for a space that is not there.
+  if (/[\u0000-\u001f]/.test(text)) {
+    return 'the host contains a control character (a newline or a tab from a pasted value?)'
+  }
   if (/\s/.test(text)) {
     return 'the host contains a space — host names cannot contain spaces'
   }
@@ -277,6 +286,7 @@ export function identityProblem(m) {
   // '#' before whitespace: 'example.com # note' has both, and the comment is the
   // informative one.
   if (host.includes('#')) return 'the host field is unusable: ' + hostHint
+  if (/[\u0000-\u001f]/.test(host)) return 'the host field is unusable: ' + hostHint
   if (/\s/.test(host)) return 'the host field is unusable: ' + hostHint
   if (/[\u0000-\u001f]/.test(user)) return 'the user field is unusable: ' + userShapeHint(user)
   return ''
