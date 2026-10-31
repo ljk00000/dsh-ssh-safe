@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.171 — 2026-10-31
+
+### Fixed (documentation)
+- **The README said `execGuard: confirm` gates two tools; it gates three.** Measured:
+  ```
+  exec  (no confirm) → ERR: execGuard is "confirm": pass confirm: true to run this command.
+  read  (no confirm) → ERR: … to read from the remote host. Reads can copy a private key …
+  write (no confirm) → ERR: … to write to the remote host. Writes can install scripts …
+  list  (no confirm) → /g - 5 … a.txt        (metadata only, not gated)
+  ```
+  The config example, the options table and the English paragraph now name all three and
+  say why a read is gated, and that `ssh_list` is not.
+
+### Verified, no change needed
+- Extreme inputs end to end: a file with NUL bytes gets the binary note, CRLF survives
+  byte for byte, and a 1 MB single line arrives whole when `maxFileBytes` allows it.
+- `machineInventory: "alias"` hides the host in every path I could reach — `ssh_machines`,
+  `ssh_config`, `ssh_doctor` (including its `tcp` line), `ssh_workspace` and the error text
+  of a refused connection ("(address hidden) … <host hidden>").
+- The audit record redacts a secret-shaped path (`/x/PASSWORD=<redacted>`), and `ssh_audit`
+  shows the same — the log keeps the shape of the path but not the secret inside it.
+
+### Corrected while editing
+- My first edit to the Chinese paragraph left a sentence dangling before a blank line
+  (the replacement held two lines but was written as two separate edits). The missing
+  half is back; the paragraph now reads as one thought.
+
 ## 0.7.170 — 2026-10-31
 
 ### Fixed

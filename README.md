@@ -413,10 +413,11 @@ ssh_read { machine: "prod", path: "/opt/app/.env", raw: true }
 - id: dsh-ssh-safe
   name: 'dsh-ssh-safe'
   config:
-    execGuard: confirm     # ssh_exec 必须带 confirm: true 才会执行
+    execGuard: confirm     # ssh_exec / ssh_read / ssh_write 都必须带 confirm: true
 ```
 
-防止模型自作主张跑命令。
+防止模型自作主张跑命令。读也在拦截范围内：一次读取就能把 `~/.ssh/id_ed25519` 带走，
+所以 `ssh_read` 与 `ssh_write` 同样需要 `confirm: true`；`ssh_list` 只列元数据，不受影响。
 
 ### 危险命令拦截
 
@@ -468,7 +469,7 @@ loopback 服务端不执行命令、不碰磁盘，只按脚本回包——它�
 | 配置项 | 默认 | 作用 |
 | --- | --- | --- |
 | `hostKeyPolicy` | `strict` | 只连已记录指纹的主机 |
-| `execGuard` | `allow` | `confirm` 时 `ssh_exec` 和 `ssh_write` 都必须带 `confirm: true` |
+| `execGuard` | `allow` | `confirm` 时 `ssh_exec`、`ssh_read`、`ssh_write` 都必须带 `confirm: true`（`ssh_list` 不受影响） |
 | `allowSessionPassword` | `false` | 是否允许在会话里传密码 |
 | `allowPlaintextPassword` | `false` | 是否接受凭据文件或设置界面里的明文密码（默认只认 DPAPI 加密值） |
 | `machineInventory` | `full` | `alias` 时隐藏 host/port/私钥路径 |
@@ -677,8 +678,9 @@ letting a stale stored credential look like a successful login.
     execGuard: confirm
 ```
 
-`ssh_exec` then requires `confirm: true`, so a model cannot run commands purely
-on its own initiative.
+`ssh_exec`, `ssh_read` and `ssh_write` then require `confirm: true`, so a model cannot
+run commands — or copy a key off the host — purely on its own initiative. `ssh_list`
+stays unguarded: it returns metadata only.
 
 ### Denied command patterns
 
