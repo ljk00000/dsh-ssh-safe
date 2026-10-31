@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.238 — 2026-11-01
+
+### Fixed
+- **With a file *above* the placeholder directory, `create` blamed the target and `list` blamed the
+  workspace service.** (`~/.dsh/dsh-ssh-safe/remotes` a regular file, alias `t`):
+  ```
+  create before: 那个位置已经有一个同名文件，占位目录建不出来。目录：…\remotes\t
+         after : …\remotes 已经是一个文件，占位目录建不出来。… 把 …\remotes 删掉或改名，再重试。
+  list   before: 未创建（当前 profile 没有 workspace 服务，只能生成目录）
+         after : 未创建，而且创建会失败：…\remotes 是一个文件，挡住了占位目录
+  ```
+  `blockingFileAbove()` walks the ancestors with `path.dirname`. My first attempt split the path on
+  separators instead and produced `C:Users`, which is a relative path on Windows, so nothing was
+  found — the probe caught it before the release.
+
+### Tests
+- One new case: `remotes` as a file is named by both actions, the create message points at that
+  file, the list no longer blames the service, and the file is still there afterwards.
+  Suite 819 / 814 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.237 — 2026-11-01
 
 ### Fixed

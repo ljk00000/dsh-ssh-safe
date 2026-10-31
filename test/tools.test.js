@@ -1057,3 +1057,37 @@ test('a file where the placeholder directory belongs is named as a file', async 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a file above the placeholder directory is named by both list and create', async () => {
+  // With remotes itself a file, create said the target '已经有一个同名文件' and list
+  // blamed the missing workspace service. The blocker is neither.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-wsabove-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      machines: { t: { host: '127.0.0.1', port: 22, user: 'tester', password: 'x' } },
+    })
+    const base = path.join(home, 'dsh-ssh-safe')
+    mkdirSync(base, { recursive: true })
+    writeFileSync(path.join(base, 'remotes'), 'blocked')
+    const attempt = async (args) => {
+      try { return String((await own.ssh_workspace.execute(args, {})).text) } catch (err) { return 'ERR: ' + err.message }
+    }
+    const created = await attempt({ action: 'create', machine: 't' })
+    assert.match(created, /remotes 已经是一个文件，占位目录建不出来/)
+    assert.doesNotMatch(created, /那个位置已经有一个同名文件/)
+    assert.match(created, /把 .*remotes 删掉或改名/)
+    const listed = await attempt({ action: 'list', machine: 't' })
+    assert.match(listed, /创建会失败：.*remotes 是一个文件/)
+    assert.doesNotMatch(listed, /未创建（当前 profile 没有 workspace 服务/)
+    // Nothing was deleted.
+    assert.equal(readFileSync(path.join(base, 'remotes'), 'utf8'), 'blocked')
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

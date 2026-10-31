@@ -23,7 +23,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { readFileSync, existsSync, statSync } from 'node:fs'
 import net from 'node:net'
 import { homedir } from 'node:os'
-import { join as joinPath } from 'node:path'
+import { dirname as dirnameOf, join as joinPath } from 'node:path'
 import { SshPool, expandHome, formatHost, hideAddress, pick } from './pool.js'
 import { expectedEnv, redact } from './credentials.js'
 import {
@@ -1621,9 +1621,16 @@ function assertKnownArgs(args, known, toolName) {
                   ? '同名路径已存在，但它是一个文件，不是目录；删掉那个文件再用 action: "create" 重建'
                   : dirExists
                     ? '目录已存在，但不是占位目录（.dsh-remote-workspace.json 缺失或无法解析）；用 action: "create" 重建'
-                  : (noService
-                    ? '未创建（当前 profile 没有 workspace 服务，只能生成目录）'
-                    : '未创建（用 action: "create" 创建）')
+                  : (() => {
+                    // Saying "no workspace service" when the path is blocked sent the
+                    // reader to fix a setting that was never the problem.
+                    const blocked = dirExists ? '' : blockingFileAbove(dir)
+                    return blocked
+                      ? '未创建，而且创建会失败：' + blocked + ' 是一个文件，挡住了占位目录'
+                      : noService
+                        ? '未创建（当前 profile 没有 workspace 服务，只能生成目录）'
+                        : '未创建（用 action: "create" 创建）'
+                  })()
           const endpoint = lean
             ? '<host hidden>'
             // Config-supplied text, like the inventory: an escape sequence or a newline
@@ -1685,13 +1692,21 @@ function assertKnownArgs(args, known, toolName) {
               '（action: "remove", machine: "' + owner + '", deleteFiles: true），再为 "' + alias + '" 创建。'
             )
           }
-          const detail = code === 'EEXIST' || code === 'ENOTDIR'
-            ? '那个位置已经有一个同名文件，占位目录建不出来'
-            : '目录无法创建（' + (code || (err && err.message) || '未知原因') + '）'
+          // The blocker is not always the target: with remotes itself a file, the
+          // message claimed a file named after the alias existed where the alias
+          // directory does. Name the component that is actually in the way.
+          const blocking = blockingFileAbove(dir)
+          const detail = blocking && blocking !== dir
+            ? blocking + ' 已经是一个文件，占位目录建不出来'
+            : code === 'EEXIST' || code === 'ENOTDIR'
+              ? '那个位置已经有一个同名文件，占位目录建不出来'
+              : '目录无法创建（' + (code || (err && err.message) || '未知原因') + '）'
           throw new Error(
             '无法创建机器 "' + alias + '" 的远程工作区：' + detail + '。\n' +
             '  目录：' + dir + '\n' +
-            '先删除或改名那个文件，再重试。'
+            (blocking && blocking !== dir
+              ? '把 ' + blocking + ' 删掉或改名，再重试。'
+              : '先删除或改名那个文件，再重试。')
           )
         }
         let registered = ''
@@ -1815,6 +1830,32 @@ function assertKnownArgs(args, known, toolName) {
       throw new Error('action 已校验却未处理：' + action)
     },
   })
+
+/**
+ * The first ancestor of `dir` that is a regular file, or ''.
+ *
+ * A file where a directory belongs makes mkdir fail with EEXIST, which reads as
+ * "the target already exists" even when the target is merely beneath the file.
+ *
+ * @param {string} dir
+ * @returns {string}
+ */
+function blockingFileAbove(dir) {
+  const chain = []
+  let probe = String(dir)
+  for (let i = 0; i < 64; i++) {
+    const up = dirnameOf(probe)
+    if (!up || up === probe) break
+    chain.push(up)
+    probe = up
+  }
+  for (const candidate of chain.reverse()) {
+    try {
+      if (statSync(candidate).isFile()) return candidate
+    } catch { /* missing or unreadable: not the blocker */ }
+  }
+  return ''
+}
 
   // ── ssh_audit ─────────────────────────────────────────────────────────
   registerTool({
