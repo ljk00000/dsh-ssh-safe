@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.237 — 2026-11-01
+
+### Fixed
+- **A file where a workspace placeholder directory belongs was described as a directory.** With
+  `~/.dsh/dsh-ssh-safe/remotes/t` being a regular file:
+  ```
+  list   before: 目录已存在，但不是占位目录（.dsh-remote-workspace.json 缺失或无法解析）
+         after : 同名路径已存在，但它是一个文件，不是目录；删掉那个文件再用 action: "create" 重建
+  remove before: 占位目录保留：…\remotes\t
+         after : 那个位置是一个文件，不是占位目录：…\remotes\t（没有删除任何东西）
+  ```
+  `create` already said 那个位置已经有一个同名文件, so the three actions disagreed about the same
+  state. Nothing is ever deleted on this path, which the new wording says outright.
+
+### Verified, no change needed
+- `formatListing()` survives junk it can receive indirectly: no items, `items: "nope"`, `items: null`
+  and a missing `path` all answer "(empty directory: …)". `printable()` handles every primitive
+  without throwing.
+
+### Tests
+- One new case: list, remove and create agree about the file, and the file is untouched afterwards.
+  Suite 818 / 813 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.236 — 2026-11-01
 
 ### Fixed

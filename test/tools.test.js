@@ -1021,3 +1021,39 @@ test('a record with wrongly typed numbers renders without gibberish', async () =
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a file where the placeholder directory belongs is named as a file', async () => {
+  // 'list' said 目录已存在 (a directory exists) and 'remove' said 占位目录保留 (the
+  // placeholder directory was kept) about a path that is a file. 'create' already
+  // had the right sentence, so the three disagreed about the same state.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-wsfile-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      machines: { t: { host: '127.0.0.1', port: 22, user: 'tester', password: 'x' } },
+    })
+    const root = path.join(home, 'dsh-ssh-safe', 'remotes')
+    mkdirSync(root, { recursive: true })
+    writeFileSync(path.join(root, 't'), 'not a directory')
+    const attempt = async (args) => {
+      try { return String((await own.ssh_workspace.execute(args, {})).text) } catch (err) { return 'ERR: ' + err.message }
+    }
+    const listed = await attempt({ action: 'list', machine: 't' })
+    assert.match(listed, /同名路径已存在，但它是一个文件，不是目录/)
+    assert.doesNotMatch(listed, /目录已存在，但不是占位目录/)
+    const removed = await attempt({ action: 'remove', machine: 't' })
+    assert.match(removed, /那个位置是一个文件，不是占位目录/)
+    assert.match(removed, /没有删除任何东西/)
+    const created = await attempt({ action: 'create', machine: 't' })
+    assert.match(created, /同名文件/)
+    // Nothing was deleted on the way.
+    assert.equal(readFileSync(path.join(root, 't'), 'utf8'), 'not a directory')
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

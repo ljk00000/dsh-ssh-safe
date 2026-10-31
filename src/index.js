@@ -1587,6 +1587,13 @@ function assertKnownArgs(args, known, toolName) {
           // a placeholder (marker deleted, or the user put something there). The
           // row then contradicted itself: "未创建" followed by the directory path.
           const dirExists = existsSync(dir)
+          // A path that exists but is a file is not a placeholder with a missing
+          // marker: saying "目录已存在" sent the reader looking for a marker inside
+          // something that is not a directory.
+          let dirIsFile = false
+          if (dirExists) {
+            try { dirIsFile = statSync(dir).isFile() } catch { /* raced away */ }
+          }
           // The instructions are the point of the placeholder: a workspace whose
           // AGENTS.md was deleted still registers, but the session that opens
           // there learns nothing about the remote host.
@@ -1610,8 +1617,10 @@ function assertKnownArgs(args, known, toolName) {
                   : noService
                     ? '有占位目录（当前 profile 没有 workspace 服务，无法注册到侧栏）'
                     : '有占位目录，但未注册（用 action: "create" 注册）')
-                : dirExists
-                  ? '目录已存在，但不是占位目录（.dsh-remote-workspace.json 缺失或无法解析）；用 action: "create" 重建'
+                : dirIsFile
+                  ? '同名路径已存在，但它是一个文件，不是目录；删掉那个文件再用 action: "create" 重建'
+                  : dirExists
+                    ? '目录已存在，但不是占位目录（.dsh-remote-workspace.json 缺失或无法解析）；用 action: "create" 重建'
                   : (noService
                     ? '未创建（当前 profile 没有 workspace 服务，只能生成目录）'
                     : '未创建（用 action: "create" 创建）')
@@ -1785,7 +1794,18 @@ function assertKnownArgs(args, known, toolName) {
           }
           files = gone ? '占位目录本来就不存在' : '占位目录已删除'
         } else {
-          files = existsSync(dir) ? '占位目录保留：' + dir : '占位目录本来就不存在：' + dir
+          // The path may be a file someone put there instead: calling it a
+          // "placeholder directory that was kept" described something that never
+          // existed.
+          files = !existsSync(dir)
+            ? '占位目录本来就不存在：' + dir
+            : (() => {
+                let isFile = false
+                try { isFile = statSync(dir).isFile() } catch { /* raced away */ }
+                return isFile
+                  ? '那个位置是一个文件，不是占位目录：' + dir + '（没有删除任何东西）'
+                  : '占位目录保留：' + dir
+              })()
         }
         return { text: '远程工作区 ' + alias + '\n  ' + removed + '\n  ' + files +
           '\n  远端主机上的文件没有被动过。' }
