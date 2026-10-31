@@ -40,6 +40,7 @@ import { checkHostKey } from '../src/hostkey.js'
 import { expandHome } from '../src/pool.js'
 import { dpapiAvailable, encryptDpapi } from '../src/dpapi.js'
 import { credentialFor, credentialState, credentialsPath, machineDefinition } from '../src/machines.js'
+import { envNames } from '../src/credentials.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -1090,8 +1091,8 @@ const server = createServer(async (req, res) => {
       // something the file never held.
       if (envAliases().includes(alias)) {
         warnings.push(removed
-          ? '已删除凭据文件里的记录；该别名也由环境变量提供（DSH_SSH_' + alias.toUpperCase() + '_HOST 一类），仍然可用'
-          : '凭据文件里没有该别名的记录；它来自环境变量（DSH_SSH_' + alias.toUpperCase() + '_HOST 一类），本页删不掉，要移除请改启动环境')
+          ? '已删除凭据文件里的记录；该别名也由环境变量提供（' + envNames(alias).host + ' 一类），仍然可用'
+          : '凭据文件里没有该别名的记录；它来自环境变量（' + envNames(alias).host + ' 一类），本页删不掉，要移除请改启动环境')
       }
       if (!removed && !warnings.length) {
         warnings.push('凭据文件里没有该别名的记录，没有可删除的内容')
@@ -1118,7 +1119,7 @@ const server = createServer(async (req, res) => {
         // settings form, which this file cannot remove.
         const envs = envAliases()
         if (envs.includes(alias)) {
-          warnings.push('凭据文件里没有该别名的密码；它来自环境变量（DSH_SSH_' + alias.toUpperCase() + '_PASSWORD 一类），要移除请改启动环境')
+          warnings.push('凭据文件里没有该别名的密码；它来自环境变量（' + envNames(alias).password + ' 一类），要移除请改启动环境')
         }
         return sendJson(res, 200, { ok: true, cleared: false, warnings: warnings.length ? warnings : ['凭据文件里没有该别名的已存密码'] })
       }

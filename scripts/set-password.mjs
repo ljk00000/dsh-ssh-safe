@@ -25,6 +25,7 @@
 
 import { spawnSync } from 'node:child_process'
 import { encryptDpapi, dpapiAvailable } from '../src/dpapi.js'
+import { envNames } from '../src/credentials.js'
 import { chmodSync, existsSync, statSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { acquireStoreLock } from './lib/store-lock.mjs'
 import { homedir } from 'node:os'
@@ -338,7 +339,10 @@ if (args['clear-password'] === true) {
   else store[alias] = entry
   persist(store)
   console.log('Cleared the stored password for "' + alias + '".')
-  console.log('Set DSH_SSH_' + alias.toUpperCase() + '_PASSWORD, or store a key with --key-path, to' +
+  // Hand-built from the alias, this said DSH_SSH_PROD.1_PASSWORD for the alias 'prod.1',
+// while the plugin reads DSH_SSH_PROD_1_PASSWORD (dots and dashes become
+// underscores). envNames() is the single place that knows the rule.
+console.log('Set ' + envNames(alias).password + ', or store a key with --key-path, to' +
     ' authenticate this machine again.')
   process.exit(0)
 }
@@ -382,7 +386,7 @@ if (secret) {
     console.warn('The plugin ignores it unless allowPlaintextPassword is true.')
   } else if (!dpapiAvailable()) {
     console.error('DPAPI encryption is available on Windows only.')
-    console.error('Store nothing instead: set DSH_SSH_' + alias.toUpperCase() + '_PASSWORD in the environment')
+    console.error('Store nothing instead: set ' + envNames(alias).password + ' in the environment')
     console.error('that launches DeepSeek Harness, which keeps the secret in memory.')
     process.exit(2)
   } else {

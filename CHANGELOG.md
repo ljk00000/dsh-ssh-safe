@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.304 — 2026-11-01
+
+### Fixed — the remedy named an environment variable the plugin never reads
+Aliases may contain dots and dashes, and `envNames()` turns those into underscores. The CLI and the page
+built the name themselves with `alias.toUpperCase()`, so a dotted alias was told to set something no shell
+accepts:
+```
+alias "prod.1"
+before   Set DSH_SSH_PROD.1_PASSWORD, or store a key with --key-path, …
+         page: 该别名也由环境变量提供（DSH_SSH_PROD.1_HOST 一类）
+after    Set DSH_SSH_PROD_1_PASSWORD, or store a key with --key-path, …
+         page: 该别名也由环境变量提供（DSH_SSH_PROD_1_HOST 一类）
+```
+The plugin has always read `DSH_SSH_PROD_1_PASSWORD` (that is what `envNames` produces and what the
+connection error lists), so following the advice left the machine unusable with no explanation. Four sites
+used the hand-built form — two in `scripts/set-password.mjs`, three in `scripts/gui.mjs` — and all now call
+`envNames()`, the single place that knows the rule.
+
+### Verified this round (no defect found)
+- `ssh_workspace create` under `machineInventory: "full"`: the marker and `AGENTS.md` name the host, port and
+  user as intended, and neither holds the password or the key path.
+- The generated `AGENTS.md` already uses the sanitised env name (`DSH_SSH_PROD_1_PASSWORD`), which is how the
+  discrepancy above became visible.
+
+### My own mistake
+- My first probe of the CLI advice read the wrong path: `--clear-password` prints the variable name, the
+  plain store path does not, so the first run looked clean. Running the clear path surfaced it.
+
+### Tests
+- One new case: clearing a dotted alias advises `DSH_SSH_PROD_1_PASSWORD` and must not contain the
+  impossible `DSH_SSH_PROD.1_PASSWORD`.
+  Suite 891 / 886 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.303 — 2026-11-01
 
 ### Fixed — the plugin's own diagnostics were mangled by its own redaction

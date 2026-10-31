@@ -419,3 +419,22 @@ test('a refused CLI run leaves the DSH home untouched', () => {
     }
   } finally { rmSync(home, { recursive: true, force: true }) }
 })
+
+test('the env-var advice uses the name the plugin actually reads', () => {
+  // Aliases may hold dots and dashes; envNames() turns them into underscores.
+  // The CLI and the page hand-built the name from toUpperCase(), so 'prod.1'
+  // was told to set DSH_SSH_PROD.1_PASSWORD — a name no shell accepts and the
+  // plugin never reads.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-envname-'))
+  try {
+    const stored = spawnSync(process.execPath, ['scripts/set-password.mjs', '--dsh-home', home,
+      '--alias', 'prod.1', '--host', 'h', '--user', 'u', '--password', 'pw'], { encoding: 'utf8', timeout: 20000 })
+    assert.equal(stored.status, 0, stored.stderr)
+    const cleared = spawnSync(process.execPath, ['scripts/set-password.mjs', '--dsh-home', home,
+      '--alias', 'prod.1', '--clear-password'], { encoding: 'utf8', timeout: 20000 })
+    assert.equal(cleared.status, 0, cleared.stderr)
+    const advice = cleared.stdout + cleared.stderr
+    assert.match(advice, /DSH_SSH_PROD_1_PASSWORD/)
+    assert.doesNotMatch(advice, /DSH_SSH_PROD\.1_PASSWORD/, 'the advice named an impossible variable')
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
