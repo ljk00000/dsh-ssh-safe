@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.108 — 2026-10-31
+
+### Fixed
+- **`ssh_read` of an empty file returned nothing at all.** An empty tool result is
+  ambiguous — the file may be empty, or the read may have returned nothing for a
+  reason the caller cannot see. `ssh_list` already answers
+  `(empty directory: /path)`, and a read now answers
+  `(empty file: /tmp/zero.txt — 0 bytes)`
+  A file holding a single newline is not empty and still comes back as its content.
+
+### Verified, no change needed
+- `createDirs` through a symlinked directory that already exists creates the tree at
+  the target and writes there (`/dirlink/a/b/f.txt` → `/real/dir/a/b/f.txt`).
+- CRLF output is passed through unchanged (`line one\r\nline two`): converting it
+  would corrupt exactly the case where the caller is inspecting line endings. A
+  `\r` never splits a row the way `\n` did.
+
 ## 0.7.107 — 2026-10-31
 
 ### Fixed

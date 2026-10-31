@@ -1062,6 +1062,12 @@ function assertKnownArgs(args, known, toolName) {
       // to redact. raw: true opts out for the cases where the masked value is
       // the thing being investigated.
       const body = args.raw === true ? r.content : redact(r.content)
+      // An empty tool result is ambiguous: the file may be empty, or the read may
+      // have returned nothing for a reason the caller cannot see. A directory
+      // listing already says "(empty directory)"; a read says so too.
+      if (r.bytes === 0 && body === '' && !r.truncated) {
+        return { text: '(empty file: ' + r.path + ' — 0 bytes)' }
+      }
       // The file is larger than the ceiling; say so and say what raises it.
       // maxBytes can only tighten the limit, so pointing at maxFileBytes is the
       // only advice that works.

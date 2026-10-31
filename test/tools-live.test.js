@@ -850,3 +850,17 @@ test('cancelling a call stops the dial, not just the operation', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('an empty file says it is empty instead of returning nothing', async () => {
+  // An empty tool result is ambiguous: an empty file, or a read that returned
+  // nothing for a reason the caller cannot see. 'ssh_list' already answers
+  // '(empty directory: …)'.
+  srv.vfs.putFile('/tmp/zero.txt', '')
+  const text = String((await tools.ssh_read.execute({ machine: 't', path: '/tmp/zero.txt' }, {})).text)
+  assert.match(text, /\(empty file: \/tmp\/zero\.txt — 0 bytes\)/)
+
+  // A file holding only a newline is not empty and must come back as content.
+  srv.vfs.putFile('/tmp/newline.txt', '\n')
+  const blank = String((await tools.ssh_read.execute({ machine: 't', path: '/tmp/newline.txt' }, {})).text)
+  assert.equal(blank, '\n')
+})
