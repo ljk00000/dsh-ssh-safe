@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.292 — 2026-11-01
+
+### Fixed — an escaped name in a listing looked like a path you could pass back
+A remote name holding a newline, ESC or a bidi override is displayed escaped, which is right — but
+nothing said so, and `line\nbreak.txt` is not a path any caller can send back:
+```
+/n
+-          3  2026-10-31T22:09:48Z  esc\x1b[31mred.txt
+-          7  2026-10-31T22:09:48Z  line\nbreak.txt
+-          3  2026-10-31T22:09:48Z  rtl\u202egnp.txt
+[note] 3 names were shown escaped (\n, \x1b, \u202e and so on) because the real name holds a control
+       character or a bidi override. The backslash sequences are not part of the name: to get a
+       spelling you can pass back, run ssh_exec with printf %q on the same directory.
+```
+A clean directory gets no note, and the reply still contains no raw control character.
+
+### Verified this round (no change needed)
+- Aliases are case-insensitive end to end: `machine: "PROD"` / `"Prod"` / `"prod"` all run, and the audit
+  row records the normalised `prod` every time, matching the inventory.
+- `knownHosts` pointing at an OpenSSH file: `trustHostKey: true` connects **and says the key was not
+  recorded** — "that key was accepted for this connection only: … is an OpenSSH known_hosts file this
+  plugin verifies but does not write … Add it with ssh-keyscan -p 11446 127.0.0.1 >> …" — and the file
+  is left byte-for-byte intact, hashed and commented lines included.
+
+### My own mistakes
+- I inserted the note code **after** `return { text: formatListing(…) }`, so it was dead code and the
+  probe showed no note. Same mistake as round 78: when adding before a return, replace the return, do not
+  append after it.
+- The replacement then used an `eol` variable that only existed in my patch script: `ERR: eol is not
+  defined` from the tool itself. Replaced with a literal.
+
+### Tests
+- One new live case: two escaped names produce the note, a clean directory does not, and the reply holds
+  no raw control character.
+  Suite 876 / 871 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.291 — 2026-11-01
 
 ### Fixed — a store from a newer plugin was called corrupt, with no remedy

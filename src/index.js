@@ -1579,7 +1579,17 @@ function assertKnownArgs(args, known, toolName) {
         kind: 'list', machine: alias, path: listing.path, outcome: 'ok',
         entries: listing.items.length, ms: Date.now() - startedAt,
       })
-      return { text: formatListing(listing, cfg.maxListEntries, offset) }
+      // A name that had to be escaped cannot be typed back: the real name holds a
+      // control character or a bidi override. Say so, and say how to get an
+      // addressable spelling, instead of leaving a path that silently never matches.
+      const escapedCount = listing.items.filter((item) => printable(item.name) !== item.name).length
+      const notes = escapedCount > 0
+        ? ['', '[note] ' + escapedCount + ' name' + (escapedCount === 1 ? ' was' : 's were') +
+            ' shown escaped (\\n, \\x1b, \\u202e and so on) because the real name holds a control' +
+            ' character or a bidi override. The backslash sequences are not part of the name: to get a' +
+            ' spelling you can pass back, run ssh_exec with printf %q on the same directory.']
+        : []
+      return { text: [formatListing(listing, cfg.maxListEntries, offset), ...notes].filter(Boolean).join('\n') }
     },
   })
 

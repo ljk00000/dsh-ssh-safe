@@ -3345,3 +3345,42 @@ test('a null host-key record is refused, not treated as never seen', async () =>
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a listing says when names had to be escaped', async () => {
+  // A name holding a newline or ESC is displayed escaped, so the shown spelling is
+  // not a path a caller can pass back. The listing used to say nothing about it.
+  const own = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-escnames-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  try {
+    own.vfs.putDir('/e')
+    own.vfs.putFile('/e/plain.txt', Buffer.from('a'))
+    own.vfs.putFile('/e/line\nbreak.txt', Buffer.from('b'))
+    own.vfs.putFile('/e/esc\u001b[31mred.txt', Buffer.from('c'))
+    await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { t: machineFor('t', own.port) },
+    })
+    const out = String((await tools.ssh_list.execute({ machine: 't', path: '/e' }, {})).text)
+    // The reply never carries a raw control character.
+    assert.doesNotMatch(out, /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/)
+    assert.match(out, /line\\nbreak\.txt/)
+    assert.match(out, /esc\\x1b\[31mred\.txt/)
+    assert.match(out, /\[note\] 2 names were shown escaped/)
+    assert.match(out, /printf %q/)
+    // A clean directory gets no note.
+    own.vfs.putDir('/clean')
+    own.vfs.putFile('/clean/only.txt', Buffer.from('x'))
+    const clean = String((await tools.ssh_list.execute({ machine: 't', path: '/clean' }, {})).text)
+    assert.doesNotMatch(clean, /shown escaped/)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await own.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
