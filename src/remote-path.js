@@ -36,8 +36,15 @@ export function normalizeRemotePath(input, options = {}) {
   if (raw.length === 0) throw new RemotePathError('path is empty')
   if (raw.includes('\u0000')) throw new RemotePathError('path contains a NUL byte')
 
-  const trimmed = raw.trim()
-  if (trimmed.length === 0) throw new RemotePathError('path is blank')
+  // A path pasted from a terminal often carries a trailing newline or tab, and
+  // dropping those is a kindness. Spaces are different: a POSIX name may END in a
+  // space, and trimming it made such a file unreadable — listed by ssh_list, then
+  // "no such file" for the exact name shown. Only CR/LF/TAB are paste noise.
+  const trimmed = raw.replace(/^[\r\n\t]+|[\r\n\t]+$/g, '')
+  // Spaces are kept (a name may end in one), so a path of nothing but spaces is
+  // still blank: "must be absolute on the remote host (received:    )" hid what
+  // went wrong behind a row of whitespace.
+  if (trimmed.trim().length === 0) throw new RemotePathError('path is blank')
 
   if (trimmed === '~' || trimmed.startsWith('~/')) {
     throw new RemotePathError(

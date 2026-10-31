@@ -72,7 +72,7 @@ export function stripBom(text) {
   return String(text ?? '').replace(/^\uFEFF/, '')
 }
 export function printable(name) {
-  return String(name ?? '')
+  const text = String(name ?? '')
     .replace(/\\/g, '\\\\')
     .replace(/\n/g, '\\n')
     .replace(/\r/g, '\\r')
@@ -86,6 +86,9 @@ export function printable(name) {
         ? '\\x' + code.toString(16).padStart(2, '0')
         : '\\u' + code.toString(16).padStart(4, '0')
     })
+  // "no such file: /d/name " and "…/d/name" look identical in a row, and one of
+  // them names a file that exists. Quote the value when an edge is whitespace.
+  return /^\s|\s$/.test(text) ? '"' + text + '"' : text
 }
 
 /**

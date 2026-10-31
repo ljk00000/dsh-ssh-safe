@@ -1,6 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { redact } from '../src/credentials.js'
+import { normalizeRemotePath } from '../src/remote-path.js'
+import { printable } from '../src/format.js'
 
 // redact handled KEY=value and PEM blocks. An Authorization header or a password
 // inside a URL went through untouched -- and ssh_read returns exactly this
@@ -352,4 +354,23 @@ test('~/.netrc and ~/.pgpass secrets are masked', () => {
     'host:port:db:user:pass answer?']) {
     assert.equal(redact(text), text, text + ' must not be rewritten')
   }
+})
+
+test('a file whose name ends in a space can be read, written and listed', () => {
+  // raw.trim() treated the trailing space as paste noise, so a POSIX name ending in
+  // one was unreachable: ssh_list showed 'name ', ssh_read answered
+  // 'no such file: /d/name', and ssh_write created a different file than asked.
+  assert.equal(normalizeRemotePath('/d/name '), '/d/name ')
+  assert.equal(normalizeRemotePath('/d/w '), '/d/w ')
+  // CR/LF/TAB pasted from a terminal are still dropped, and a blank path is refused.
+  assert.equal(normalizeRemotePath('/d/name\n'), '/d/name')
+  assert.equal(normalizeRemotePath('\t/d/name\r\n'), '/d/name')
+  assert.throws(() => normalizeRemotePath('   '), /path is blank/)
+  assert.throws(() => normalizeRemotePath('\n\t'), /path is blank/)
+  // The row must show the space, or 'no such file: /d/name' is a lie about what
+  // exists on the host.
+  assert.equal(printable('/d/name '), '"/d/name "')
+  assert.equal(printable('/d/name'), '/d/name')
+  assert.equal(printable(' /d/name'), '" /d/name"')
+  assert.equal(printable('a b'), 'a b')
 })

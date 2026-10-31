@@ -373,7 +373,9 @@ export async function apply(ctx, config) {
         ? field + ' is required'
         : field + ' is blank: it contains only whitespace (received ' + JSON.stringify(value) + ')')
     }
-    return trimmed
+    // Return the value as given: a POSIX name may end in a space, and trimming it
+    // here made such a file unreadable while ssh_list showed the exact name.
+    return value
   }
 
   /**
@@ -1473,7 +1475,8 @@ function assertKnownArgs(args, known, toolName) {
               'permissions); run chmod through ssh_exec to change them'
             : '')
         : ''
-      return { text: 'Wrote ' + plural(r.bytes, 'byte') + ' to ' + r.path + modeNote + viaLink }
+      // printable(): a path ending in a space is indistinguishable otherwise.
+      return { text: 'Wrote ' + plural(r.bytes, 'byte') + ' to ' + printable(r.path) + modeNote + viaLink }
     },
   })
 
@@ -1502,7 +1505,8 @@ function assertKnownArgs(args, known, toolName) {
       if (typeof rawPath !== 'string') {
         throw new Error('path must be a string (received ' + typeof rawPath + ')')
       }
-      const remotePath = rawPath.trim() || '.'
+      // Only CR/LF/TAB are paste noise; a trailing space is part of a POSIX name.
+      const remotePath = rawPath.replace(/^[\r\n\t]+|[\r\n\t]+$/g, '') || '.'
       // The row cap is a config value, so without an offset a directory with more
       // entries than maxListEntries could never be read past its first page: the
       // note named the knob, and a caller cannot edit the plugin config.

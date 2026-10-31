@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.7.262 — 2026-11-01
+
+### Fixed — a file whose name ends in a space was unreachable
+```
+ssh_list /d            -  20  …  name        <- the file exists and is listed
+before  ssh_read  /d/name     ERR: no such file: /d/name      <- the name was trimmed
+after   ssh_read  /d/name     trailing-space-file
+
+before  ssh_write /d/w   →  "Wrote 1 byte to /d/w"    <- created a DIFFERENT file
+after   ssh_write /d/w   →  Wrote 1 byte to "/d/w "
+```
+Four places trimmed the path: `normalizeRemotePath`, `requireText`, the `ssh_list` path and the
+workspace path. `raw.trim()` treated a trailing space as paste noise, but in POSIX it is part of the
+name — so a file that `ssh_list` displayed could not be read, and `ssh_write` silently created another
+file at the trimmed path while naming it in the reply.
+
+Only CR/LF/TAB are dropped now, and only from the ends (a path pasted from a terminal still works). A
+path of nothing but spaces still reports `path is blank` instead of `must be absolute … (received:   )`.
+`printable()` quotes a value whose first or last character is whitespace, so `no such file: "/d/name "`
+can no longer be misread as `…/d/name`.
+
+### A regression I introduced and caught in the same round
+My first `printable()` edit lost the escape chain and returned `undefined`, so every listing row printed
+`undefined`; a second edit then injected the return into `printableText` (which has no `text`), a
+`ReferenceError` waiting to happen. Both were caught by the probe before the suite ran, and the function
+was rebuilt so the chain assigns to `text` and the return follows it.
+
+### Also verified (no change needed)
+- Argument types: 13 wrong-typed calls (`limit: "20"`, `offset: 1.5`, `raw: "true"`, `force: "yes"`,
+  `machine: {}`, `content: 42`, …) are all refused by the schema with a readable `must be an integer /
+  string / boolean` — none passed silently.
+- Paths: `..` collapses, `/a/b/c.txt/` is refused as a directory path, `C:\…` and relative paths are
+  refused as non-absolute, 4000-character and 300-level paths give an ordinary ENOENT.
+
+### Tests
+- One new case covering the four call shapes and both quoting behaviours.
+  Suite 850 / 845 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.261 — 2026-11-01
 
 ### Added — two guards for the shared connection
