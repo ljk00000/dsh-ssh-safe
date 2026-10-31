@@ -127,6 +127,7 @@ if (reserved.includes(alias)) {
 if (!alias) {
   console.error('Usage: node scripts/set-password.mjs --alias <name> [--host h] [--port p] [--user u]')
   console.error('                                              [--key-path p] [--key-passphrase]')
+  console.error('                                              [--password p] [--plaintext] [--clear-password]')
   process.exit(2)
 }
 
@@ -207,6 +208,17 @@ if (typeof args['key-passphrase'] === 'string') {
 // flag for it. The only way to revoke a DPAPI blob was to delete the machine or
 // edit credentials.json by hand.
 if (args['clear-password'] === true) {
+  // Two contradictory instructions used to be resolved silently: the clear ran
+  // first, exited 0 and said "Cleared", while --password was never stored.
+  if (args.password !== undefined) {
+    console.error('--clear-password removes the stored password, so it cannot be combined with --password.')
+    console.error('Run the clear on its own, then store the new password with a second command.')
+    process.exit(2)
+  }
+  if (args.plaintext !== undefined) {
+    console.error('--plaintext only applies when storing a password; drop it when clearing.')
+    process.exit(2)
+  }
   const had = Boolean(entry.password || entry.passwordDpapi)
   delete entry.password
   delete entry.passwordDpapi

@@ -247,3 +247,49 @@ test('--clear-password removes a stored password and keeps the rest', { skip: !d
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('--clear-password refuses to be combined with --password', { skip: !dpapiAvailable() && 'DPAPI unavailable' }, () => {
+  // The clear branch ran first and exited 0 with 'Cleared' while --password was
+  // never stored: a silent contradiction.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-clear2-'))
+  const file = path.join(home, 'dsh-ssh-safe', 'credentials.json')
+  try {
+    assert.equal(runSetPassword(home, ['--alias', 'x1', '--password', 'old']).status, 0)
+    const conflict = runSetPassword(home, ['--alias', 'x1', '--clear-password', '--password', 'new'])
+    assert.equal(conflict.status, 2)
+    assert.match(String(conflict.stderr), /cannot be combined with --password/)
+    // Nothing changed.
+    const store = JSON.parse(readFileSync(file, 'utf8'))
+    assert.ok(store.x1.passwordDpapi, 'the old password must still be there')
+
+    const plain = runSetPassword(home, ['--alias', 'x1', '--clear-password', '--plaintext'])
+    assert.equal(plain.status, 2)
+    assert.match(String(plain.stderr), /--plaintext only applies when storing/)
+    assert.ok(JSON.parse(readFileSync(file, 'utf8')).x1.passwordDpapi)
+
+    // Field updates are allowed alongside the clear.
+    const withHost = runSetPassword(home, ['--alias', 'x1', '--clear-password', '--host', 'newhost'])
+    assert.equal(withHost.status, 0, withHost.stderr)
+    const after = JSON.parse(readFileSync(file, 'utf8'))
+    assert.equal(after.x1.passwordDpapi, undefined)
+    assert.equal(after.x1.host, 'newhost')
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('the usage line names every option the script accepts', () => {
+  // It listed only the original flags: --password, --plaintext and --clear-password
+  // were accepted but unmentioned, and a whitelist keeps them in step.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-usage-'))
+  try {
+    const result = runSetPassword(home, [])
+    assert.equal(result.status, 2)
+    const usage = String(result.stderr)
+    for (const flag of ['--host', '--port', '--user', '--key-path', '--key-passphrase', '--password', '--plaintext', '--clear-password']) {
+      assert.ok(usage.includes(flag), 'usage must mention ' + flag)
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})

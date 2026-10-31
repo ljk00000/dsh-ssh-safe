@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.248 — 2026-11-01
+
+### Fixed
+- **`--clear-password --password new` deleted the stored password and never stored `new`.** The clear
+  branch ran first, exited 0 and printed `Cleared the stored password for "x1".` — the second
+  instruction was dropped without a word:
+  ```
+  before: exit 0  Cleared the stored password for "x1".     (new was ignored)
+  after : exit 2  --clear-password removes the stored password, so it cannot be combined with
+                  --password. Run the clear on its own, then store the new password with a second
+                  command.
+  ```
+  `--clear-password --plaintext` is refused the same way (`--plaintext only applies when storing a
+  password`). Field updates stay allowed alongside a clear: `--clear-password --host newhost` clears
+  the secret and applies the new host.
+
+- **The usage line under-listed the options.** It named `--host/--port/--user/--key-path/
+  --key-passphrase` while the script accepted `--password`, `--plaintext` and `--clear-password` too.
+  All eight are now printed, and a test keeps the line in step with the whitelist.
+
+### Tests
+- Two new cases: the conflicting combinations exit 2 and change nothing, while a clear with a host
+  update does both; and the usage line mentions every accepted option.
+  Suite 831 / 826 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.247 — 2026-11-01
 
 ### Added
