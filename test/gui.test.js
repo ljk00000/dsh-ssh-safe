@@ -274,7 +274,7 @@ test('a request for another Host is refused', async () => {
   }
 })
 
-test('saving a machine stores the password encrypted, never in plaintext', async () => {
+test('saving a machine stores the password encrypted, never in plaintext', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
   const { child, base, token } = await start(home)
   try {
@@ -388,7 +388,7 @@ test('an oversized body is refused with 413', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
-test('the test button walks every stage against a reachable server', async () => {
+test('the test button walks every stage against a reachable server', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
   const srv = await startServer()
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
   const { child, base, token } = await start(home)
@@ -421,7 +421,7 @@ test('the test button walks every stage against a reachable server', async () =>
   }
 })
 
-test('the test button reports an unreachable host instead of hanging', async () => {
+test('the test button reports an unreachable host instead of hanging', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
   const dead = await startServer()
   const port = dead.port
   await dead.close()
@@ -551,7 +551,7 @@ test('the test button honours useCredentialFile: false', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
-test('saving replaces the credential file atomically', async () => {
+test('saving replaces the credential file atomically', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
   const { child, base, token } = await start(home)
   const credFile = path.join(home, 'dsh-ssh-safe', 'credentials.json')
@@ -584,7 +584,9 @@ test('an alias that cannot be used is refused, not silently rewritten', async ()
       assert.match(bad.body.error, /别名只能用字母、数字、点、下划线、连字符/)
     }
 
-    const good = await call(base, token, '/api/save', { alias: ' Prod ', host: 'h', user: 'u', password: 'p' })
+    // No password: this test is about the alias, and a save with one needs
+    // DPAPI, which is Windows-only -- it would fail for an unrelated reason.
+    const good = await call(base, token, '/api/save', { alias: ' Prod ', host: 'h', user: 'u' })
     assert.equal(good.status, 200, JSON.stringify(good.body))
     const listed = await call(base, token, '/api/state')
     const aliases = listed.body.machines.map((m) => m.alias)
@@ -629,7 +631,7 @@ test('quoted values and trailing comments in the settings form parse like YAML',
     rmSync(home, { recursive: true, force: true })
   }
 })
-test('useCredentialFile: false hides the file and warns when saving', async () => {
+test('useCredentialFile: false hides the file and warns when saving', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
   const profile = path.join(home, 'profiles', 'desktop')
   mkdirSync(profile, { recursive: true })
@@ -694,7 +696,7 @@ test('a field that is not text is refused instead of stringified into the file',
     rmSync(home, { recursive: true, force: true })
   }
 })
-test('deleting a machine that the settings form defines says where it lives', async () => {
+test('deleting a machine that the settings form defines says where it lives', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
   // The row stayed on the page after a successful-looking delete: the entry
   // was never in this file to begin with.
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))

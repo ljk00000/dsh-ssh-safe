@@ -49,9 +49,6 @@ jobs:
         shell: bash
         run: |
           if [ ! -f test-output.txt ]; then echo "::error::no test output was captured"; exit 0; fi
-          grep -n "^not ok " test-output.txt | head -20 | while IFS= read -r hit; do
-            name="${hit#* - }"
-            echo "::error::failing test: $name"
-          done
+          node scripts/ci-annotations.mjs test-output.txt
           echo "--- failure details ---"
-          grep -A6 "^not ok " test-output.txt | head -120
+          grep -A8 "^not ok " test-output.txt | head -160

@@ -122,7 +122,11 @@ export function connectFailure(err, m, { lean = false } = {}) {
   /** @type {Array<[RegExp, string]>} */
   const hints = [
     [/ECONNREFUSED/i, 'nothing is listening on that port'],
-    [/ECONNRESET/i, 'the server closed the connection during the handshake — the port may not be sshd'],
+    // EPIPE and ECONNABORTED are the same situation under a different errno:
+    // the peer accepted the socket and closed it before the SSH banner, which is
+    // what a non-SSH port does. Linux reports EPIPE where Windows reports
+    // ECONNRESET, and the caller should not need to know which.
+    [/ECONNRESET|EPIPE|ECONNABORTED/i, 'the server closed the connection during the handshake — the port may not be sshd'],
     [/ENOTFOUND|EAI_AGAIN/i, 'the host name did not resolve'],
     [/Timed out while waiting for handshake|ETIMEDOUT/i, 'no SSH banner arrived — the port may not speak SSH, or a firewall is dropping packets'],
     // ssh2 says only "Connection lost before handshake" when the peer speaks
