@@ -143,7 +143,14 @@ export function redact(text) {
   s = s.replace(/(^|\s)(-p)\s+("[^"]*"|'[^']*'|\S+)/g, (match, lead, flag, value) =>
     /^\d+$/.test(value) ? match : lead + flag + ' <redacted>')
   // '--password secret' and '--token=secret'.
-  s = s.replace(/(^|[\s"'])(--?(?:password|passwd|passphrase|token|secret))(\s+|=)(\S+)/gi, '$1$2$3<redacted>')
+  // '--pass' was the one abbreviation missing, and it is the one people type.
+  // Longer alternatives come first so '--passphrase=x' is not read as '--pass'.
+  s = s.replace(/(^|[\s"'])(--?(?:password|passphrase|passwd|pass|token|secret))(\s+|=)(\S+)/gi, '$1$2$3<redacted>')
+  // redis-cli takes its password with -a. Masking every '-a' would mangle
+  // 'ls -a', so only immediately after the client's own name.
+  // A quoted password is one value: masking only its first word left the rest in
+  // the log ('-a <redacted> pass" ping').
+  s = s.replace(/(^|[\s"'])(redis-cli)([^\n]*?)\s(-a)\s+("[^"]*"|'[^']*'|\S+)/gi, '$1$2$3 -a <redacted>')
   // PEM blocks
   s = s.replace(/-----BEGIN [\s\S]*?-----END [^-]*-----/g, '<redacted-pem>')
   // PuTTY's .ppk format has no PEM markers at all: 'PuTTY-User-Key-File-2:' then

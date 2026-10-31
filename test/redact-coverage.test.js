@@ -179,3 +179,18 @@ test('-p with a separate password argument is masked, but -p as a port is not', 
   assert.equal(redact('ssh -p 2222 root@host'), 'ssh -p 2222 root@host')
   assert.equal(redact('scp -P 2222 file host:'), 'scp -P 2222 file host:')
 })
+
+test('--pass and redis-cli -a are masked without touching real flags', () => {
+  // '--pass=SECRET' and 'redis-cli -a SECRET' reached the audit command verbatim;
+  // masking every '-a' would have mangled 'ls -a' instead.
+  assert.doesNotMatch(redact('mysql --pass=SECRET42 db'), /SECRET42/)
+  assert.doesNotMatch(redact('mysql --pass SECRET42 db'), /SECRET42/)
+  assert.doesNotMatch(redact('redis-cli -a SECRET42 ping'), /SECRET42/)
+  assert.doesNotMatch(redact('redis-cli -a "two words" ping'), /two words/)
+  // Longest alternative wins: --passphrase is not read as --pass.
+  assert.equal(redact('git --passphrase=KEYPASS clone x'), 'git --passphrase=<redacted> clone x')
+  // Real flags stay.
+  assert.equal(redact('ls -a /tmp'), 'ls -a /tmp')
+  assert.equal(redact('tar -af archive.tar x'), 'tar -af archive.tar x')
+  assert.equal(redact('ssh -p 2222 root@host'), 'ssh -p 2222 root@host')
+})

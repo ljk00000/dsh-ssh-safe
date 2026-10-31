@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.167 — 2026-10-31
+
+### Fixed
+- **Two more password shapes reached the audit log.** `--pass` (the abbreviation people
+  actually type) was not in the flag list, and `redis-cli -a` uses a flag that cannot be
+  masked globally because `-a` is also `ls -a`:
+  ```
+  before: mysql --pass=SECRET42 db          → SECRET42 in audit.ndjson
+          redis-cli -a SECRET42 ping      → SECRET42 in audit.ndjson
+  after : mysql --pass=<redacted> db
+          redis-cli -a <redacted> ping
+  ```
+  `-a` is masked only immediately after `redis-cli`, quoted values are masked whole, and
+  real flags survive: `ls -a`, `tar -af`, `ssh -p 2222`. `--passphrase=` is not read as
+  `--pass` (longest alternative first).
+
+### Verified, no change needed
+- Also masked already: `--password=`, `--passwd=`, `curl -H "Authorization: Basic …"`,
+  `postgres://user:pw@` and `postgres://:pw@`, `mongosh --password`, `docker login -p`.
+- Not maskable by shape, and not claimed to be: `echo HUNTER2 > /tmp/pw` — an arbitrary
+  word carries no marker that could identify it as a secret.
+
 ## 0.7.166 — 2026-10-31
 
 ### Fixed
