@@ -3185,3 +3185,40 @@ test('the doctor reports sftp on a host that refuses the command channel', async
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('every doctor run names all seven stages, however early it stops', async () => {
+  // A stage that is absent read like a stage that passed. Measured before the fix:
+  // a dead port printed configuration/credentials/tcp and nothing else; a rejected
+  // host key stopped after 'skip authentication' with shell and sftp simply missing.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-doctor-stages-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'dead', hostKeyPolicy: 'strict', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 2000, commandTimeoutMs: 2000,
+      machines: {
+        dead: { host: '127.0.0.1', port: 45999, user: 'u', password: 'x' },
+        nokey: { host: '127.0.0.1', port: 22, user: 'u', keyPath: '/nonexistent/key' },
+      },
+    })
+    const run = async (alias) => String((await own.ssh_doctor.execute({ machine: alias }, {})).text)
+    const expected = ['configuration', 'credentials', 'tcp', 'host key', 'authentication', 'shell', 'sftp']
+    for (const alias of ['dead', 'nokey']) {
+      const report = await run(alias)
+      for (const stage of expected) {
+        assert.match(report, new RegExp('^\\[(ok|FAIL|warn|skip)\\] ' + stage + ':', 'm'),
+          alias + ' must report the ' + stage + ' stage:\n' + report)
+      }
+    }
+    // A dead port stops before the network stages and says so.
+    const deadText = await run('dead')
+    assert.match(deadText, /\[FAIL\] tcp:/)
+    assert.match(deadText, /\[skip\] shell: not reached: the host is unreachable/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

@@ -188,7 +188,11 @@ test('ssh_doctor reports a missing key file as a credential failure', async () =
     const text = textOf(await tools['ssh_doctor'].execute({ machine: 'd' }))
     assert.match(text, /FAIL/, 'a missing key is not ok')
     assert.match(text, /not found/, 'it should say the file is missing')
-    assert.doesNotMatch(text, /tcp/, 'it should stop before testing the network')
+    // No TCP probe is attempted; the stage still says it was skipped, because an
+    // absent line in a list of verdicts reads like a stage that passed.
+    assert.doesNotMatch(text, /\[(ok|FAIL)\] tcp:/, 'it should stop before testing the network')
+    assert.match(text, /\[skip\] tcp: not reached: fix the problem above first/)
+    assert.match(text, /\[skip\] sftp: not reached/)
   } finally { restore() }
 })
 

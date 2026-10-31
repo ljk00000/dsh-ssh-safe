@@ -2294,6 +2294,26 @@ function passphraseLine(st) {
         verdicts.push({ stage, verdict, detail: detail || '' })
         lines.push('[' + verdict + '] ' + stage + (detail ? ': ' + detail : ''))
       }
+      // A run that stopped early used to leave shell and sftp absent, and absent
+      // reads the same as "fine" in a list of verdicts. Every stage now says
+      // something: ok, FAIL, or skip with the reason.
+      // Every stage says something, however early the run stops: an absent line
+      // reads like a stage that passed.
+      const skipAfterCredentials = () => {
+        say('tcp', 'skip', 'not reached: fix the problem above first')
+        say('host key', 'skip', 'not reached: fix the problem above first')
+        say('authentication', 'skip', 'not reached: fix the problem above first')
+        skipRemaining('not reached: fix the problem above first')
+      }
+      const skipAfterTcp = () => {
+        say('host key', 'skip', 'not reached: the host is unreachable')
+        say('authentication', 'skip', 'not reached: the host is unreachable')
+        skipRemaining('not reached: the host is unreachable')
+      }
+      const skipRemaining = (why) => {
+        say('shell', 'skip', why)
+        say('sftp', 'skip', why)
+      }
       // Exactly one record per run, whatever stage it stopped at. A run that failed
       // at the credentials step left no trace at all, so the log could not tell
       // 'never called' from 'called and stopped early'.
@@ -2442,6 +2462,7 @@ function passphraseLine(st) {
 
       // A broken credential cannot be fixed by waiting, so diagnose no further.
       if (missing.length || auth.kind === 'none' || credentialProblem) {
+              skipAfterCredentials()
         lines.push('', 'Stopped: fix the above before testing the network.')
         return finish()
       }
@@ -2465,6 +2486,7 @@ function passphraseLine(st) {
       })
       say('tcp', tcp.ok ? 'ok' : 'FAIL', tcp.detail)
       if (!tcp.ok) {
+              skipAfterTcp()
         lines.push('', 'Stopped: the host is unreachable, so authentication cannot be tested.')
         return finish()
       }
@@ -2529,6 +2551,7 @@ function passphraseLine(st) {
         if (/host key|fingerprint|HOST KEY CHANGED|Unknown host/i.test(message)) {
           say('host key', 'FAIL', message)
           say('authentication', 'skip', 'host key was rejected first')
+skipRemaining('not reached: the host key was rejected first')
         } else if (/refused to run a command|unable to exec/i.test(message)) {
           // The connection and the credentials are fine; the server will not open an
           // exec channel. Reporting this under "connect" pointed at the wrong thing.
@@ -2541,11 +2564,13 @@ function passphraseLine(st) {
         } else if (/authentication|permission denied|publickey|password/i.test(message)) {
           say('host key', 'ok', 'accepted')
           say('authentication', 'FAIL', message)
+          skipRemaining('not reached: the server refused the credential')
           lines.push('', 'The server refused the credential. Check that the public key is in',
             '  ~/.ssh/authorized_keys on the remote host, that the account is allowed to log in,',
             '  and that the key is not passphrase-protected without a passphrase supplied.')
         } else {
           say('connect', 'FAIL', message)
+          skipRemaining('not reached: the connection failed')
         }
       } finally {
         // Restore the pre-diagnosis state -- but do not force it.

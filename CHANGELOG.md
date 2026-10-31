@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.274 — 2026-11-01
+
+### Fixed — a stage that was never reached looked exactly like a stage that passed
+```
+before  [FAIL] tcp: ECONNREFUSED          before  [FAIL] host key: Unknown host …
+        ← and nothing else                       [skip] authentication: host key was rejected first
+                                                 ← shell and sftp simply missing
+
+after   [FAIL] tcp: ECONNREFUSED          after   [skip] authentication: host key was rejected first
+        [skip] host key: not reached: the host is unreachable   [skip] shell: not reached: …
+        [skip] authentication: …                            [skip] sftp: not reached: …
+```
+Three early-stop paths (a broken configuration, an unreachable port, a rejected host key or credential)
+ended the report wherever they happened, so a reader had no way to tell "sftp was fine" from "sftp was
+never checked". Every run now names all seven stages — configuration, credentials, tcp, host key,
+authentication, shell, sftp — with `ok`, `FAIL`, `warn` or `skip` plus the reason.
+
+### My own mistakes
+- The same patch failed three times on anchors: the `say()` block is CRLF, the branches around it are LF.
+  After the second failure I stopped writing multi-line anchors and switched to inserting after a
+  located line with that line's own newline style, which worked first time.
+- The wording said "fix the configuration first" for a **credential** failure; it now says "fix the
+  problem above first".
+- An existing test asserted `doesNotMatch(text, /tcp/)`, which my new `[skip] tcp:` line broke. The
+  intent was "no probe is attempted", so the assertion now checks for the absence of a `[ok]/[FAIL]
+  tcp:` verdict and the presence of the skip.
+
+### Tests
+- One new case runs the doctor against a dead port and a missing key and requires all seven stage lines
+  in both, plus the exact skip sentence for the dead port.
+  Suite 860 / 855 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.273 — 2026-11-01
 
 ### Fixed — the doctor stopped at the shell and never reached sftp
