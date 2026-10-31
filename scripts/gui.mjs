@@ -540,6 +540,35 @@ function state() {
  * @param {unknown} message
  * @returns {string}
  */
+/**
+ * Say what is wrong with the credential in words the reader can act on.
+ *
+ * @param {unknown} err the error connectOptions() threw
+ * @returns {string}
+ */
+function explainCredentialError(err) {
+  const message = String((err && err.message) || err || '')
+  const pathMatch = message.match(/\s(C:\S+|\/\S+)/)
+  // 'cannot read the private key C:/x: ENOENT' ends the path with the colon that
+  // separates the sentence, and it reached the reader as part of the name.
+  const shown = pathMatch ? pathMatch[1].replace(/[:，,.;]+$/, '') : ''
+  if (/EISDIR|is a directory/i.test(message)) {
+    return 'keyPath 指向的是目录，不是私钥文件' + (shown ? '：' + shown : '') +
+      '——请填私钥本身（例如 ~/.ssh/id_ed25519），不要填 ~/.ssh'
+  }
+  if (/ENOENT|cannot read the private key/i.test(message)) {
+    return '找不到私钥文件' + (shown ? '：' + shown : '') +
+      '——检查 keyPath 的拼写，或改用 ~/.ssh/ 下的私钥'
+  }
+  if (/passphrase/i.test(message)) {
+    return '私钥有口令保护：在设置里填 keyPassphrase（或环境变量 DSH_SSH_<别名>_KEY_PASSPHRASE）'
+  }
+  if (/Unsupported key format|Malformed OpenSSH private key/i.test(message)) {
+    return '私钥格式无法解析' + (shown ? '：' + shown : '') +
+      '——只支持 OpenSSH/PEM 私钥，PuTTY 的 .ppk 需要先转换'
+  }
+  return '凭据无法使用：' + message.slice(0, 160)
+}
 function channelFailureNote(message) {
   const text = String(message ?? '')
   if (/Channel open failure/i.test(text)) {
@@ -702,7 +731,11 @@ async function testConnection(alias) {
       config = connectOptions(m, auth, { readyTimeout: connectTimeoutMs, keepaliveInterval: 0 })
     } catch (err) {
       clearTimeout(timer)
-      say('凭据', 'FAIL', '私钥读取失败：' + String(err.message).slice(0, 100))
+      // connectOptions throws for a missing key, a directory, a passphrase and
+      // an unsupported format alike; calling all of them 私钥读取失败 buried the
+      // one that was actually true, and slice(0, 100) cut the path mid-quote
+      // (open 'C:\nope\id_) so it read like a corrupted message.
+      say('凭据', 'FAIL', explainCredentialError(err))
       return done(false)
     }
     if (!config.password && !config.privateKey && !config.agent) {

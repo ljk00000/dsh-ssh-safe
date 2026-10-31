@@ -1427,3 +1427,43 @@ test('the page names the recorded fingerprint and the remedy when the key change
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the page explains a credential problem instead of pasting a Node error', async () => {
+  // '私钥读取失败：cannot read the private key C:/nope/id_ed25519: ENOENT: no such
+  // file or directory, open' labelled a passphrase problem as a read failure and cut
+  // the path mid-quote. Each cause has its own sentence and its own remedy now.
+  const ssh2 = (await import('ssh2')).default
+  const srv2 = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-guicred-'))
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  const encrypted = ssh2.utils.generateKeyPairSync('ed25519', { passphrase: 'pw', cipher: 'aes256-cbc' }).private
+  const keyFile = path.join(home, 'key_enc')
+  writeFileSync(keyFile, String(encrypted))
+  writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+    missing: { host: '127.0.0.1', port: srv2.port, user: 'u', keyPath: 'C:/nope/id_ed25519' },
+    directory: { host: '127.0.0.1', port: srv2.port, user: 'u', keyPath: home },
+    encrypted: { host: '127.0.0.1', port: srv2.port, user: 'u', keyPath: keyFile },
+  }, null, 2))
+  const { child, base, token } = await start(home)
+  try {
+    const credLine = async (alias) => {
+      const result = await call(base, token, '/api/test', { alias })
+      return (result.body.lines || []).find((line) => line.includes('凭据')) || ''
+    }
+    const missing = await credLine('missing')
+    assert.match(missing, /找不到私钥文件：C:\/nope\/id_ed25519/)
+    assert.doesNotMatch(missing, /ENOENT/, 'the raw Node text is not the explanation')
+    assert.doesNotMatch(missing, /id_ed25519:/, 'the separating colon must not be part of the path')
+    const directory = await credLine('directory')
+    assert.match(directory, /指向的是目录/)
+    assert.match(directory, /~\/\.ssh\/id_ed25519/)
+    const passphrase = await credLine('encrypted')
+    assert.match(passphrase, /私钥有口令保护/)
+    assert.match(passphrase, /keyPassphrase/)
+    assert.doesNotMatch(passphrase, /私钥读取失败/, 'it was never a read failure')
+  } finally {
+    child.kill()
+    await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1200))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})

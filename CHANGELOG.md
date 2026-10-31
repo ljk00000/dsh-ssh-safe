@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.268 — 2026-11-01
+
+### Fixed — the page called every credential problem a "private key read failure"
+```
+before  私钥读取失败：cannot read the private key C:/nope/id_ed25519: ENOENT: no such file or
+        directory, open 'C:\nope\id_          <- raw Node text, path cut mid-quote
+
+after   找不到私钥文件：C:/nope/id_ed25519——检查 keyPath 的拼写，或改用 ~/.ssh/ 下的私钥
+        keyPath 指向的是目录，不是私钥文件：…\dsh-guicred-…——请填私钥本身（例如 ~/.ssh/id_ed25519）
+        私钥有口令保护：在设置里填 keyPassphrase（或环境变量 DSH_SSH_<别名>_KEY_PASSPHRASE）
+```
+`connectOptions()` throws for a missing file, a directory, a passphrase and an unsupported format
+alike, and the page labelled all four 私钥读取失败 — the one thing that was **not** true for an
+encrypted key. It also pasted the Node error into a Chinese sentence and cut it at 100 characters, in
+the middle of a quoted path. Each cause now has its own sentence and its own remedy, the path is kept
+whole, and the separating colon is no longer part of it.
+
+### My own mistakes
+- The first probe pointed the machines at port 22, so the page correctly stopped at `ECONNREFUSED`
+  before it ever reached the credential stage; it needed the loopback server’s port.
+- The first version of the path extractor kept the colon that separates the path from the sentence
+  (`id_ed25519:`), which the new test caught immediately.
+
+### Tests
+- One new GUI case with three machines (missing file, directory, passphrase-protected key): the
+  explained sentences appear, `ENOENT` does not, the path keeps no trailing colon and the passphrase
+  case never says 私钥读取失败.
+  Suite 854 / 849 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.267 — 2026-11-01
 
 ### Fixed — the page detected a changed host key but would not say which one was recorded
