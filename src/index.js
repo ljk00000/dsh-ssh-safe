@@ -316,7 +316,21 @@ export async function apply(ctx, config) {
 
   // A rule that does not compile is skipped at match time, so a typo here turns
   // a protection off while leaving it visible in the config. Refuse to load.
-  const broken = invalidPatterns(config && typeof config === 'object' ? config.denyPatterns : undefined)
+  // An empty pattern matches every command, so "denyPatterns: ['']" (an empty line
+  // left in the list) refuses every command the moment the plugin loads, and the
+  // config report then shows a rule rather than the reason.
+  const configuredPatterns = config && typeof config === 'object' ? config.denyPatterns : undefined
+  const emptyPattern = Array.isArray(configuredPatterns)
+    ? configuredPatterns.findIndex((p) => typeof p === 'string' && p.trim() === '')
+    : -1
+  if (emptyPattern >= 0) {
+    throw new Error(
+      'dsh-ssh-safe: invalid configuration — denyPatterns[' + emptyPattern + '] is empty, and an empty ' +
+      'regular expression matches every command, so nothing could run. Remove the entry (or write the ' +
+      'rule you meant) in the plugin config listed under "dsh-ssh-safe" in cordis.patch.yml.'
+    )
+  }
+    const broken = invalidPatterns(configuredPatterns)
   if (broken.length > 0) {
     const first = broken[0]
     throw new Error(

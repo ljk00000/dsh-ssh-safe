@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.280 — 2026-11-01
+
+### Fixed — `denyPatterns: ['']` blocked every command with no explanation
+An empty regular expression matches every string, so one empty entry — the shape you get by leaving a
+blank line in the YAML list — refused **every** `ssh_exec` call:
+```
+before  ssh_exec → ERR: Command refused: …
+        ssh_config → denyPatterns  "1 pattern(s) — replaces the 13 built-in rules"   # looks like a real rule
+
+after   the plugin refuses to load:
+        dsh-ssh-safe: invalid configuration — denyPatterns[0] is empty, and an empty regular
+        expression matches every command, so nothing could run. Remove the entry (or write the
+        rule you meant) in the plugin config listed under "dsh-ssh-safe" in cordis.patch.yml.
+```
+A whitespace-only entry (`"   "`) is refused the same way, because it is the same mistake. The check
+runs beside the invalid-regex one, so both fail at load rather than at the first command.
+
+### Verified this round (the rest of the promise holds)
+- One custom rule **replaces** the built-in 13: with `denyPatterns: ["^echo\\b"]`, `rm -rf /` is allowed
+  and `echo hi` is refused; `ssh_config` says `1 pattern(s) — replaces the 13 built-in rules`.
+- `denyPatterns: []` turns the guard off: `0 pattern(s) — the destructive-command guard is OFF`, and
+  `rm -rf /` runs.
+- A regex that does not compile still refuses to load with the index and the original text.
+- The default set reports `13 pattern(s) (the built-in set)` and blocks `rm -rf /` while allowing
+  `echo hi`.
+
+### Tests
+- One new case: `["ok-rule", ""]` fails on index 1 and `["   "]` fails on index 0, both naming the
+  empty-pattern reason.
+  Suite 864 / 859 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.279 — 2026-11-01
 
 ### Fixed — `rm -rf \/`, `find / -ok rm` and `find / -execdir rm` were allowed

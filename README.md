@@ -451,7 +451,7 @@ ssh_read { machine: "prod", path: "/opt/app/.env", raw: true }
 
 设置 `denyPatterns` 会**替换**这 13 条默认规则，不是追加：只写一条自定义规则时，`rm -rf /` 就不再被拦。
 `ssh_config` 会如实显示当前是内置集（`13 pattern(s) (the built-in set)`）、替换集（`2 pattern(s) — replaces the 13 built-in rules`）
-还是已关闭（`0 pattern(s) — the destructive-command guard is OFF`）；写成非法正则会在加载时被拒绝，不会静默失效。
+还是已关闭（`0 pattern(s) — the destructive-command guard is OFF`）；写成非法正则或**空字符串**会在加载时被拒绝，不会静默失效（空正则匹配每一条命令，等于全禁）。
 
 **注意**：这是防手滑的安全带，不是安全边界。shell 总有别的路径可达。
 默认规则只匹配命令的开头与结尾各 8 KB，避免病态超长输入把检查拖成平方级；

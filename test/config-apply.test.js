@@ -89,6 +89,26 @@ test('apply and Config agree on the effective values', async () => {
     assert.match(text, new RegExp(key + '\\s+"' + direct[key] + '"'), key)
   }
 })
+test('an empty deny pattern refuses to load instead of blocking everything', async () => {
+  // "" matches every command, so an empty line left in the list made every call
+  // answer "Command refused" and the config report showed a rule, not the reason.
+  await assert.rejects(
+    () => apply(ctx(), { denyPatterns: ['ok-rule', ''] }),
+    (err) => {
+      assert.match(err.message, /denyPatterns\[1\] is empty/)
+      assert.match(err.message, /matches every command/)
+      return true
+    },
+  )
+  // Whitespace only is the same mistake.
+  await assert.rejects(
+    () => apply(ctx(), { denyPatterns: ['   '] }),
+    (err) => {
+      assert.match(err.message, /denyPatterns\[0\] is empty/)
+      return true
+    },
+  )
+})
 test('a deny pattern that does not compile refuses to load', async () => {
   // checkCommand skips a pattern it cannot compile, so a typo here turned a
   // protection off while the setting still looked active in the config.
