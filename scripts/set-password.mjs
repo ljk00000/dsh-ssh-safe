@@ -26,6 +26,7 @@
 import { spawnSync } from 'node:child_process'
 import { encryptDpapi, dpapiAvailable } from '../src/dpapi.js'
 import { chmodSync, existsSync, statSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { acquireStoreLock } from './lib/store-lock.mjs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -196,6 +197,26 @@ function persist(next) {
 const dshHome = String(args['dsh-home'] || process.env.DSH_HOME || path.join(homedir(), '.dsh'))
 const dir = path.join(dshHome, 'dsh-ssh-safe')
 const file = path.join(dir, 'credentials.json')
+
+// Read-modify-write across processes: the page may be saving another machine at
+// the same moment, and whichever wrote last used to win silently (measured 2 lost
+// saves in 40 concurrent trials). The lock is released on every exit path by the
+// hook below; a process killed outright leaves it behind only until it goes stale.
+try {
+  mkdirSync(dir, { recursive: true })
+} catch { /* persist() reports the real error when it writes */ }
+let lock = { release() { /* nothing was taken */ }, timedOut: false }
+try {
+  lock = acquireStoreLock(file)
+  process.on('exit', () => lock.release())
+} catch {
+  // An unusable directory must reach persist(), which names the reason. Failing
+  // here with a raw ENOENT from the lock file would hide that message.
+}
+if (lock.timedOut) {
+  console.error('WARNING: another process held the credential-file lock for several seconds;')
+  console.error('this run continued without it, so a save it made at the same moment may be lost.')
+}
 
 // Read-modify-write so other machines survive.
 //

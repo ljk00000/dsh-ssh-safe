@@ -29,6 +29,7 @@ import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { networkInterfaces } from 'node:os'
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { acquireStoreLock, withStoreLock } from './lib/store-lock.mjs'
 import net from 'node:net'
 import path from 'node:path'
 import process from 'node:process'
@@ -929,6 +930,9 @@ const authorized = (req) => tokenMatches(req.headers['x-gui-token'])
  */
 const pageAuthorized = (req, url) => authorized(req) || tokenMatches(url.searchParams.get('t'))
 
+/** The endpoints that rewrite credentials.json: each one needs the store lock. */
+const WRITE_ENDPOINTS = new Set(['/api/save', '/api/delete', '/api/clear-password', '/api/clear-key-passphrase'])
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1')
 
@@ -938,6 +942,8 @@ const server = createServer(async (req, res) => {
     return res.end('misdirected request')
   }
 
+  // Declared outside the try: a const inside it is invisible to the finally.
+  let lock = null
   try {
     if (req.method === 'GET' && url.pathname === '/') {
       if (!pageAuthorized(req, url)) {
@@ -956,6 +962,24 @@ const server = createServer(async (req, res) => {
     // the port must not be able to postpone the idle exit.
     touch()
     const body = req.method === 'POST' ? await readBody(req) : {}
+    // Four endpoints rewrite credentials.json; they read, mutate and write, and a
+    // second page instance doing the same at the same moment silently lost one of
+    // the two saves. Hold a cross-process lock for the whole request.
+    const writeApi = req.method === 'POST' && WRITE_ENDPOINTS.has(url.pathname)
+    if (writeApi) {
+      // The directory may not exist on the first save; the lock lives in it, and a
+      // failure here must not turn a save that writeStore() can still explain into a
+      // bare 500.
+      try {
+        mkdirSync(path.dirname(credFile), { recursive: true })
+        lock = acquireStoreLock(credFile)
+      } catch {
+        lock = null
+      }
+      if (lock && lock.timedOut) {
+        console.log('  另一个进程长时间持有凭据文件锁：本次保存未加锁，可能覆盖对方同时保存的修改。')
+      }
+    }
 
     if (req.method === 'GET' && url.pathname === '/api/state') {
       return sendJson(res, 200, { ...state(), fileProblem: storeProblem() })
@@ -1167,6 +1191,9 @@ const server = createServer(async (req, res) => {
     // this server's (500). Both still answer, so the page can show why.
     const status = err && Number.isInteger(err.statusCode) ? err.statusCode : 500
     sendJson(res, status, { error: String((err && err.message) || err).slice(0, 200) })
+  } finally {
+    // Released on every path, including the early returns and a thrown error.
+    if (lock) lock.release()
   }
 })
 

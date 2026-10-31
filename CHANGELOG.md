@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.7.295 — 2026-11-01
+
+### Fixed — two page instances could silently lose a saved machine
+`credentials.json` is read, modified and written by the settings page and by `scripts/set-password.mjs`.
+Within one process that section is synchronous, so it cannot interleave — but two processes can, and the
+writer whose entry vanished still answered `{ok: true}`. Measured on the old code with two page instances
+saving different machines at the same moment:
+```
+trial 0 missing: beta
+trial 1 missing: beta
+lost-update trials: 2 / 40
+```
+Both writers now take a cross-process lock (`<credentials.json>.lock`, created with `O_EXCL` — atomic on
+every platform here). The page holds it for the whole request and releases it in a `finally`; the CLI takes
+it before reading the store and releases it through an `exit` hook, which also covers its `process.exit()`
+validation paths. A holder that is killed outright leaves the lock behind, so a lock older than 10 s is
+broken by the next waiter instead of blocking saves forever.
+```
+after   page-vs-page lost: 0 / 60
+```
+
+### My own mistakes — five in one round
+1. `openLock` was spliced into `withStoreLock` twice, leaving `return { value: fn(), timedOut }  try {`
+   (`SyntaxError: Unexpected token 'try'`). The module was rewritten in one piece instead of patched again.
+2. `const lock` was declared inside the `try`, and the `finally` of that same `try` cannot see it:
+   `ReferenceError: lock is not defined` on the first request, which killed both page processes.
+3. `WRITE_ENDPOINTS` and `acquireStoreLock` were guarded with `if (!t.includes(...))`, and the names already
+   appeared in the handler, so both insertions were skipped — the page answered 500 with
+   `WRITE_ENDPOINTS is not defined` and then `acquireStoreLock is not defined`.
+4. The lock was taken before the directory existed, so the first save in a fresh profile answered a bare
+   500 (`ENOENT … credentials.json.lock`). It now creates the directory first and proceeds unlocked (with a
+   console line) if the lock cannot be taken at all, leaving the friendly message to `writeStore()`.
+5. `set-password.mjs` crashed with the same `ENOENT` in the "blocked credential directory" test — the very
+   stack trace that test exists to prevent. It now skips the lock when the directory is unusable.
+
+### Tests
+- New `test/store-lock.test.js`: a held lock is not granted twice and is freed on release; a stale lock is
+  broken; `withStoreLock` keeps 80 increments across two child processes; and two page instances saving
+  concurrently keep both machines over 25 trials.
+  Suite 880 / 875 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.294 — 2026-11-01
 
 ### Fixed — the page said "letters" while refusing every non-ASCII letter

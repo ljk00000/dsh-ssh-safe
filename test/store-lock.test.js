@@ -1,0 +1,120 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { acquireStoreLock, withStoreLock } from '../scripts/lib/store-lock.mjs'
+
+const here = path.dirname(fileURLToPath(import.meta.url))
+const root = path.join(here, '..')
+
+test('the store lock excludes a second holder and frees it on release', () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-lock-'))
+  const file = path.join(home, 'credentials.json')
+  try {
+    const first = acquireStoreLock(file)
+    assert.equal(first.timedOut, false)
+    const second = acquireStoreLock(file, { waitMs: 60 })
+    assert.equal(second.timedOut, true, 'a held lock must not be granted twice')
+    assert.equal(second.path, file + '.lock')
+    first.release()
+    const third = acquireStoreLock(file, { waitMs: 60 })
+    assert.equal(third.timedOut, false)
+    third.release()
+    // Released twice is harmless.
+    third.release()
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
+test('a lock left by a dead process is broken instead of blocking saves', () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-lockstale-'))
+  const file = path.join(home, 'credentials.json')
+  try {
+    mkdirSync(home, { recursive: true })
+    writeFileSync(file + '.lock', '{"pid":1}\n')
+    const old = new Date(Date.now() - 60_000)
+    utimesSync(file + '.lock', old, old)
+    const lock = acquireStoreLock(file, { waitMs: 60 })
+    assert.equal(lock.timedOut, false, 'a stale lock must be broken, not waited out')
+    lock.release()
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
+test('withStoreLock serialises a counter across two processes', async () => {
+  // Without the lock the two children lose increments: each reads, adds one and
+  // writes, so a read that lands in the other's window is overwritten.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-lockcount-'))
+  const file = path.join(home, 'counter.json')
+  writeFileSync(file, '{"n":0}')
+  // The child lives in a temp directory, so the import must be an absolute URL.
+  const lockUrl = new URL('../scripts/lib/store-lock.mjs', import.meta.url).href
+  const script = [
+    "import { readFileSync, writeFileSync } from 'node:fs'",
+    'import { withStoreLock } from ' + JSON.stringify(lockUrl),
+    'const file = process.argv[2]',
+    'for (let i = 0; i < 40; i++) {',
+    '  withStoreLock(file, () => {',
+    '    const n = JSON.parse(readFileSync(file).toString()).n',
+    '    writeFileSync(file, JSON.stringify({ n: n + 1 }))',
+    '  })',
+    '}',
+  ].join('\n')
+  const scriptPath = path.join(home, 'count.mjs')
+  writeFileSync(scriptPath, script)
+  const run = () => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [scriptPath, file, '40'], { cwd: root })
+    child.on('error', reject)
+    child.on('exit', (code) => (code === 0 ? resolve() : reject(new Error('child exit ' + code))))
+  })
+  try {
+    await Promise.all([run(), run()])
+    const n = JSON.parse(readFileSync(file, 'utf8')).n
+    assert.equal(n, 80, 'both processes\' increments must survive: ' + n)
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
+test('two page instances saving at the same moment keep both machines', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-pagerace-'))
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  const startPage = async () => {
+    const child = spawn(process.execPath, ['scripts/gui.mjs', '--no-open', '--port', '0', '--dsh-home', home, '--idle-ms', '180000'], { cwd: root, env: { ...process.env, DSH_HOME: home } })
+    let out = ''
+    const base = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('the page did not print a URL')), 15000)
+      child.stdout.on('data', (chunk) => {
+        out += String(chunk)
+        const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)\/\?t=([0-9a-f]+)/)
+        if (m) { clearTimeout(timer); resolve({ base: 'http://127.0.0.1:' + m[1], token: m[2] }) }
+      })
+    })
+    return { child, ...base }
+  }
+  const save = async (page, alias, password) => {
+    const res = await fetch(page.base + '/api/save', {
+      method: 'POST',
+      headers: { 'x-gui-token': page.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ alias, host: 'h-' + alias + '.example', user: 'u', password }),
+    })
+    assert.equal(res.status, 200, await res.text())
+  }
+  let a, b
+  try {
+    a = await startPage()
+    b = await startPage()
+    // Warm both stores so the first write is not the one being measured.
+    await save(a, 'alpha', 'warm')
+    await save(b, 'beta', 'warm')
+    for (let i = 0; i < 25; i++) {
+      await Promise.all([save(a, 'alpha', 'A' + i), save(b, 'beta', 'B' + i)])
+      const store = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
+      assert.ok(store.alpha && store.beta, 'trial ' + i + ' lost a machine: ' + Object.keys(store).join(','))
+    }
+  } finally {
+    a?.child.kill('SIGTERM')
+    b?.child.kill('SIGTERM')
+    await new Promise((r) => setTimeout(r, 300))
+    rmSync(home, { recursive: true, force: true })
+  }
+})
