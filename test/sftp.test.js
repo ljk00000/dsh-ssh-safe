@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { readRemoteFile, writeRemoteFile, listRemoteDir } from '../src/sftp.js'
+import { readRemoteFile, writeRemoteFile, listRemoteDir , listingEntries } from '../src/sftp.js'
 
 // sftp.js was the only module with no direct test: its 183 lines ran only through
 // a fake sftp inside pool tests, so the error branches (sftp() failing,
@@ -283,4 +283,21 @@ test('an invalid path is rejected without touching the session', async () => {
   await assert.rejects(() => readRemoteFile(sentinel, '~/x', opts()))
   await assert.rejects(() => writeRemoteFile(sentinel, 'rel/x', 'y', opts()))
   assert.equal(touched, false, 'no sftp session should have been opened')
+})
+
+test('a listing hides the . and .. rows a real server sends', () => {
+  // OpenSSH reports '.' and '..' from readdir and ssh2 passes them through; the
+  // loopback server never emits them, so a real host would show two junk rows.
+  const items = [
+    { filename: '.', attrs: { size: 4096, mode: 0o040755, mtime: 1 } },
+    { filename: '..', attrs: { size: 4096, mode: 0o040755, mtime: 1 } },
+    { filename: 'real.txt', attrs: { size: 3, mode: 0o100644, mtime: 1 } },
+    { filename: 'sub', attrs: { size: 4096, mode: 0o040755, mtime: 1 } },
+    { filename: 'sock', attrs: { size: 0, mode: 0o140755, mtime: 1 } },
+  ]
+  const rows = listingEntries(items)
+  assert.deepEqual(rows.map((r) => r.name), ['real.txt', 'sub', 'sock'])
+  assert.equal(rows[1].dir, true)
+  assert.equal(rows[2].dir, false, 'a socket sets the directory bit but is not a directory')
+  assert.equal(rows[2].type, 's')
 })

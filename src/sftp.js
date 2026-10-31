@@ -643,6 +643,36 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
  * @param {{timeoutMs: number, signal?: AbortSignal}} options
  * @returns {Promise<{path: string, items: Array<{name: string, size: number, dir: boolean, mtime: string|null}>}>}
  */
+/**
+ * Turn SFTP readdir entries into listing rows.
+ *
+ * `.` and `..` are dropped: OpenSSH reports them, ssh2 passes them through,
+ * and the rows are noise next to real names (the loopback test server never
+ * emits them, so nothing caught this).
+ *
+ * @param {Array<{filename: string, attrs: {size?: number, mode?: number, mtime?: number}}>} items
+ * @returns {Array<{name: string, size?: number, dir: boolean, type: string, mtime: string|null}>}
+ */
+export function listingEntries(items) {
+  return items
+    .filter((it) => it.filename !== '.' && it.filename !== '..')
+    .map((it) => ({
+      name: it.filename,
+      size: it.attrs.size,
+      // Compare the whole type field: a socket is 0o140000, which also has the
+      // 0o040000 directory bit set, so a bit test called sockets dirs.
+      dir: (Number(it.attrs.mode) & 0o170000) === 0o040000,
+      // A symlink, a FIFO and a socket are not regular files, and a listing that
+      // shows all three as '-' invites reading a FIFO, which blocks.
+      type: typeChar(it.attrs.mode),
+      // SFTP reports whole seconds, so the milliseconds are always .000 and only
+      // make the column wider.
+      mtime: it.attrs.mtime
+        ? new Date(it.attrs.mtime * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+        : null,
+    }))
+}
+
 export async function listRemoteDir(client, remotePath, { timeoutMs, signal }) {
   const target = normalizeRemotePath(remotePath || '.', { allowRelative: true })
   const sftp = await openSftp(client)
@@ -680,24 +710,7 @@ export async function listRemoteDir(client, remotePath, { timeoutMs, signal }) {
             () => settle(null, remoteError(err, target, 'list')),
           )
         }
-        settle({
-          path: target,
-          items: items.map((it) => ({
-            name: it.filename,
-            size: it.attrs.size,
-            // Compare the whole type field: a socket is 0o140000, which also has
-            // the 0o040000 directory bit set, so a bit test called sockets dirs.
-            dir: (it.attrs.mode & 0o170000) === 0o040000,
-            // A symlink, a FIFO and a socket are not regular files, and a listing
-            // that shows all three as '-' invites reading a FIFO, which blocks.
-            type: typeChar(it.attrs.mode),
-            // SFTP reports whole seconds, so the milliseconds are always .000 and
-            // only make the column wider.
-            mtime: it.attrs.mtime
-              ? new Date(it.attrs.mtime * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
-              : null,
-          })),
-        })
+        settle({ path: target, items: listingEntries(items) })
       })
     } catch (err) {
       settle(null, new Error(redact(err && err.message ? err.message : String(err))))

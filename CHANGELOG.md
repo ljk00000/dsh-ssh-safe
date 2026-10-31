@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.131 — 2026-10-31
+
+### Fixed
+- **`ssh_list` would have shown `.` and `..` on a real host.** OpenSSH reports both
+  from `readdir` and ssh2 passes them through, so every listing of a real directory
+  would carry two junk rows. The loopback test server never emits them, which is why
+  no test caught it. The mapping is now a named function (`listingEntries`) that drops
+  them, with a test that feeds a real-server-shaped list including a socket.
+
+### Verified, no change needed
+- `/api/state` never carries a password value: neither the stored one nor the one the
+  environment supplies appears in the response, and the credential file holds no
+  plaintext (`"password"` absent).
+- Deleting an alias makes the plugin fall back the way it should:
+  `password (file-dpapi)` → delete → `password (env)`.
+- Overwriting a file keeps its permissions: `0600` stays `0600`, `0755` stays `0755`,
+  and a requested mode that cannot be applied is named with both causes
+  (`asked for 0600 but the file ended up 0755 …`).
+
 ## 0.7.130 — 2026-10-31
 
 ### Fixed
