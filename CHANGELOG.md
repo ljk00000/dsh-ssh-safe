@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.59 — 2026-10-31
+
+### Fixed
+- **Two writes to the same remote file interleaved into a file that was neither
+  content, and both reported success.** Measured: 300 kB of A written at the same
+  time as 1 kB of B left a 300 kB file that began with B. SFTP has no locking and
+  the two streams shared chunk offsets. Writes to one target are queued now, so
+  the later one waits and the file is exactly one of the two contents. Writes to
+  different files still run in parallel.
+
+### Added — tests
+- The 300 kB / 1 kB race, asserting the result equals one of the two inputs, and
+  a check that different targets are not serialized against each other.
+
 ## 0.7.58 — 2026-10-31
 
 ### Fixed

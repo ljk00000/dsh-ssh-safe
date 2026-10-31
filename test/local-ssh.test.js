@@ -487,3 +487,35 @@ test('a configuration error does not arm the reconnect cooldown', async () => {
     await pool.closeAll({ force: true })
   }
 })
+test('two writes to one remote file do not interleave', async () => {
+  // Measured before the queue: 300 kB of A and 1 kB of B written at the same
+  // time left a 300 kB file that began with B -- neither content -- and both
+  // calls reported success.
+  const pool = poolFor({ t: machineFor('t', srv.port) })
+  try {
+    const long = 'A'.repeat(300000)
+    const short = 'B'.repeat(1000)
+    await Promise.all([
+      pool.writeFile('t', '/tmp/race-long.txt', long, { createDirs: true }),
+      pool.writeFile('t', '/tmp/race-long.txt', short, {}),
+    ])
+    const text = srv.vfs.getFile('/tmp/race-long.txt').toString('utf8')
+    assert.ok(text === long || text === short, 'the file must be one of the two contents, got ' + text.length + ' chars starting ' + text.slice(0, 3))
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})
+
+test('writes to different files still run in parallel', async () => {
+  const pool = poolFor({ t: machineFor('t', srv.port) })
+  try {
+    await Promise.all([
+      pool.writeFile('t', '/tmp/par-a.txt', 'aaa', { createDirs: true }),
+      pool.writeFile('t', '/tmp/par-b.txt', 'bbb', {}),
+    ])
+    assert.equal(srv.vfs.getFile('/tmp/par-a.txt').toString('utf8'), 'aaa')
+    assert.equal(srv.vfs.getFile('/tmp/par-b.txt').toString('utf8'), 'bbb')
+  } finally {
+    await pool.closeAll({ force: true })
+  }
+})

@@ -317,6 +317,8 @@ export class SshPool {
     this.inflight = new Map()
     /** @type {Map<string, PoolEntry>} */
     this.entries = new Map()
+    /** Writes in flight per remote target, so two never interleave. */
+    this.writeQueue = new Map()
   }
 
   /**
@@ -920,11 +922,41 @@ export class SshPool {
     })
   }
 
+  /**
+   * Run `task` after everything already queued for `key`, then let the next one
+   * run.
+   *
+   * Two writes to one remote file used to interleave their SFTP chunks: with
+   * 300 kB and 1 kB written at the same time the result was 1 kB of B followed by
+   * 299 kB of A -- a file that is neither -- while both calls reported success.
+   * The queue makes the second writer wait instead, so the file is one of the
+   * two contents.
+   *
+   * @template T
+   * @param {string} key
+   * @param {() => Promise<T>} task
+   * @returns {Promise<T>}
+   */
+  #enqueueWrite(key, task) {
+    const tail = this.writeQueue.get(key) || Promise.resolve()
+    // The previous task's failure must not cancel this one.
+    const result = tail.then(task, task)
+    const guard = result.then(() => {}, () => {})
+    this.writeQueue.set(key, guard)
+    guard.then(() => {
+      if (this.writeQueue.get(key) === guard) this.writeQueue.delete(key)
+    })
+    return result
+  }
+
   /** @param {string} alias @param {string} remotePath @param {{timeoutMs?: number, sessionPassword?: string, createDirs?: boolean, signal?: AbortSignal}} [opts] */
   async writeFile(alias, remotePath, content, opts = {}) {
     this.beginOp(alias)
     try {
-      return await this.#writeFileOn(alias, remotePath, content, opts)
+      // Keyed by target, so writes to different files still run in parallel.
+      let key = alias + '\u0000' + remotePath
+      try { key = alias + '\u0000' + normalizeRemotePath(remotePath) } catch { /* invalid path: the write reports it */ }
+      return await this.#enqueueWrite(key, () => this.#writeFileOn(alias, remotePath, content, opts))
     } catch (err) {
       throw explainGone(err, alias)
     } finally {
