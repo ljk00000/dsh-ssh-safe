@@ -153,3 +153,16 @@ test('$IFS, brace expansion and xargs spellings are refused, cleanup is not', ()
     assert.equal(checkCommand(command, patterns).blocked, false, command)
   }
 })
+
+test('writing to a block device is refused, reading one is not', () => {
+  // 'dd if=... of=/dev/sda' was covered; ': > /dev/sda', 'cat img > /dev/sda',
+  // 'wipefs -a /dev/sda' and 'shred -u /dev/sda' were not.
+  const patterns = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
+  for (const command of ['wipefs -a /dev/sda', 'shred -u /dev/sda1', 'echo x > /dev/nvme0n1', 'cat img > /dev/mmcblk0', ': > /dev/disk/by-id/x']) {
+    assert.equal(checkCommand(command, patterns).blocked, true, command)
+  }
+  // A device on the LEFT of a redirect is a backup, and /dev/null is not a disk.
+  for (const command of ['cat /dev/sda > /tmp/backup.img', 'dd if=/dev/sda of=/tmp/backup.img', 'echo hi > /dev/null', 'echo hi 2> /dev/stderr', 'smartctl -a /dev/sda']) {
+    assert.equal(checkCommand(command, patterns).blocked, false, command)
+  }
+})

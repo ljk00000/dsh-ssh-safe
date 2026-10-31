@@ -301,6 +301,13 @@ export const DEFAULT_DENY_RULES = [
     pattern: '(?:^|[;&|]+\\s*|\\(\\s*)(?:(?:sudo|doas|nohup|nice|setsid|command|exec|env|time)\\s+(?:-{1,2}\\S+(?:\\s+\\S+)?\\s+)*)*(?:timeout\\s+\\S+\\s+)?(?:systemctl\\s+(?:-\\S+\\s+)*)?(?:shutdown|reboot|halt|poweroff)\\b',
     why: 'it shuts the machine down or restarts it (shutdown, reboot, halt, poweroff)',
   },
+  {
+    // A write to a block device destroys it. Only the device on the RIGHT of a
+    // redirect counts: 'cat /dev/sda > backup.img' reads a disk, which is ordinary
+    // backup work, and 'echo x > /dev/null' is not a write to a disk at all.
+    pattern: '(?:\\bwipefs\\b[^\\n]*\\s/dev/(?:sd|nvme|hd|vd|mmcblk|disk/)|\\bshred\\b[^\\n]*\\s/dev/(?:sd|nvme|hd|vd|mmcblk|disk/)|\\d?>>?\\s*/dev/(?:sd|nvme|hd|vd|mmcblk|disk/))',
+    why: 'it overwrites a block device (redirect into /dev/sd*, wipefs, shred)',
+  },
 ]
 
 /**

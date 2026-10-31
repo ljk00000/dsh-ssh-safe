@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.174 — 2026-10-31
+
+### Fixed
+- **Writes to a block device were only half covered.** `dd if=… of=/dev/sda` was refused,
+  and the other ways to destroy a disk were not:
+  ```
+  before: : > /dev/sda            MISSED
+          echo x > /dev/nvme0n1    MISSED
+          cat img > /dev/mmcblk0   MISSED
+          wipefs -a /dev/sda       MISSED
+          shred -u /dev/sda        MISSED
+  after : all five refused
+  ```
+  The new rule only counts a device on the right of a redirect or in wipefs/shred, so
+  reading a disk stays allowed: `cat /dev/sda > /tmp/backup.img`,
+  `dd if=/dev/sda of=/tmp/backup.img`, `smartctl -a /dev/sda`, and
+  `echo hi > /dev/null` / `2> /dev/stderr` are untouched.
+
+### Verified, no change needed
+- The 8 KB head/tail window behaves as documented: `rm -rf /` at the start or the end of a
+  20 KB command is caught, one buried in the middle is not. The README already says the
+  scan covers "命令的开头与结尾各 8 KB".
+- Scoped destruction is deliberately not on the list — `rm -rf /etc`, `git clean -fdx`,
+  `truncate -s 0 /etc/passwd`, `chmod -R 000 /`: blocking those would refuse ordinary work,
+  and the guard is described as a seat belt, not a boundary.
+
 ## 0.7.173 — 2026-10-31
 
 ### Fixed
