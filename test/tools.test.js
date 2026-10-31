@@ -513,6 +513,31 @@ test('an OpenSSH knownHosts file is described, not called unreadable', async () 
   }
 })
 
+
+test('an audit error keeps a local path and still escapes control characters', async () => {
+  // The error field can name a local file (a host-key store, a credential file)
+  // as well as remote text. printable() doubled every backslash, so the row read
+  // C:\\Users\\... for a message whose own text said C:\Users\... .
+  const { tools, restore } = capture({
+    defaultMachine: 't', hostKeyPolicy: 'tofu', auditLog: true,
+    machines: { t: { host: 'h.example', user: 'u' } },
+  })
+  try {
+    const dir = path.join(process.env.DSH_HOME, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    const localPath = path.join('C:', 'Users', 'someone', 'kh')
+    writeFileSync(path.join(dir, 'audit.ndjson'), JSON.stringify({
+      kind: 'exec', machine: 't', outcome: 'error', ms: 1,
+      error: 'Unknown host. ' + localPath + ' could not be read \u001b[31m',
+      at: '2026-10-31T11:46:20.000Z',
+    }) + '\n', 'utf8')
+    const shown = textOf(await tools.ssh_audit.execute({}))
+    assert.ok(shown.includes(localPath), 'the path is shown as it is: ' + shown.slice(0, 300))
+    assert.ok(!shown.includes(localPath.replace(/\\/g, '\\\\')), 'no doubled backslashes')
+    assert.match(shown, /\\x1b\[31m/, 'the escape sequence is still escaped')
+  } finally { restore() }
+})
+
 test('an audit row marks a UTC timestamp as UTC', async () => {
   // 'at' is written with toISOString(), which is UTC, and the row showed the
   // digits with no zone: 11:46:20 read as the reader's local 11:46 while their

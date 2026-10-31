@@ -38,7 +38,7 @@ import {
 } from './machines.js'
 import { looksLikeOpenSshKnownHosts, openSshTrustLine, storePath } from './hostkey.js'
 import { parsePrivateKey } from './connect.js'
-import { printable , clipText } from './format.js'
+import { printable , clipText, printableText } from './format.js'
 import { DEFAULT_DENY_RULES, checkCommand, describeRule, invalidPatterns } from './guard.js'
 import { exitLine, formatListing, plural } from './format.js'
 import { AuditLog, summarize } from './audit.js'
@@ -1907,7 +1907,11 @@ function assertKnownArgs(args, known, toolName) {
         // what tells an operator whether the refusal was right.
         if (r.pattern) detail.push('rule: ' + describeRule(String(r.pattern)))
         if (r.direction) detail.push(String(r.direction))
-        if (r.error) detail.push('error: ' + printable(r.error))
+        // An error message may name a local file (a host-key store, a credential
+        // file) as well as remote text: printable() doubled every backslash, so an
+        // audit row read C:\\Users\\... for a message that said C:\Users\.... Control
+        // characters are still escaped, so a remote error cannot repaint a terminal.
+        if (r.error) detail.push('error: ' + printableText(r.error))
         return detail.length > 0 ? head + '\n    ' + detail.join('  ') : head
       })
       return { text: capNote + prefix + rows.join('\n') }

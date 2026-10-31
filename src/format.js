@@ -33,6 +33,31 @@ export function clipText(text, max) {
   return cut + '…'
 }
 
+/**
+ * Escape the characters that must not reach a line, but leave backslashes alone.
+ *
+ * printable() also doubles every '\\', which is right for remote text (it keeps
+ * a literal '\\n' distinguishable from a newline) and wrong for free text that
+ * may hold a local Windows path: an audit row rendered C:\\\\Users\\\\… for a
+ * message whose own text said C:\Users\… . Control characters are still escaped,
+ * so a remote error cannot repaint the terminal or break the row.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function printableText(value) {
+  return String(value ?? '')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, (c) => {
+      const code = c.charCodeAt(0)
+      return code <= 0xff
+        ? '\\x' + code.toString(16).padStart(2, '0')
+        : '\\u' + code.toString(16).padStart(4, '0')
+    })
+}
+
 export function printable(name) {
   return String(name ?? '')
     .replace(/\\/g, '\\\\')

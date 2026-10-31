@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.207 — 2026-10-31
+
+### Fixed
+- **`ssh_audit` doubled the backslashes of a local path inside an error message.** The `error`
+  field can name a local file — a host-key store, a credential file — as well as remote text, and
+  it went through `printable()`, which escapes `\` for remote text:
+  ```
+  record: Unknown host … C:\Users\Administrator\…\kh is an OpenSSH known_hosts file …
+  before: error: Unknown host … C:\\Users\\Administrator\\…\\kh is an OpenSSH …
+  after : error: Unknown host … C:\Users\Administrator\…\kh is an OpenSSH …
+  ```
+  New `printableText()` escapes the characters that must not reach a line (C0/C1, DEL, the
+  line/paragraph separators, bidi overrides, ESC) but leaves backslashes alone; the audit error
+  field uses it. A test pins both halves: the path is verbatim and `\u001b[31m` still comes out as
+  `\x1b[31m`, so a remote error still cannot repaint a terminal.
+
+### Verified, no change needed
+- `clipText()` and `summarize()` never see local values: they cut commands and audit errors, and
+  the cut is marked with an ellipsis rather than pretended complete.
+
 ## 0.7.206 — 2026-10-31
 
 ### Fixed
