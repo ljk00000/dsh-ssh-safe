@@ -102,3 +102,19 @@ test('the rendered listing puts directories first, then names in order', async (
   const names = rows.slice(firstNonDir).map((row) => row.split(/\s+/).pop())
   assert.deepEqual(names, names.slice().sort(), 'files are ordered by name')
 })
+test('a write blocked by a FIFO does not claim the file was truncated', async () => {
+  // 'the file was opened (which truncates it) … its previous content is gone' is
+  // true for a regular file and false for a FIFO: opening one blocks, and nothing
+  // is truncated. The old sentence sent readers looking for damage that cannot
+  // exist.
+  srv.vfs.putSpecial('/tmp/wpipe', 'p')
+  await assert.rejects(
+    () => pool.writeFile('t', '/tmp/wpipe', 'x', {}),
+    (err) => {
+      assert.match(err.message, /a named pipe \(FIFO\)/)
+      assert.doesNotMatch(err.message, /which truncates it/)
+      assert.match(err.message, /opening it is the step that has not finished/)
+      return true
+    },
+  )
+})

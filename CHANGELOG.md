@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.107 — 2026-10-31
+
+### Fixed
+- **A write blocked by a FIFO claimed the file had been truncated.** The timeout
+  message ended with "the file was opened (which truncates it) but no data was
+  sent, so its previous content is gone". That is true for a regular file and false
+  for a named pipe or a socket: opening one is what blocks, and nothing is
+  truncated — the reader was sent looking for damage that cannot exist.
+  ```
+  before: … /tmp/pipe is a named pipe (FIFO) — a FIFO blocks until something reads
+          from it; the file was opened (which truncates it) but no data was sent,
+          so its previous content is gone
+  after : … /tmp/pipe is a named pipe (FIFO) — a FIFO blocks until something reads
+          from it; no data was sent: opening it is the step that has not finished
+  ```
+  Regular files keep the original sentence, which is what they need.
+
+### Verified, no change needed
+- A write is visible to the next read immediately: 11 bytes written, 11 read back;
+  an overwrite of a longer file leaves no tail (`short` reads as 5 characters).
+- A command's stdin is closed with CHANNEL_EOF as soon as the channel opens, so a
+  command that reads input fails at once instead of waiting out the deadline.
+
 ## 0.7.106 — 2026-10-31
 
 ### Fixed

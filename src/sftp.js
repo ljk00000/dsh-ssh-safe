@@ -517,9 +517,17 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
     // before the first byte sent the caller looking for damage that was not
     // there. Once the stream exists the file HAS been truncated by the open, and
     // the byte count is the only thing that says how much is missing.
-    const writeState = () => {
+    // 'special': a FIFO or socket is not truncated by an open — the open is what
+    // blocks — so claiming "its previous content is gone" there describes damage
+    // that cannot have happened.
+    const writeState = (special = false) => {
       if (!stream) return 'the file was not touched'
       const wrote = Number(stream.bytesWritten) || 0
+      if (special) {
+        return wrote === 0
+          ? 'no data was sent: opening it is the step that has not finished'
+          : 'sent ' + wrote + ' byte' + (wrote === 1 ? '' : 's') + ' before it stopped'
+      }
       if (wrote === 0) return 'the file was opened (which truncates it) but no data was sent, so its previous content is gone'
       return 'sent ' + wrote + ' byte' + (wrote === 1 ? '' : 's') + ' before it stopped; the file is partial'
     }
@@ -529,7 +537,7 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
       if (settled) return
       settle(null, new Error(
         'writing ' + target + ' did not complete within ' + timeoutMs + 'ms' +
-        (detail || ' — the remote channel may have dropped') + '; ' + writeState()
+        (detail || ' — the remote channel may have dropped') + '; ' + writeState(Boolean(detail))
       ))
     }, timeoutMs)
     // A function, not a string: the state is composed when the abort happens.
