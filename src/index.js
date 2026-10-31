@@ -1425,7 +1425,18 @@ function assertKnownArgs(args, known, toolName) {
       if (!Number.isFinite(requested)) {
         throw new Error('limit must be a number (received ' + JSON.stringify(args.limit) + ')')
       }
-      const limit = Math.min(Math.max(Math.floor(requested), 1), 200)
+      // Clamping a request of 0 or -5 up to 1 answered a question about one
+      // record when the caller had asked for none (or for something invalid),
+      // without saying so.
+      if (requested < 0) {
+        throw new Error('limit must be 0 or more (received ' + requested + ')')
+      }
+      const limit = Math.min(Math.floor(requested), 200)
+      if (limit === 0) {
+        return { text:
+          'limit is 0: no records were requested. Pass a positive limit, or omit it to see the ' +
+          '20 most recent operations.' }
+      }
 
       if (cfg.auditLog !== true) {
         return { text:

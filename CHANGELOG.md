@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.92 — 2026-10-31
+
+### Fixed
+- **`ssh_audit` answered a request for 0 records with one record.** The limit was
+  clamped to `[1, 200]`, so `limit: 0` and `limit: -5` both returned exactly one
+  entry and said nothing about having been changed. Zero now says it asked for
+  nothing, a negative limit is refused as invalid, and a positive one behaves as
+  before.
+
+### Investigated, no change needed
+- `echo hi; "rm -rf /"` is allowed by the deny rules, and that is correct: the
+  quotes make it a single word, so the shell reports "command not found" instead of
+  deleting anything. Widening the rule to accept a quote before `rm` was tried and
+  reverted — it would flag `grep "rm -rf /" notes.txt`, which only searches.
+- `rm -rf ~/.*` is still caught (the rule allows `~`, `~/*` and `~/.` + `*`).
+
+### Added — tests
+- `limit: 0` asks for nothing; `limit: -5` is refused; `limit: 2` returns records.
+
 ## 0.7.91 — 2026-10-31
 
 ### Fixed — a destructive path traversal

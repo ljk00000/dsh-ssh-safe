@@ -574,3 +574,24 @@ test('the inventory lists only the fields that are missing', async () => {
   assert.match(row('onlyuser'), /MISSING: DSH_SSH_ONLYUSER_HOST/)
   assert.doesNotMatch(row('onlyuser'), /ONLYUSER_USER/, 'the user is configured')
 })
+
+test('an audit limit of 0 asks for nothing and says so', async () => {
+  // 0 and -5 were clamped up to 1, so a request for no records answered with one
+  // record and no explanation.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-limit0-'))
+  const own = {}
+  await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    defaultMachine: 't', hostKeyPolicy: 'tofu', auditLog: true,
+    connectTimeoutMs: 1000, commandTimeoutMs: 1000,
+    machines: { t: { host: '127.0.0.1', port: 1, user: 'u', password: 'p' } },
+  })
+  await own.ssh_exec.execute({ machine: 't', command: 'echo hi' }, {}).catch(() => {})
+
+  const zero = String((await own.ssh_audit.execute({ limit: 0 }, {})).text)
+  assert.match(zero, /limit is 0: no records were requested/)
+  assert.doesNotMatch(zero, /echo hi/)
+  await assert.rejects(() => own.ssh_audit.execute({ limit: -5 }, {}), /limit must be 0 or more/)
+  const some = String((await own.ssh_audit.execute({ limit: 2 }, {})).text)
+  assert.match(some, /echo hi/)
+  rmSync(home, { recursive: true, force: true })
+})
