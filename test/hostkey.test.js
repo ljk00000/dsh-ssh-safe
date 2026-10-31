@@ -360,3 +360,23 @@ test('the host key store is read when it was saved with a BOM', () => {
     assert.match(changed.reason, /HOST KEY CHANGED/)
   } finally { rmSync(home, { recursive: true, force: true }) }
 })
+
+test('a store that cannot be written says which file and why the connection failed', () => {
+  // It used to surface as 'EEXIST: file already exists, mkdir …' under 'Could not
+  // connect to user@host', naming the file but not that it was the host key store,
+  // why the connection was refused, or what to do.
+  const home = freshHome()
+  try {
+    // A file where the store's directory belongs.
+    writeFileSync(path.join(home, 'dsh-ssh-safe'), 'not a directory', 'utf8')
+    assert.throws(
+      () => checkHostKey({ dshHome: home, host: 'h', port: 22, keyBlob: keyA, policy: 'tofu', trustHostKey: true }),
+      (err) => {
+        assert.match(err.message, /the host key store .* could not be written \(EEXIST\)/)
+        assert.match(err.message, /The key could not be recorded, so the connection was refused/)
+        assert.match(err.message, /fix that path/)
+        return true
+      }
+    )
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})

@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.220 — 2026-11-01
+
+### Fixed
+- **An unwritable host key store reached the caller as a bare errno.** With a file where
+  `~/.dsh/dsh-ssh-safe` belongs, every connection failed with:
+  ```
+  before: Could not connect to tester@127.0.0.1:4825: EEXIST: file already exists, mkdir '…dsh-ssh-safe'
+  after : The plugin could not prepare its local SSH state: the host key store
+          C:\…\known_hosts.json could not be written (EEXIST). The key could not be recorded, so the
+          connection was refused; fix that path (a file where the directory belongs, or a permission
+          problem) and retry. — this is a filesystem problem on this machine, not the connection.
+  ```
+  The message names the store, says the refusal came from not being able to record the key, and
+  says it is local. `connectFailure()` already had that local branch, but it matched on a leading
+  errno; the new error carries `local: true` and its `code`, so rewording it cannot fall back to
+  blaming the remote machine (the existing "not reported as a connection failure" test caught the
+  regression within one run).
+
+### Verified, no change needed
+- Audit failures never fail the operation: with an unwritable audit directory and
+  `hostKeyPolicy: off`, `ssh_exec` still runs (`ran: echo hi [exit 0]`), while `ssh_audit` and
+  `ssh_doctor` report "N audit write failed since the plugin started".
+- Other upstream texts are already explained: a non-SSH port ("Connection lost before handshake —
+  the port answered but not with SSH"), wrong credentials ("All configured authentication methods
+  failed — the server rejected the credentials"), and no credentials (lists the env vars it looked
+  for and the agent it checked).
+
+### Tests
+- One new case asserting the store message names the file, the reason and that it is local.
+  Suite 800 / 795 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.219 — 2026-11-01
 
 ### Fixed

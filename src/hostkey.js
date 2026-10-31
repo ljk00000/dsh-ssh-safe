@@ -76,11 +76,30 @@ function readStore(file) {
  * supports.
  */
 function writeStore(file, store) {
-  mkdirSync(path.dirname(file), { recursive: true })
-  const tmp = file + '.tmp-' + process.pid + '-' + Date.now()
-  writeFileSync(tmp, JSON.stringify(store, null, 2), { encoding: 'utf8', mode: 0o600 })
-  try { chmodSync(tmp, 0o600) } catch { /* best effort on Windows */ }
-  renameSync(tmp, file)
+  try {
+    mkdirSync(path.dirname(file), { recursive: true })
+    const tmp = file + '.tmp-' + process.pid + '-' + Date.now()
+    writeFileSync(tmp, JSON.stringify(store, null, 2), { encoding: 'utf8', mode: 0o600 })
+    try { chmodSync(tmp, 0o600) } catch { /* best effort on Windows */ }
+    renameSync(tmp, file)
+  } catch (err) {
+    // A failure here used to surface as "Could not connect to user@host:
+    // EEXIST: file already exists, mkdir '…'" — the one file the user has to
+    // fix was named, but nothing said it was the host key store, why the
+    // connection was refused, or what to do about it.
+    const code = err && /** @type {{code?: string}} */ (err).code
+    const failure = new Error(
+      'the host key store ' + file + ' could not be written (' +
+      (code || (err && err.message) || 'unknown error') + '). The key could not be recorded, so the ' +
+      'connection was refused; fix that path (a file where the directory belongs, or a permission ' +
+      'problem) and retry.'
+    )
+    // Tells connectFailure() that the connection never got involved: without
+    // this the message was rewrapped as "Could not connect to user@host", which
+    // points the reader at the remote machine for a local problem.
+    Object.assign(failure, { code, local: true })
+    throw failure
+  }
 }
 
 /**

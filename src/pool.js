@@ -143,7 +143,13 @@ export function connectFailure(err, m, { lean = false } = {}) {
   // Preparing the plugin's own key store is local work. When DSH_HOME sits under a
   // file, the raw errno arrived wrapped as 'Could not connect to user@host:22:
   // ENOTDIR: not a directory, mkdir …' and pointed the reader at the wrong machine.
-  if (/^(ENOTDIR|EACCES|EPERM|EROFS|ENOSPC)\b/i.test(raw)) {
+  const failureCode = err && /** @type {any} */ (err).code
+  // EEXIST belongs here too: a file where the store directory belongs. The
+  // flag is what hostkey.js sets, so a reworded message cannot fall out of this
+  // branch and start blaming the remote machine again.
+  if ((err && /** @type {any} */ (err).local === true) ||
+    /^(ENOTDIR|EACCES|EPERM|EROFS|ENOSPC|EEXIST)\b/i.test(raw) ||
+    (failureCode && /^(ENOTDIR|EACCES|EPERM|EROFS|ENOSPC|EEXIST)$/.test(String(failureCode)))) {
     return new Error('The plugin could not prepare its local SSH state: ' + shown +
       ' — this is a filesystem problem on this machine, not the connection. Check the DSH home ' +
       'directory (DSH_HOME): the path, or a parent of it, may be a file, or the directory may not ' +
