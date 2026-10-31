@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.260 — 2026-11-01
+
+### Added
+- **A guard for the last unguarded negative promise: "Holds no credential".** `ssh_workspace` writes two
+  files from a machine definition that also carries a password, a key path and a key passphrase. The
+  new test configures all three and asserts neither `.dsh-remote-workspace.json` nor `AGENTS.md`
+  contains the password or the passphrase, while still naming the host and the alias.
+
+### Verified this round (no change needed)
+- A multi-line command in the audit stays one line: `echo first\necho second\necho third` is stored as
+  `echo first [+2 more lines]`, and a 400-character command is clipped with `…` — the "one-line command
+  summary" claim holds.
+- `maxBytes` values: absent, `0` (configured cap), `1`, `5`, `1024` and `9999` all behave as documented,
+  and the truncation note points at the right setting for each.
+- Per-call `timeoutMs`: `0` uses the config, `1`/`50` are honoured with the SIGTERM sentence, `-5` is
+  refused with `timeoutMs must be a positive number (received -5)`, and a huge value waits for the
+  command instead of overflowing.
+- Parent directories created by `createDirs` get the server default mode (no explicit mode is sent),
+  which is what a plain `mkdir` does.
+
+### My own mistake
+The first version of the new test used `existsSync` without importing it (`ReferenceError`), and an
+earlier probe hung for the full 120 s deadline because I forgot `process.exit(0)` while a test server
+was still listening. Both were probe/test mistakes, not product defects.
+
+### Tests
+- Suite 847 / 842 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.259 — 2026-11-01
 
 ### Fixed — `ssh_credentials` promised a rotation check it could not do

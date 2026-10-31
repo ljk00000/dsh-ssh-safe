@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1136,6 +1136,43 @@ test('ssh_credentials shows when the credential file changed, not the secret', a
     const after = String((await own.ssh_credentials.execute({}, {})).text)
     assert.match(after, /changed \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z; re-read on every connection/)
     assert.doesNotMatch(after, /CONFIGSECRET/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a remote workspace holds no credential', async () => {
+  // The tool description promises 'Holds no credential; only a placeholder directory
+  // and AGENTS.md'. Both files are written from the machine definition, which also
+  // carries a password, a key path and a key passphrase -- none may reach disk here.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-wscred-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'w1', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      machines: {
+        w1: {
+          host: '10.1.2.3', port: 2222, user: 'deploy',
+          password: 'WSPASSWORDMARKER', keyPath: 'C:/keys/id_ed25519', keyPassphrase: 'WSPASSMARKER',
+        },
+      },
+    })
+    const created = String((await own.ssh_workspace.execute({ action: 'create', machine: 'w1' }, {})).text)
+    assert.match(created, /w1/)
+    const dir = path.join(home, 'dsh-ssh-safe', 'remotes', 'w1')
+    for (const name of ['.dsh-remote-workspace.json', 'AGENTS.md']) {
+      const file = path.join(dir, name)
+      assert.ok(existsSync(file), name + ' must exist')
+      const content = readFileSync(file, 'utf8')
+      assert.doesNotMatch(content, /WSPASSWORDMARKER/, name + ' must not hold the password')
+      assert.doesNotMatch(content, /WSPASSMARKER/, name + ' must not hold the key passphrase')
+      // host/port/user are the point of the file; the key path is local config.
+      assert.match(content, /10\.1\.2\.3|w1/)
+    }
   } finally {
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous
