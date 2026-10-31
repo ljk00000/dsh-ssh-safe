@@ -34,9 +34,35 @@ export function remoteRoot(dshHome) {
   return join(String(dshHome || ''), 'dsh-ssh-safe', 'remotes')
 }
 
+/**
+ * An alias that is safe to use as one directory name.
+ *
+ * The alias arrives from a tool argument, and '..' turned the placeholder path
+ * into the directory above it: 'ssh_workspace remove deleteFiles: true' with
+ * machine: ".." deleted <dsh-home>/dsh-ssh-safe. A slash, a backslash, '..' or a
+ * control character is refused before a path is built.
+ *
+ * @param {unknown} alias
+ * @returns {string}
+ */
+export function safeAlias(alias) {
+  const text = String(alias ?? '')
+  if (text.length === 0) throw new Error('a workspace needs a machine alias')
+  if (text === '.' || text === '..') {
+    throw new Error('"' + text + '" cannot be used as a workspace directory name')
+  }
+  if (/[\\/\u0000-\u001f]/.test(text)) {
+    throw new Error(
+      'the alias ' + JSON.stringify(text) + ' contains a path separator or control character, ' +
+      'so it cannot name a workspace directory'
+    )
+  }
+  return text
+}
+
 /** Placeholder directory for one alias. */
 export function remoteDir(dshHome, alias) {
-  return join(remoteRoot(dshHome), String(alias))
+  return join(remoteRoot(dshHome), safeAlias(alias))
 }
 
 /** Display title used when the workspace is created. */
@@ -176,6 +202,14 @@ export function listWorkspaces(registry) {
 /** Remove the placeholder directory entirely. */
 export function removeRemoteDir(dshHome, alias) {
   const dir = remoteDir(dshHome, alias)
+  // Only a directory this plugin created: the marker is what makes it a
+  // placeholder rather than whatever else happens to sit under remotes/.
+  if (!existsSync(join(dir, MARKER))) {
+    throw new Error(
+      'refusing to delete ' + dir + ': it is not a remote workspace placeholder ' +
+      '(no ' + MARKER + '). Remove it yourself if that is what you meant.'
+    )
+  }
   rmSync(dir, { recursive: true, force: true })
   return dir
 }

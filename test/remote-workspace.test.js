@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import path from 'node:path'
 import { apply } from '../src/index.js'
 import {
   findWorkspace,
@@ -262,4 +263,33 @@ test('without a workspace service the listing does not promise a registration', 
     assert.match(text, /没有 workspace 服务/, text)
     assert.doesNotMatch(text, /用 action: "create" 注册/, text)
   } finally { restore() }
+})
+test('an alias cannot turn the placeholder path into another directory', () => {
+  // 'ssh_workspace remove deleteFiles: true' with machine: ".." deleted
+  // <dsh-home>/dsh-ssh-safe, because the alias was joined straight into the path.
+  // Measured: a file one level up disappeared.
+  const dshHome = home()
+  for (const alias of ['..', '.', '../../important', 'a/../b', 'a\\b', 'x\u0000y', '']) {
+    assert.throws(() => remoteDir(dshHome, alias), (err) => {
+      assert.match(err.message, /workspace directory name|path separator|needs a machine alias/)
+      return true
+    }, JSON.stringify(alias))
+  }
+  // Ordinary aliases still resolve inside the remotes root.
+  assert.equal(remoteDir(dshHome, 'prod'), path.join(remoteRoot(dshHome), 'prod'))
+})
+
+test('only a placeholder this plugin created can be deleted', () => {
+  const dshHome = home()
+  writeRemoteWorkspace(dshHome, 'temp', machine)
+  const dir = remoteDir(dshHome, 'temp')
+  // A marker-less directory under remotes/ is not ours to delete.
+  const foreign = remoteDir(dshHome, 'foreign')
+  mkdirSync(foreign, { recursive: true })
+  writeFileSync(path.join(foreign, 'keep.txt'), 'x')
+  assert.throws(() => removeRemoteDir(dshHome, 'foreign'), /not a remote workspace placeholder/)
+  assert.equal(existsSync(path.join(foreign, 'keep.txt')), true)
+  // The real placeholder goes.
+  removeRemoteDir(dshHome, 'temp')
+  assert.equal(existsSync(dir), false)
 })

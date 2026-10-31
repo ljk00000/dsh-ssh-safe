@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.91 — 2026-10-31
+
+### Fixed — a destructive path traversal
+- **`ssh_workspace` joined the machine alias straight into a filesystem path.** An
+  alias of `..` made the placeholder directory the directory ABOVE it, so
+  `ssh_workspace { action: "remove", machine: "..", deleteFiles: true }` deleted
+  `<dsh-home>/dsh-ssh-safe` — measured: a file one level up disappeared. `../../x`
+  and `a/../b` reached further; a NUL byte surfaced as a raw Node fs error.
+  The alias is validated before a path is built now: `.`, `..`, anything with a
+  separator, and control characters are refused by name.
+- **`deleteFiles` deleted any directory, not just a placeholder.** A directory
+  under `remotes/` that this plugin did not create (no
+  `.dsh-remote-workspace.json`) is refused now, and the message says why.
+
+### Added — tests
+- Seven aliases that must not escape the remotes root, an ordinary alias that
+  still resolves inside it, and a marker-less directory that survives
+  `deleteFiles: true` while a real placeholder is removed.
+
 ## 0.7.90 — 2026-10-31
 
 ### Fixed
