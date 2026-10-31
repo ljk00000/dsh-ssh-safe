@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.201 — 2026-10-31
+
+### Documented
+- **A read running alongside a write to the same path can see 0 bytes.** SFTP opens the file
+  with truncation and then writes, so a read that lands in that window answers
+  `(empty file: /r/x.txt — 0 bytes)`. Measured: twelve overlapping write/read pairs on one
+  40 000-byte file — every read reported an empty file, and the final content was complete and
+  unmixed. That message is true at the instant it is produced, but it reads like data loss, so
+  the README now says what it is and how to confirm (read again after the write returns).
+  Atomic replace was considered and rejected: it would break writing through a symlink (the
+  write would replace the link instead of its target) and would reset the mode of an existing
+  file.
+
+### Verified, no change needed
+- Content fidelity through `ssh_write` → `ssh_read`: trailing newline, no trailing newline,
+  trailing spaces, a file of only newlines, CRLF, and a single space all come back byte for
+  byte. An empty file reads as `(empty file: … — 0 bytes)` rather than an empty reply.
+
 ## 0.7.200 — 2026-10-31
 
 ### Fixed
