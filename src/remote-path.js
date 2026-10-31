@@ -27,7 +27,8 @@ export class RemotePathError extends Error {
  * - refuses NUL bytes (they truncate C strings inside the SFTP layer)
  *
  * @param {string} input
- * @param {{allowRelative?: boolean}} [options]
+ * @param {{allowRelative?: boolean, file?: boolean}} [options] `file`: the path
+ *   names a file, so a trailing slash (which means "a directory") is refused
  * @returns {string}
  */
 export function normalizeRemotePath(input, options = {}) {
@@ -42,6 +43,18 @@ export function normalizeRemotePath(input, options = {}) {
     throw new RemotePathError(
       'SFTP does not expand "~" — use an absolute path such as /home/user/... ' +
       '(received: ' + trimmed + ')'
+    )
+  }
+
+  // A trailing slash means "a directory" in POSIX. Dropping it turned
+  // '/etc/passwd/' into a valid file path and OVERWROTE the file -- measured:
+  // ssh_write '/etc/passwd/' with 1 byte replaced its content, while the same
+  // path without the slash is refused by a real sshd with ENOTDIR.
+  if (options.file === true && trimmed !== '/' && /\/+$/.test(trimmed)) {
+    throw new RemotePathError(
+      'path ends with "/" — that names a directory, not a file (received: ' + trimmed + '). ' +
+      'If you meant the file, drop the trailing slash to use ' +
+      posix.normalize(trimmed).replace(/\/+$/, '') + '; if you meant the directory, use ssh_list.'
     )
   }
 

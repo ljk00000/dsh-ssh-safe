@@ -518,3 +518,17 @@ test('machineInventory: alias hides the address in a failed connection too', asy
     rmSync(home3, { recursive: true, force: true })
   }
 })
+test('a file path with a trailing slash is refused, not silently used', async () => {
+  srv.vfs.putFile('/etc/keep.txt', 'precious')
+  await assert.rejects(
+    () => run('ssh_write', { path: '/etc/keep.txt/', content: 'x' }),
+    (err) => {
+      assert.match(err.message, /names a directory, not a file/)
+      return true
+    },
+  )
+  assert.equal(srv.vfs.getFile('/etc/keep.txt').toString(), 'precious', 'the file must be untouched')
+  // A listing still accepts the directory spelling.
+  const listed = await run('ssh_list', { path: '/etc/' })
+  assert.match(listed, /keep\.txt/)
+})

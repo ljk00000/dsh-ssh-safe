@@ -68,3 +68,21 @@ test('a relative path without .. is accepted when relatives are allowed', () => 
   assert.equal(normalizeRemotePath('logs/app.log', { allowRelative: true }), 'logs/app.log')
   assert.equal(normalizeRemotePath('.', { allowRelative: true }), '.')
 })
+test('a trailing slash names a directory, so a file operation refuses it', () => {
+  // Dropping the slash turned '/etc/passwd/' into a valid file path and
+  // OVERWROTE the file: measured, ssh_write('/etc/passwd/', 'x') replaced its
+  // content, while a real sshd answers ENOTDIR for the trailing-slash form.
+  assert.throws(
+    () => normalizeRemotePath('/etc/passwd/', { file: true }),
+    (err) => {
+      assert.ok(err instanceof RemotePathError)
+      assert.match(err.message, /names a directory, not a file/)
+      assert.match(err.message, /drop the trailing slash to use \/etc\/passwd;/)
+      return true
+    },
+  )
+  // Without the option (a listing) the slash is just a spelling of the same
+  // directory and is dropped.
+  assert.equal(normalizeRemotePath('/tmp/', { allowRelative: true }), '/tmp')
+  assert.equal(normalizeRemotePath('/'), '/')
+})

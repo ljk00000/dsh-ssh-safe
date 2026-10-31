@@ -200,7 +200,7 @@ async function ensureRemoteDir(sftp, dir) {
  * @returns {Promise<{content: string, truncated: boolean, bytes: number, path: string}>}
  */
 export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, signal }) {
-  const target = normalizeRemotePath(remotePath)
+  const target = normalizeRemotePath(remotePath, { file: true })
   const sftp = await openSftp(client)
   return await new Promise((resolve, reject) => {
     const collector = new Utf8Collector(maxBytes)
@@ -290,7 +290,7 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, 
  * @returns {Promise<{bytes: number, path: string}>}
  */
 export async function writeRemoteFile(client, remotePath, content, { timeoutMs = 30000, createDirs = false, signal } = /** @type {any} */ ({})) {
-  const target = normalizeRemotePath(remotePath)
+  const target = normalizeRemotePath(remotePath, { file: true })
   const payload = Buffer.isBuffer(content) ? content : Buffer.from(String(content ?? ''), 'utf8')
   const sftp = await openSftp(client)
   if (createDirs) await ensureRemoteDir(sftp, dirnameOf(target))

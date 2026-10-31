@@ -908,7 +908,7 @@ export class SshPool {
     // Validate before connecting: an invalid path is the caller's mistake, and
     // surfacing it as ECONNREFUSED (or as a cooldown) sends the user after a
     // server that is perfectly healthy.
-    normalizeRemotePath(remotePath)
+    normalizeRemotePath(remotePath, { file: true })
     // maxBytes can only tighten the configured ceiling: a tool argument must not
     // be able to pull an arbitrary amount of the remote file into memory.
     const configured = pick(this.config.maxFileBytes, 1048576)
@@ -972,7 +972,7 @@ export class SshPool {
    */
   async #writeFileOn(alias, remotePath, content, { sessionPassword, timeoutMs, createDirs, signal } = {}) {
     // See readFile: reject a bad path before touching the network.
-    normalizeRemotePath(remotePath)
+    normalizeRemotePath(remotePath, { file: true })
     const client = await this.connect(alias, { sessionPassword })
     return await writeRemoteFile(client, remotePath, content, {
       timeoutMs: timerValue(pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)), 30000),

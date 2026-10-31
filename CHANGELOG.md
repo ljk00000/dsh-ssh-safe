@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.61 — 2026-10-31
+
+### Fixed
+- **A file path ending in "/" overwrote the file instead of being refused.**
+  `ssh_write { path: "/etc/passwd/", content: "x" }` replaced the file and reported
+  success: the normaliser dropped the trailing slash, so the server never saw the
+  form POSIX reserves for a directory (a real sshd answers ENOTDIR). Reading had
+  the same shape. File operations now refuse it:
+  `path ends with "/" — that names a directory, not a file (received: /etc/passwd/).
+  If you meant the file, drop the trailing slash to use /etc/passwd; if you meant
+  the directory, use ssh_list.` `ssh_list` still accepts the spelling.
+
+### Verified, no change needed
+- The other odd paths already say the right thing: `~` (SFTP does not expand it),
+  `C:\Users\...` and `relative/path` (must be absolute), empty (required),
+  and a directory handed to a file operation (`not a file: /tmp (it is a
+  directory; use ssh_list)`).
+
+### Added — tests
+- The normaliser's file mode, and a write that must leave the target untouched.
+
 ## 0.7.60 — 2026-10-31
 
 ### Fixed
