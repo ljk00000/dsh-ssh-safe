@@ -2149,6 +2149,14 @@ function assertKnownArgs(args, known, toolName) {
       const force = optionalFlag(args.force, 'force')
       if (alias) {
         const result = await pool.closeOne(alias, { force })
+        // connect and exec were recorded; close was not, so the log could not
+        // show that a session ever ended.
+        audit.write({
+          kind: 'close',
+          machine: alias,
+          outcome: result.pending ? 'pending' : result.busy ? 'busy' : result.closed ? (result.confirmed ? 'ok' : 'unconfirmed') : 'none',
+          ...(force ? { forced: true } : {}),
+        })
         if (result.pending) {
           return { text: force
             ? 'A connection to ' + alias + ' is still being established; it will be closed as soon as it completes.'

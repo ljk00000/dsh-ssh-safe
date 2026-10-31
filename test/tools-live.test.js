@@ -1052,3 +1052,47 @@ test('a timeout says the command was TERMed and may still be running', async () 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the audit log records the end of a connection too', async () => {
+  // connect, exec and doctor were recorded; close was not, so a log never showed
+  // that a session ended, or that a close was refused because a command was
+  // still running.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-audclose-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const srv2 = await startServer()
+    const own = {}
+    try {
+      await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+        defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, auditLog: true,
+        connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+        machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+      })
+      await own.ssh_exec.execute({ machine: 't', command: 'echo x' }, {})
+
+      // Refused because a command is running.
+      const running = own.ssh_exec.execute({ machine: 't', command: 'sleep 1' }, {})
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      await own.ssh_close.execute({ machine: 't' }, {})
+      await running.catch(() => {})
+      await own.ssh_close.execute({ machine: 't', force: true }, {})
+
+      const records = readFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'), 'utf8')
+        .split('\n').filter(Boolean).map((line) => JSON.parse(line))
+      const closes = records.filter((record) => record.kind === 'close')
+      assert.equal(closes.length, 2, 'both close calls are recorded')
+      assert.equal(closes[0].outcome, 'busy')
+      assert.equal(closes[0].forced, undefined)
+      assert.equal(closes[1].outcome, 'ok')
+      assert.equal(closes[1].forced, true)
+    } finally {
+      await own.ssh_close.execute({ machine: 't', force: true }, {}).catch(() => {})
+      await srv2.close()
+    }
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

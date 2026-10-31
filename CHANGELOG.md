@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.124 — 2026-10-31
+
+### Added
+- **`ssh_close` is recorded in the audit log.** Connect, exec, read, write, doctor and
+  refused commands were all recorded; close was not, so a log could not show that a
+  session ended — or that a close was refused because a command was still running:
+  ```
+  2026-10-31 06:54:27 t connect ok
+  2026-10-31 06:54:27 t exec    ok exit=0 echo x
+  2026-10-31 06:54:27 t doctor  ok
+  2026-10-31 06:54:27 t close   ok
+  ```
+  Outcome is one of `ok`, `unconfirmed` (the peer never answered), `busy` (refused,
+  command running), `pending` (still dialling) or `none` (nothing to close), with
+  `forced: true` when force was passed.
+
+### Verified, no change needed
+- `ssh_close force: true` during a command returns in 2ms, and the interrupted call
+  reports "connection closed before the command reported an exit status — the output
+  above is partial" rather than a bare failure.
+- `ssh_close` without force mid-command refuses in 0ms and the command finishes
+  normally; closing one alias leaves another alias pointed at the same host working
+  (two connections, one closed, the other still answering).
+- A read that times out while an exec runs on the same connection fails alone: the
+  exec completes, and the connection stays usable afterwards.
+
 ## 0.7.123 — 2026-10-31
 
 ### Fixed
