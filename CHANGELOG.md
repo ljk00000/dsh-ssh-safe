@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.7.315 — 2026-11-01
+
+### Added — a cancelled call is recorded as `cancel`, not as `error`
+`cancel` is one of the documented `outcome` values, decided in a single place (`outcomeOf()`), and nothing
+asserted it. An operator filtering the log for cancelled calls would have seen nothing if it regressed, and
+`error` reads as a failure of the remote host rather than as the caller stopping the work:
+```
+{"kind":"exec","outcome":"cancel","machine":"t","ms":39}
+```
+The new case cancels a `sleep 2` and pins the record: `kind: exec`, `outcome: cancel`, and no `error` field.
+
+### Verified this round (no defect found)
+- **A silent TCP peer** (accepts, then never sends a banner) fails at `connectTimeoutMs`, not at the command
+  timeout: 1010 ms and 1008 ms for `timeoutMs: 100` and `5000`, with "Timed out while waiting for handshake
+  (no SSH banner arrived — the port may not speak SSH …)".
+- **`ssh_config` leaks no secrets**: with a plaintext settings password and a key passphrase, neither appears
+  in the 30-line report; every value carries its hint ("0 = unlimited", "safety rail, not a boundary").
+- **Unload/reload is clean**: three apply → connect → dispose cycles each take the client from 1 to 0, and a
+  fourth instance still runs commands.
+- **The idle health check does not disturb a live connection**: with `healthCheckIdleMs: 50`, a `sleep 1` in
+  flight still reports `slept 1 [exit 0]` and the client count stays at 1.
+- **20 concurrent calls on one connection** all succeed (20 execs in 28 ms, 20 writes, 20 reads).
+- **The CI annotation script** escapes `%` and keeps the `file=` attribute for a Windows `location:` —
+  `::error file=test/tools-live.test.js::failing test: a failing case with 100%25 coverage — …`.
+
+### My own mistakes
+1. The new test expected a cancelled exec to **reject**. It resolves with a labelled result, like a timeout or
+   a signal; only failures throw. I had already seen this in my own probe output and misread it.
+2. While fixing that I spliced my replacement into an *existing* cancellation test three thousand lines
+   earlier (a `findIndex` that matched the first `assert.rejects` in the file) and destroyed two of its
+   lines. Restored them immediately, then anchored the edit inside the new test by line range.
+3. My first version of the test read `audit.ndjson` unconditionally, which fails when that test runs alone
+   and nothing has been written yet.
+
+### Tests
+- One new live case.
+  Suite 901 / 896 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.314 — 2026-11-01
 
 ### Verification round — no defect found

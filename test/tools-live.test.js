@@ -3699,3 +3699,28 @@ test('the workspace list hint names the precondition create enforces', async () 
     rmSync(foreign, { recursive: true, force: true })
   }
 })
+
+test('a cancelled call is audited as cancel, not as an error', async () => {
+  // README lists 'cancel' as one of the outcomes, and outcomeOf() is the only
+  // place that decides it. Nothing asserted the recorded value, so a regression
+  // to 'error' would have been invisible: an operator filtering for cancelled
+  // calls would see nothing, and 'error' reads as a failure of the remote host.
+  // The log may not exist yet when this test runs alone, so read it defensively.
+  const readRows = () => {
+    const file = path.join(home, 'dsh-ssh-safe', 'audit.ndjson')
+    return existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean) : []
+  }
+  const before = readRows().length
+  const controller = new AbortController()
+  setTimeout(() => controller.abort(), 100)
+  // A cancelled exec resolves with a labelled result (like a timeout or a
+  // signal); only failures reject.
+  const cancelled = String((await tools.ssh_exec.execute({ machine: 't', command: 'sleep 2' }, { signal: controller.signal })).text)
+  assert.match(cancelled, /cancelled at the caller request/)
+  const rows = readFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'), 'utf8').trim().split('\n').filter(Boolean)
+  assert.ok(rows.length > before, 'the cancelled call wrote no record')
+  const record = JSON.parse(rows[rows.length - 1])
+  assert.equal(record.kind, 'exec')
+  assert.equal(record.outcome, 'cancel')
+  assert.equal(record.error, undefined, 'a cancelled call is not an error of the host')
+})
