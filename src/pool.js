@@ -136,6 +136,15 @@ export function connectFailure(err, m, { lean = false } = {}) {
     [/All configured authentication methods failed|Permission denied/i, 'the server rejected the credentials — check the user, the key or password, and authorized_keys'],
     [/Host key verification failed|Unknown host/i, 'the host key store does not trust this host; run ssh_connect with trustHostKey once'],
   ]
+  // Preparing the plugin's own key store is local work. When DSH_HOME sits under a
+  // file, the raw errno arrived wrapped as 'Could not connect to user@host:22:
+  // ENOTDIR: not a directory, mkdir …' and pointed the reader at the wrong machine.
+  if (/^(ENOTDIR|EACCES|EPERM|EROFS|ENOSPC)\b/i.test(raw)) {
+    return new Error('The plugin could not prepare its local SSH state: ' + shown +
+      ' — this is a filesystem problem on this machine, not the connection. Check the DSH home ' +
+      'directory (DSH_HOME): the path, or a parent of it, may be a file, or the directory may not ' +
+      'be writable.')
+  }
   const hint = hints.find(([pattern]) => pattern.test(raw))
   const extra = /ENOTFOUND|EAI_FAIL|EAI_AGAIN/i.test(raw)
     ? hostShapeHint(m && m.host)

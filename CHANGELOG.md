@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.155 — 2026-10-31
+
+### Fixed
+- **A local filesystem failure was reported as a connection failure.** With `DSH_HOME`
+  under a file, preparing the key store failed and the errno was wrapped in the
+  connection message, pointing the reader at the wrong machine:
+  ```
+  before: Could not connect to tester@127.0.0.1:8741: ENOTDIR: not a directory,
+          mkdir …\blocked\dsh-ssh-safe
+  after : The plugin could not prepare its local SSH state: ENOTDIR: … — this is a
+          filesystem problem on this machine, not the connection. Check the DSH home
+          directory (DSH_HOME): the path, or a parent of it, may be a file, or the
+          directory may not be writable.
+  ```
+  Only the local errno family is redirected (`ENOTDIR`, `EACCES`, `EPERM`, `EROFS`,
+  `ENOSPC`); network errors keep their connection wording.
+
+### Verified, no change needed
+- The same situation is already visible in `ssh_audit` ("2 audit writes failed …") and
+  in `ssh_doctor` ("[warn] audit: 2 records could not be written …") — the fixes from
+  0.7.145/0.7.146 cover this case too.
+- List pagination boundaries: `offset` equal to the entry count and far beyond it both
+  report `(offset N is past the last of M entries)`; a negative or fractional offset is
+  refused.
+
 ## 0.7.154 — 2026-10-31
 
 ### Fixed

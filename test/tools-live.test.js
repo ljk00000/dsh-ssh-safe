@@ -1566,3 +1566,33 @@ test('the truncation note agrees with its own number', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a local filesystem failure is not reported as a connection failure', async () => {
+  // DSH_HOME under a file made the key store unwritable, and the error arrived as
+  // 'Could not connect to tester@host:port: ENOTDIR …' — the wrong machine entirely.
+  const root = mkdtempSync(path.join(tmpdir(), 'dsh-badhomefit-'))
+  const blocked = path.join(root, 'blocked')
+  writeFileSync(blocked, 'not a directory')
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = blocked
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    const message = await own.ssh_connect.execute({ machine: 't' }, {})
+      .then(() => '', (err) => String(err.message))
+    assert.match(message, /could not prepare its local SSH state/)
+    assert.match(message, /filesystem problem on this machine, not the connection/)
+    assert.doesNotMatch(message, /Could not connect to/)
+  } finally {
+    await own.ssh_close?.execute?.({}, {}).catch(() => {})
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(root, { recursive: true, force: true })
+  }
+})
