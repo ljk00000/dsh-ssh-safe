@@ -210,8 +210,12 @@ const field = (alias, name, label, value, extra) =>
     '<input data-f="' + name + '" data-alias="' + esc(alias) + '" value="' + esc(value) + '" ' + (extra || "") + " autocomplete=\"off\">" +
   "</div>";
 
+// Find rows by iterating instead of building a selector: an alias from the
+// settings form is not restricted to [a-z0-9._-] (only the page's own saves
+// are), and a quote or a bracket in one made querySelector throw.
 const readField = (alias, name) => {
-  const el = document.querySelector('input[data-f="' + name + '"][data-alias="' + alias + '"]');
+  const el = Array.from(document.querySelectorAll("input[data-f]"))
+    .find((input) => input.dataset.f === name && input.dataset.alias === alias);
   return el ? el.value : "";
 };
 
@@ -220,7 +224,8 @@ document.getElementById("list").addEventListener("click", async (ev) => {
   if (!btn) return;
   const alias = btn.dataset.alias;
   const act = btn.dataset.act;
-  const out = document.querySelector('pre[data-out="' + alias + '"]');
+  const out = Array.from(document.querySelectorAll("pre[data-out]"))
+    .find((pre) => pre.dataset.out === alias);
   try {
     if (act === "save") {
       const password = readField(alias, "password");
@@ -265,7 +270,8 @@ document.getElementById("list").addEventListener("click", async (ev) => {
           await refresh();
         }
         const r = await api("/api/test", { alias });
-        const target = document.querySelector('pre[data-out="' + alias + '"]');
+        const target = Array.from(document.querySelectorAll("pre[data-out]"))
+    .find((pre) => pre.dataset.out === alias);
         if (target) { target.hidden = false; target.textContent = r.lines.join("\n"); }
         toast(r.ok ? "连接成功" : "连接失败，详见下方", !r.ok);
       } catch (e) {

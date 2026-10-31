@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.195 — 2026-10-31
+
+### Fixed
+- **The credential page crashed on a machine whose alias contains a quote or a bracket.**
+  Saving, testing and deleting a row looked it up with
+  `querySelector('input[data-alias="' + alias + '"']')`, and an alias from the settings
+  form is not restricted to `[a-z0-9._-]` (only the page's own saves are), so the selector was
+  invalid and `querySelector` threw a SyntaxError on click. Rows are now found by iterating
+  `querySelectorAll` and comparing `dataset`, which cannot be broken by the alias content.
+
+### Verified, no change needed
+- ANSI escapes and carriage returns in a command: the output is verbatim (`\u001b[31m`, `\r`),
+  and `ssh_audit` escapes them (`\x1b`, `\r`) so the audit view cannot be used to inject
+  terminal sequences. The NDJSON file keeps the bytes; the view does not.
+
 ## 0.7.194 — 2026-10-31
 
 ### Changed
