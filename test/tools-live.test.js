@@ -184,8 +184,8 @@ test('ssh_list renders names, sizes and kinds', async () => {
   const text = await run('ssh_list', { path: '/srv/www' })
   assert.match(text, /index\.html/)
   assert.match(text, /assets/)
-  assert.match(text, /-\s+11\s+index\.html/, 'name and byte count on one row: ' + text)
-  assert.match(text, /^d\s+\d+\s+assets$/m, 'a directory row starts with d: ' + text)
+  assert.match(text, /-\s+11\s+(\S+Z\s+)?index\.html/, 'name and byte count on one row: ' + text)
+  assert.match(text, /^d\s+\d+\s+(\S+Z\s+)?assets$/m, 'a directory row starts with d: ' + text)
 })
 
 test('ssh_workspace still answers without a workspace registry', async () => {

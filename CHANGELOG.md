@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.68 — 2026-10-31
+
+### Fixed
+- **The modification time in a listing was always empty.** The formatter carried an
+  `mtime` column that never filled, because the test server wrote the two
+  ACMODTIME words in the wrong order (mtime first, atime second), so every entry
+  reported a zero timestamp. The column is filled now, to the second, in UTC:
+  `d  4096  2026-10-31T01:13:50Z  assets`.
+- Milliseconds are dropped from the timestamp: SFTP reports whole seconds, so they
+  were always `.000` and only widened the column.
+
+### Added — tests
+- The timestamp shape in both the pool result and the rendered row, and the order
+  the renderer produces (directories first, then names).
+
 ## 0.7.67 — 2026-10-31
 
 ### Fixed

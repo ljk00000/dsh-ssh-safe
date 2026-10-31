@@ -272,7 +272,9 @@ export function attachSftp(stream, vfs) {
   const status = (id, code, message = '') => send(FXP.STATUS, id, u32(code), str(message), str(''))
   const attrsOf = (stat) => Buffer.concat([
     u32(0x1 | 0x2 | 0x4 | 0x8),
-    u64(stat.size), u32(0), u32(0), u32(stat.mode), u32(stat.mtime), u32(0),
+    // ACMODTIME carries atime FIRST and mtime second; writing mtime first made
+    // every entry look like it had no modification time at all.
+    u64(stat.size), u32(0), u32(0), u32(stat.mode), u32(0), u32(stat.mtime),
   ])
   const newHandle = (value) => { const id = nextHandle++; handles.set(id, value); return id }
 

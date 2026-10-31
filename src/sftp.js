@@ -594,7 +594,11 @@ export async function listRemoteDir(client, remotePath, { timeoutMs, signal }) {
             // A symlink, a FIFO and a socket are not regular files, and a listing
             // that shows all three as '-' invites reading a FIFO, which blocks.
             type: typeChar(it.attrs.mode),
-            mtime: it.attrs.mtime ? new Date(it.attrs.mtime * 1000).toISOString() : null,
+            // SFTP reports whole seconds, so the milliseconds are always .000 and
+            // only make the column wider.
+            mtime: it.attrs.mtime
+              ? new Date(it.attrs.mtime * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+              : null,
           })),
         })
       })

@@ -64,9 +64,9 @@ test('a listing distinguishes a link, a FIFO and a socket from a regular file', 
   assert.equal(byName['sock'].dir, false, 'a socket is not a directory')
 
   const text = formatListing(listing)
-  assert.match(text, /^l +0 +link\.txt$/m)
-  assert.match(text, /^p +0 +pipe$/m)
-  assert.match(text, /^s +0 +sock$/m)
+  assert.match(text, /^l +0 +\S+Z +link\.txt$/m)
+  assert.match(text, /^p +0 +\S+Z +pipe$/m)
+  assert.match(text, /^s +0 +\S+Z +sock$/m)
 })
 
 test('reading a FIFO says it is a FIFO instead of blaming the network', async () => {
@@ -80,4 +80,25 @@ test('reading a FIFO says it is a FIFO instead of blaming the network', async ()
       return true
     },
   )
+})
+test('a listing shows when each entry was last modified, to the second, in UTC', async () => {
+  srv.vfs.putFile('/tmp/stamped.txt', 'x')
+  const listing = await pool.list('t', '/tmp', {})
+  const entry = listing.items.find((it) => it.name === 'stamped.txt')
+  assert.ok(entry.mtime, 'a modification time is reported')
+  assert.match(entry.mtime, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/, entry.mtime)
+  const text = formatListing(listing)
+  const row = text.split('\n').find((line) => line.endsWith('stamped.txt'))
+  assert.match(row, /^\S\s+\d+\s+\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s+stamped\.txt$/, row)
+})
+
+test('the rendered listing puts directories first, then names in order', async () => {
+  srv.vfs.putDir('/tmp/aaa-dir')
+  const text = formatListing(await pool.list('t', '/tmp', {}))
+  const rows = text.split('\n').slice(1)
+  const firstNonDir = rows.findIndex((row) => !row.startsWith('d'))
+  assert.ok(firstNonDir > 0, 'a directory row comes first: ' + text)
+  assert.equal(rows.slice(firstNonDir).some((row) => row.startsWith('d')), false, text)
+  const names = rows.slice(firstNonDir).map((row) => row.split(/\s+/).pop())
+  assert.deepEqual(names, names.slice().sort(), 'files are ordered by name')
 })
