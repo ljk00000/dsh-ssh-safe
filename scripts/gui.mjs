@@ -735,7 +735,14 @@ async function testConnection(alias) {
           say('主机密钥', 'ok', fingerprint + '（已记录，校验通过；本页不修改记录）')
         } else if (/^HOST KEY CHANGED/.test(String(verdict.reason))) {
           mismatched = true
-          say('主机密钥', 'FAIL', fingerprint + ' 与记录的指纹不一致，正式连接会被拒绝（可能是重装，也可能是中间人）')
+          // The page knows the presented fingerprint but not the recorded one, which
+          // is the fact the reader needs to compare (and to paste into the ticket).
+          // The remedy is one command, and the page used to name neither.
+          const recorded = (String(verdict.reason).match(/(?:records|recorded)\s+(SHA256:[A-Za-z0-9+/=]+)/) || [])[1]
+          say('主机密钥', 'FAIL', fingerprint + ' 与记录的不一致' +
+            (recorded ? '（记录的是 ' + recorded + '）' : '') +
+            '，正式连接会被拒绝（可能是重装，也可能是中间人）。确认新指纹无误后，' +
+            '删掉 known_hosts 里这一行（ssh-keygen -R <主机>）再重试')
         } else {
           say('主机密钥', 'warn', fingerprint + ' 还没有记录，正式连接会被拒绝，除非用 ssh_connect trustHostKey: true（本页不记录）')
         }

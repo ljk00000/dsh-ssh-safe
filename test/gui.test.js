@@ -1395,3 +1395,35 @@ test('the page explains a refused command channel instead of printing ssh2 text'
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the page names the recorded fingerprint and the remedy when the key changed', async () => {
+  // It said '与记录的指纹不一致' without saying WHICH, and gave no way to fix it.
+  const ssh2 = (await import('ssh2')).default
+  const { createHash } = await import('node:crypto')
+  const { encryptDpapi } = await import('../src/dpapi.js')
+  const srv2 = await startServer()
+  const otherPublic = ssh2.utils.generateKeyPairSync('ed25519').public
+  const blob = Buffer.from(otherPublic.split(' ')[1], 'base64')
+  const recorded = 'SHA256:' + createHash('sha256').update(blob).digest('base64').replace(/=+$/, '')
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-guihk-'))
+  const known = path.join(home, 'known_hosts')
+  writeFileSync(known, '[127.0.0.1]:' + srv2.port + ' ' + otherPublic + '\n')
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+    hk: { host: '127.0.0.1', port: srv2.port, user: 'tester', passwordDpapi: encryptDpapi('test-pass'), knownHosts: known },
+  }, null, 2))
+  const { child, base, token } = await start(home)
+  try {
+    const result = await call(base, token, '/api/test', { alias: 'hk' })
+    const text = (result.body.lines || []).join('\n')
+    assert.match(text, /\[FAIL\] 主机密钥/)
+    assert.match(text, /与记录的不一致/)
+    assert.ok(text.includes(recorded), 'the recorded fingerprint must be named: ' + recorded)
+    assert.match(text, /ssh-keygen -R/)
+    assert.equal(result.body.ok, false, 'a changed key is never a green verdict')
+  } finally {
+    child.kill()
+    await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1200))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})

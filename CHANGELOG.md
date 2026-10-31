@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.267 — 2026-11-01
+
+### Fixed — the page detected a changed host key but would not say which one was recorded
+```
+before  [FAIL] 主机密钥: SHA256:ePcSw… 与记录的指纹不一致，正式连接会被拒绝（可能是重装，也可能是中间人）
+after   [FAIL] 主机密钥: SHA256:ePcSw… 与记录的不一致（记录的是 SHA256:B1uHM…），正式连接会被拒绝
+              （可能是重装，也可能是中间人）。确认新指纹无误后，删掉 known_hosts 里这一行
+              （ssh-keygen -R <主机>）再重试
+```
+The page had the presented fingerprint but never the recorded one — the single fact needed to compare
+against a ticket, a console, or a colleague — and named no remedy. It now extracts the recorded
+fingerprint from the verdict reason and prints the one command that clears the stale entry. Verified
+with a machine whose `knownHosts` file holds a different key: the recorded value appears verbatim and
+the verdict stays `ok: false`.
+
+### Found while probing, not fixed
+`POST /api/save` silently ignores any field it does not handle (`knownHosts`, `keyPassphrase`, …), so a
+caller that sends one gets `{"ok":true}` and loses the value. The page’s own form sends only the five
+fields it knows, and the entry spread keeps what is already stored, so nothing is lost in normal use —
+noted here rather than changed, because rejecting unknown fields could break a future form field in a
+way that is worse than the current silence.
+
+### My own mistakes
+- The first probe used `require()` next to top-level `await` and died with
+  `ERR_AMBIGUOUS_MODULE_SYNTAX`; the second wrote a plaintext password, which the page correctly
+  refused before reaching the host-key stage. The third wrote the store with a DPAPI password and did
+  reach it.
+
+### Tests
+- One new GUI case: a `known_hosts` entry with a different key must produce the recorded fingerprint
+  and `ssh-keygen -R` in the output, with `ok: false`.
+  Suite 853 / 848 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.266 — 2026-11-01
 
 ### Fixed — the page printed the raw ssh2 text for a refused channel
