@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.244 — 2026-11-01
+
+### Fixed
+- **An authentication refusal did not say which credential was offered.** With a password configured
+  and a server that accepts only public keys, the hint sent the reader to check three things that
+  were all fine:
+  ```
+  before: All configured authentication methods failed (the server rejected the credentials — check
+          the user, the key or password, and authorized_keys)
+  after : All configured authentication methods failed (the server rejected the credentials — check
+          the user, the key or password, and authorized_keys; this attempt offered config-password;
+          a server that requires a method you have not configured (such as publickey) answers the
+          same way)
+  ```
+  `connectFailure()` receives the credential kind and puts it into the one parenthetical rather than
+  adding a second one (a first version nested them and the probe read `authorized_keys (… (…))`).
+
+### Tests
+- One new case builds a publickey-only server and asserts the message names the attempt, keeps the
+  parenthesis balanced and never nests two. Suite 826 / 821 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.243 — 2026-11-01
 
 ### Fixed

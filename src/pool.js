@@ -96,10 +96,11 @@ export function formatHost(host) {
  *
  * @param {unknown} err
  * @param {{host?: string, port?: number, username?: string, alias?: string}} [m]
- * @param {{lean?: boolean}} [options] hide the address when machineInventory is 'alias'
+ * @param {{lean?: boolean, tried?: string}} [options] hide the address when machineInventory is
+ *   'alias'; `tried` names the credential that was offered, for the auth-refused hint
  * @returns {Error}
  */
-export function connectFailure(err, m, { lean = false } = {}) {
+export function connectFailure(err, m, { lean = false, tried = '' } = {}) {
   const raw = redact(err && /** @type {any} */ (err).message ? /** @type {any} */ (err).message : String(err))
   // The socket error itself carries the address: "connect ECONNREFUSED
   // 127.0.0.1:1". Masking only the prefix left that in the message (and in the
@@ -158,7 +159,14 @@ export function connectFailure(err, m, { lean = false } = {}) {
   const hint = hints.find(([pattern]) => pattern.test(raw))
   const extra = /ENOTFOUND|EAI_FAIL|EAI_AGAIN/i.test(raw)
     ? hostShapeHint(m && m.host)
-    : /authentication methods failed|Permission denied/i.test(raw) ? userShapeHint(m && m.username) : ''
+    : /authentication methods failed|Permission denied/i.test(raw)
+      ? [userShapeHint(m && m.username),
+        // Which credential was offered is the difference between "wrong password"
+        // and "this server wants a key": both answer with the same ssh2 sentence.
+        tried ? 'this attempt offered ' + tried + '; a server that requires a method you have ' +
+          'not configured (such as publickey) answers the same way' : '']
+        .filter(Boolean).join('; ')
+      : ''
   const advice = [hint ? hint[1] : '', extra].filter(Boolean).join('; ')
   return new Error('Could not connect to ' + target + ': ' + shown + (advice ? ' (' + advice + ')' : ''))
 }
@@ -959,7 +967,10 @@ export class SshPool {
         if (settled) return
         settled = true
         try { client.end() } catch {}
-        reject(connectFailure(err, m, { lean: this.config.machineInventory === 'alias' }))
+        reject(connectFailure(err, m, {
+          lean: this.config.machineInventory === 'alias',
+          tried: auth.kind === 'none' ? '' : String(auth.kind),
+        }))
       }
 
       // tryKeyboard lets a PAM-backed server ask for the password one prompt at a

@@ -2682,3 +2682,45 @@ test('a server that only offers keyboard-interactive accepts the password', asyn
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('an auth refusal says which credential was offered', async () => {
+  // 'check the user, the key or password' reads the same whether the password was
+  // wrong or the server only accepts keys; the message now names the attempt.
+  const ssh2 = (await import('ssh2')).default
+  const hostKey = ssh2.utils.generateKeyPairSync('ed25519').private
+  const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
+    client.on('authentication', (ctx) => {
+      if (ctx.method !== 'publickey') { ctx.reject(['publickey']); return }
+      ctx.accept()
+    })
+  })
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  const port = server.address().port
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-tried-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'n', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { n: { host: '127.0.0.1', port, user: 'tester', password: 'x' } },
+    })
+    let message = ''
+    try {
+      await own.ssh_exec.execute({ machine: 'n', command: 'echo hi' }, {})
+    } catch (err) { message = err.message }
+    assert.match(message, /All configured authentication methods failed/)
+    assert.match(message, /this attempt offered config-password/)
+    assert.match(message, /a server that requires a method you have not configured/)
+    // One parenthesis, not two.
+    assert.equal((message.match(/\(/g) || []).length, (message.match(/\)/g) || []).length)
+    assert.doesNotMatch(message, /\)\(/)
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    server.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
