@@ -132,7 +132,7 @@ node scripts/set-password.mjs --alias gpu \
   --host gpu.example.com --port 2222 --user root
 ```
 
-用私钥 + 口令：
+用私钥 + 口令（口令和密码一样走 DPAPI 加密，不会明文落盘）：
 
 ```bash
 node scripts/set-password.mjs --alias prod \
@@ -143,6 +143,8 @@ node scripts/set-password.mjs --alias prod \
 
 ```bash
 node scripts/set-password.mjs --alias gpu --clear-password
+# 私钥口令同理：
+node scripts/set-password.mjs --alias gpu --clear-key-passphrase
 ```
 
 > 页面上也可以：密码来源是 `file-dpapi` / `file-plaintext` 的机器会多一个「清除已存密码」按钮，

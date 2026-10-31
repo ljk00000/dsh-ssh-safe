@@ -333,3 +333,45 @@ test('a key passphrase is stored DPAPI encrypted, and an unusable blob says so',
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('--clear-key-passphrase removes the stored passphrase and nothing else', () => {
+  // --clear-password existed and --clear-key-passphrase did not: a rotated key left
+  // the old passphrase in the file with no way to revoke it short of editing JSON.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-clearkp-'))
+  const run = (args) => spawnSync(process.execPath, [script, ...args], {
+    encoding: 'utf8', env: { ...process.env, DSH_HOME: home },
+  })
+  const store = () => {
+    try { return JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8')) } catch { return {} }
+  }
+  try {
+    assert.equal(run(['--alias', 'k', '--key-path', '~/.ssh/id_ed25519', '--key-passphrase', 'PW1']).status, 0)
+    const before = store().k
+    assert.equal(before.keyPath, '~/.ssh/id_ed25519')
+    assert.ok(before.keyPassphraseDpapi || before.keyPassphrase, 'something was stored')
+
+    const cleared = run(['--alias', 'k', '--clear-key-passphrase'])
+    assert.equal(cleared.status, 0)
+    assert.match(cleared.stdout + cleared.stderr, /Cleared the stored key passphrase/)
+    assert.deepEqual(store().k, { keyPath: '~/.ssh/id_ed25519' }, 'only the passphrase goes')
+
+    // Nothing left to clear is an error, not a silent success.
+    const again = run(['--alias', 'k', '--clear-key-passphrase'])
+    assert.equal(again.status, 2)
+    assert.match((again.stdout || '') + (again.stderr || ''), /nothing to clear/)
+
+    // Two contradictory instructions in one command are refused, like --clear-password.
+    const combo = run(['--alias', 'k', '--clear-key-passphrase', '--key-passphrase', 'PW2'])
+    assert.equal(combo.status, 2)
+    assert.match((combo.stdout || '') + (combo.stderr || ''), /cannot be combined/)
+    const plain = run(['--alias', 'k', '--clear-key-passphrase', '--plaintext'])
+    assert.equal(plain.status, 2)
+
+    // An entry that held only a passphrase disappears instead of leaving {} behind.
+    assert.equal(run(['--alias', 'only', '--key-passphrase', 'PW3']).status, 0)
+    assert.equal(run(['--alias', 'only', '--clear-key-passphrase']).status, 0)
+    assert.deepEqual(Object.keys(store()), ['k'])
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})

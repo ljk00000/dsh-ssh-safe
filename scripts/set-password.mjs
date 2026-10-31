@@ -99,7 +99,7 @@ const args = parseArgs(process.argv.slice(2))
 // written and then never found -- and the user was told it had been stored.
 // Keep this in step with every option the body reads (grep for "args[" / "args.").
 const KNOWN_OPTIONS = ['alias', 'host', 'port', 'user', 'key-path', 'key-passphrase', 'password',
-  'plaintext', 'clear-password', 'dsh-home', 'help']
+  'plaintext', 'clear-password', 'clear-key-passphrase', 'dsh-home', 'help']
 for (const key of Object.keys(args)) {
   if (!KNOWN_OPTIONS.includes(key)) {
     console.error('Unknown option --' + key + '. Accepted: ' + KNOWN_OPTIONS.map((o) => '--' + o).join(', '))
@@ -128,7 +128,34 @@ if (!alias) {
   console.error('Usage: node scripts/set-password.mjs --alias <name> [--host h] [--port p] [--user u]')
   console.error('                                              [--key-path p] [--key-passphrase]')
   console.error('                                              [--password p] [--plaintext] [--clear-password]')
+  console.error('                                              [--clear-key-passphrase]')
   process.exit(2)
+}
+
+/**
+ * Write the store, or explain why nothing was written and exit 2.
+ *
+ * Three commands write this file (store, clear password, clear passphrase) and
+ * the failure text has to be the same three times: one implementation, so the
+ * wording cannot drift between them.
+ *
+ * @param {Record<string, any>} next the whole store to persist
+ */
+function persist(next) {
+  try {
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(file, JSON.stringify(next, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
+  } catch (err) {
+    const code = err && err.code
+    if ((code === 'EEXIST' || code === 'ENOTDIR') && existsSync(dir) && statSync(dir).isFile()) {
+      console.error('Cannot write ' + file + ': ' + dir + ' is a file, not a directory.')
+      console.error('Remove or rename that file, then run this again. Nothing was written.')
+    } else {
+      console.error('Cannot write ' + file + ' (' + (code || (err && err.message) || 'unknown error') + ').')
+      console.error('Nothing was written. Fix the path or its permissions, then run this again.')
+    }
+    process.exit(2)
+  }
 }
 
 const dshHome = String(args['dsh-home'] || process.env.DSH_HOME || path.join(homedir(), '.dsh'))
@@ -243,22 +270,40 @@ if (args['clear-password'] === true) {
   // behind would show up as a machine with no host.
   if (Object.keys(entry).length === 0) delete store[alias]
   else store[alias] = entry
-  try {
-    mkdirSync(dir, { recursive: true })
-    writeFileSync(file, JSON.stringify(store, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
-  } catch (err) {
-    const code = err && err.code
-    if ((code === 'EEXIST' || code === 'ENOTDIR') && existsSync(dir) && statSync(dir).isFile()) {
-      console.error('Cannot write ' + file + ': ' + dir + ' is a file, not a directory.')
-      console.error('Remove or rename that file, then run this again. Nothing was written.')
-    } else {
-      console.error('Cannot write ' + file + ' (' + (code || 'unknown error') + '). Nothing was written.')
-    }
-    process.exit(2)
-  }
+  persist(store)
   console.log('Cleared the stored password for "' + alias + '".')
   console.log('Set DSH_SSH_' + alias.toUpperCase() + '_PASSWORD, or store a key with --key-path, to' +
     ' authenticate this machine again.')
+  process.exit(0)
+}
+
+// The password could be cleared and the passphrase could not: revoking a stored
+// passphrase meant editing credentials.json by hand, and a rotated key left the
+// old passphrase behind with nothing that said so.
+if (args['clear-key-passphrase'] === true) {
+  if (args['key-passphrase'] !== undefined) {
+    console.error('--clear-key-passphrase removes the stored passphrase, so it cannot be combined with --key-passphrase.')
+    console.error("Run the clear on its own, then store the new passphrase with a second command.")
+    process.exit(2)
+  }
+  if (args.plaintext !== undefined) {
+    console.error('--plaintext only applies when storing a secret; drop it when clearing.')
+    process.exit(2)
+  }
+  const had = Boolean(entry.keyPassphrase || entry.keyPassphraseDpapi)
+  delete entry.keyPassphrase
+  delete entry.keyPassphraseDpapi
+  if (!had) {
+    console.error('No stored key passphrase for "' + alias + '" — nothing to clear.')
+    console.error('Other fields in that entry were left untouched.')
+    process.exit(2)
+  }
+  if (Object.keys(entry).length === 0) delete store[alias]
+  else store[alias] = entry
+  persist(store)
+  console.log('Cleared the stored key passphrase for "' + alias + '".')
+  console.log('If the key is still protected, the next connection will say so; store the new' +
+    ' passphrase with --key-passphrase.')
   process.exit(0)
 }
 
@@ -297,20 +342,7 @@ store[alias] = entry
 // A file where the directory belongs used to crash with a raw stack trace:
 // 'Error: EEXIST: file already exists, mkdir …' and nothing about what was
 // written. Nothing is written in that case, and saying so is the whole message.
-try {
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(file, JSON.stringify(store, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
-} catch (err) {
-  const code = err && err.code
-  if ((code === 'EEXIST' || code === 'ENOTDIR') && existsSync(dir) && statSync(dir).isFile()) {
-    console.error('Cannot write ' + file + ': ' + dir + ' is a file, not a directory.')
-    console.error('Remove or rename that file, then run this again. Nothing was written.')
-  } else {
-    console.error('Cannot write ' + file + ' (' + (code || (err && err.message) || 'unknown error') + ').')
-    console.error('Nothing was written. Fix the path or its permissions, then run this again.')
-  }
-  process.exit(2)
-}
+persist(store)
 
 // On Windows an ACL is the equivalent of a file mode, and unlike chmod it is
 // enforced there.

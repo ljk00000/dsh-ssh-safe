@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.271 — 2026-11-01
+
+### Added — `--clear-key-passphrase`
+The password could be revoked with `--clear-password`; the passphrase could not. A rotated key left the
+old passphrase in `credentials.json` and the only way to remove it was to edit the file by hand.
+```
+node scripts/set-password.mjs --alias k --clear-key-passphrase
+Cleared the stored key passphrase for "k".
+If the key is still protected, the next connection will say so; store the new passphrase with
+--key-passphrase.
+```
+Same rules as the password clear: it cannot be combined with `--key-passphrase` or `--plaintext`, a
+second clear answers `nothing to clear` and exits 2, only the passphrase fields are removed, and an
+entry that held nothing else disappears instead of leaving `{}` behind.
+
+### Changed — one implementation of "write the store"
+`persist()` now owns the write and both failure shapes (a directory where the file belongs, and any
+other errno), and the three commands that save — store, clear password, clear passphrase — all call it.
+The passphrase clear would have been the third hand-copied block, which is exactly how one copy of a
+message starts drifting from the others.
+
+### Docs
+- The README says the passphrase is DPAPI encrypted like the password, and lists the new flag.
+
+### Tests
+- One new case: store then clear (only the passphrase goes), a second clear exits 2, both contradictory
+  combinations exit 2, and an entry holding only a passphrase is removed entirely.
+  Suite 857 / 852 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.270 — 2026-11-01
 
 ### Fixed — `ssh_credentials` never mentioned the key passphrase
