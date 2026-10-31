@@ -67,6 +67,16 @@ export function connectOptions(machine, auth, timing = {}) {
     try {
       keyText = readFileSync(keyPath)
     } catch (err) {
+      const code = err && /** @type {any} */ (err).code
+      // Pointing keyPath at ~/.ssh (or at the .pub half) is a common slip, and
+      // 'EISDIR: illegal operation on a directory, read' says what the kernel saw
+      // rather than what to change.
+      if (code === 'EISDIR') {
+        throw new Error(
+          'the keyPath ' + keyPath + ' is a directory, not a key file; point it at the private key ' +
+          'itself (for example ~/.ssh/id_ed25519)'
+        )
+      }
       throw new Error('cannot read the private key ' + keyPath + ': ' +
         String(err && /** @type {any} */ (err).message ? /** @type {any} */ (err).message : err))
     }
@@ -78,8 +88,24 @@ export function connectOptions(machine, auth, timing = {}) {
     if (parsed instanceof Error) {
       const passphraseHint = /passphrase/i.test(parsed.message)
         ? ' — set keyPassphrase for this machine (or DSH_SSH_<ALIAS>_KEY_PASSPHRASE) if the key is protected'
-        : ''
+        : /Unsupported key format/i.test(parsed.message)
+          // The .pub file next to a key is the most likely wrong file: it is a
+          // perfectly valid PEM blob, so "Unsupported key format" is all ssh2 says.
+          ? ' — this is not a private key in a format ssh2 reads (PEM or OpenSSH);' +
+            ' a .pub file is the public half and cannot authenticate on its own'
+          : ''
       throw new Error('the private key ' + keyPath + ' could not be parsed: ' + parsed.message + passphraseHint)
+    }
+    // A .pub file parses cleanly, so it reached ssh2 as privateKey and the
+    // connection died with 'privateKey value does not contain a (valid) private
+    // key' -- no machine, no path, no fix. Measured: parseKey() answers
+    // isPrivateKey() === false for the public half.
+    if (typeof parsed.isPrivateKey === 'function' && !parsed.isPrivateKey()) {
+      throw new Error(
+        'the keyPath ' + keyPath + ' holds a public key, not a private one; ssh2 cannot ' +
+        'authenticate with it — point keyPath at the private file (for example ' +
+        '~/.ssh/id_ed25519, without the .pub)'
+      )
     }
     options.privateKey = keyText
     if (auth.passphrase) options.passphrase = auth.passphrase

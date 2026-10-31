@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.7.226 — 2026-11-01
+
+### Fixed
+- **Pointing `keyPath` at the `.pub` half reached ssh2 and died with a pathless error.** The public
+  key parses cleanly (`parseKey()` accepts it, `isPrivateKey()` is false), so it was handed to ssh2
+  as the private key:
+  ```
+  before: ERR: privateKey value does not contain a (valid) private key
+  after : ERR: Machine "pub" cannot use its credential: the keyPath …id.pub holds a public key,
+          not a private one; ssh2 cannot authenticate with it — point keyPath at the private file
+          (for example ~/.ssh/id_ed25519, without the .pub)
+  ```
+  This is the commonest key mistake there is, and it was the only branch that never named the
+  machine or the file.
+
+- **`keyPath` pointing at a directory answered `EISDIR: illegal operation on a directory, read`** —
+  what the kernel saw, not what to change. It now says the path is a directory and points at the
+  private key file instead.
+
+- A file that is not a key at all now adds that a `.pub` file is the public half and cannot
+  authenticate on its own, next to ssh2's "Unsupported key format".
+
+### Verified, no change needed
+- `safeAlias()` already refuses `..`, `/`, `\\` and control characters, and `remoteDir()` is the
+  only path builder — every caller goes through it, so the traversal incident cannot recur there.
+- `ssh_audit` survives a hand-edited file: `null`, a bare string, `[]`, bad JSON and a record with
+  `"__proto__"` all render as `[unreadable record]` or plain fields, and `({}).polluted` stays
+  `undefined`.
+- Encrypted keys: no passphrase → "no passphrase given — set keyPassphrase for this machine"; wrong
+  passphrase → "integrity check failed -- bad passphrase?".
+
+### One test updated, not worked around
+- `test/connect.test.js` pinned `/cannot read the private key/` for the directory case. The new
+  sentence is what the user needs, so the assertion now pins `/is a directory, not a key file/` and
+  that `EISDIR` is gone; the "the path must be in the message" check stays.
+
+### Tests
+- One new live case covering all three wrong-keyPath shapes. Suite 807 / 802 pass / 5 skipped / 0
+  fail, `tsc` clean.
+
 ## 0.7.225 — 2026-11-01
 
 ### Fixed

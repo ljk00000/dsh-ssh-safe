@@ -2186,3 +2186,51 @@ test('a denied directory above the target is named as a possibility', async () =
     srv.vfs.control.undeny()
   }
 })
+
+test('a .pub file, a directory or junk as keyPath is explained, not passed to ssh2', async () => {
+  // A public key parses cleanly, so it reached ssh2 as privateKey and the connection
+  // died with 'privateKey value does not contain a (valid) private key' — no
+  // machine, no path, no fix. A directory answered 'EISDIR: illegal operation on a
+  // directory, read'.
+  const ssh2 = (await import('ssh2')).default
+  const dir = mkdtempSync(path.join(tmpdir(), 'dsh-keypath-'))
+  const pair = ssh2.utils.generateKeyPairSync('ed25519')
+  const pub = path.join(dir, 'id.pub')
+  const junk = path.join(dir, 'junk.pem')
+  const asDir = path.join(dir, 'ssh-dir')
+  writeFileSync(pub, pair.public)
+  writeFileSync(junk, 'not a key')
+  mkdirSync(asDir)
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: {
+        t: { host: '127.0.0.1', port: srv2.port, user: 'tester' },
+        pub: { host: '127.0.0.1', port: srv2.port, user: 'tester', keyPath: pub },
+        dir: { host: '127.0.0.1', port: srv2.port, user: 'tester', keyPath: asDir },
+        junk: { host: '127.0.0.1', port: srv2.port, user: 'tester', keyPath: junk },
+      },
+    })
+    const attempt = async (machine) => {
+      try { return String((await own.ssh_exec.execute({ machine, command: 'echo hi' }, {})).text) }
+      catch (err) { return 'ERR: ' + err.message }
+    }
+    const publicKey = await attempt('pub')
+    assert.match(publicKey, /holds a public key, not a private one/)
+    assert.match(publicKey, /without the \.pub/)
+    assert.doesNotMatch(publicKey, /privateKey value does not contain/)
+    const directory = await attempt('dir')
+    assert.match(directory, /is a directory, not a key file/)
+    assert.doesNotMatch(directory, /EISDIR/)
+    const notAKey = await attempt('junk')
+    assert.match(notAKey, /Unsupported key format/)
+    assert.match(notAKey, /a \.pub file is the public half/)
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    await srv2.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

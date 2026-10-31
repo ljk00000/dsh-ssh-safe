@@ -74,7 +74,10 @@ test('a key file that cannot be read or parsed names itself', () => {
   assert.throws(
     () => connectOptions(machine, { keyPath: dir }),
     (err) => {
-      assert.match(err.message, /cannot read the private key/)
+      // Now names the mistake as well as the path: EISDIR said what the kernel
+      // saw, not that keyPath pointed at a directory instead of a key file.
+      assert.match(err.message, /is a directory, not a key file/)
+      assert.doesNotMatch(err.message, /EISDIR/)
       assert.ok(err.message.includes(dir), 'the path must be in the message: ' + err.message)
       return true
     },
