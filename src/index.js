@@ -965,9 +965,13 @@ function assertKnownArgs(args, known, toolName) {
         // "truncated" alone left the caller guessing whether one character or a
         // megabyte was lost, and what to do about it.
         const lost = Number(r.droppedChars) || 0
+        // Which end survived is the part the reader needs: "truncated" without it
+        // leaves them reading the beginning as if it were the whole command's
+        // verdict.
         parts.push('[output truncated at maxOutputChars' +
-          (lost > 0 ? ': ' + lost + ' more character' + (lost === 1 ? '' : 's') + ' were dropped' : '') +
-          ' — raise maxOutputChars, or send the output to a file and read it with ssh_read]')
+          (lost > 0 ? ': ' + lost + ' more character' + (lost === 1 ? '' : 's') + ' were dropped from the end' : '') +
+          ' — what is shown is the beginning of the output. Raise maxOutputChars, or send the ' +
+          'output to a file and read it with ssh_read]')
       }
       if (r.timedOut) parts.push('[timed out after ' + (budget || cfg.commandTimeoutMs) + 'ms]')
       if (r.cancelled) {

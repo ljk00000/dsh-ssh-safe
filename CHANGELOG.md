@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.97 — 2026-10-31
+
+### Fixed
+- **A truncated command output did not say which end was kept.** The note named the
+  limit and the number of characters lost, so a reader could still take the
+  beginning for the command's whole story — the verdict usually arrives at the end.
+  It now reads
+  `[output truncated at maxOutputChars: 3976 more characters were dropped from
+  the end — what is shown is the beginning of the output. Raise maxOutputChars, or
+  send the output to a file and read it with ssh_read]`
+  Measured against `maxOutputChars: 1024` with 5000 bytes of output: exactly 1024
+  characters kept, all from the start.
+
+### Verified, no change needed
+- `stderr` output is labelled `[stderr]` and never made to look like a failure: a
+  command that writes a warning and exits 0 still reports `[exit 0]`.
+- A non-zero exit reports the code (`[exit 3]`); a signal reports
+  `[signal SIGKILL]`.
+
 ## 0.7.96 — 2026-10-31
 
 ### Fixed — two ways a secret reached the transcript

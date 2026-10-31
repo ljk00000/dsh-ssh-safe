@@ -292,8 +292,11 @@ test('two commands on one machine run at the same time, not one after the other'
 test('output beyond maxOutputChars is cut and the cut is announced', async () => {
   // maxOutputChars is left at its 200000 default here.
   const text = await run('ssh_exec', { command: 'big 300000' })
-  assert.match(text, /\[output truncated at maxOutputChars: \d+ more characters were dropped/)
-    assert.match(text, /raise maxOutputChars, or send the output to a file/)
+  assert.match(text, /\[output truncated at maxOutputChars: \d+ more characters were dropped from the end/)
+  // Which end survived is the part a reader needs; "truncated" alone left the
+  // beginning looking like the command's whole verdict.
+  assert.match(text, /what is shown is the beginning of the output/)
+  assert.match(text, /Raise maxOutputChars, or send the output to a file/)
   assert.ok(text.length <= 200500, 'the tool must not return everything: ' + text.length)
   assert.ok(text.length > 100000, 'it should still return most of the cap: ' + text.length)
   assert.match(text, /\[exit 0\]|exit 0/)
