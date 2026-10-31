@@ -248,9 +248,11 @@ export const DEFAULT_DENY_RULES = [
   },
   {
     // The home directory is the other root-shaped target. '~/*' deletes
-    // everything in it and '~/.*' the dotfiles: the same accident as 'rm -rf ~'.
-    pattern: '(?:^|[\\s;&|()\`])rm\\s+-[rf]{1,2}\\s+(?:~|\\$(?:\\{HOME\\}|HOME))/?(?:\\*|\\.\\*)?(?:\\s|$|[)\`])',
-    why: 'it deletes the home directory (rm -rf ~, $HOME, ~/*, ~/.*)',
+    // everything in it, '~/.*' the dotfiles and '~/.' the same contents by another
+    // spelling — the root rule already covers '/.', so a home rule that covers '~' but
+    // not '~/.' is an inconsistency a destructive command could walk through.
+    pattern: '(?:^|[\\s;&|()\`])rm\\s+-[rf]{1,2}\\s+(?:~|\\$(?:\\{HOME\\}|HOME))/?(?:\\*|\\.\\*|\\.{1,2})?(?:\\s|$|[)\`])',
+    why: 'it deletes the home directory (rm -rf ~, $HOME, ~/*, ~/.*, ~/.)',
   },
   {
     // 'cd / && rm -rf *' deletes the root one level at a time. The rule above

@@ -442,7 +442,7 @@ ssh_read { machine: "prod", path: "/opt/app/.env", raw: true }
 默认拒绝这些模式（可配置，共 13 条）：
 
 - `rm -rf /` 及其变体：`//`、`/*`、`/.`、`/..`、`\/`（反斜杠转义）、`"/"`
-- `rm -rf ~` / `rm -rf $HOME`（家目录顶层）
+- `rm -rf ~` / `rm -rf $HOME`（家目录顶层）：`~/`、`~/*`、`~/.*`、`~/.`、`~/..` 同样拦截
 - `cd /`（或 `cd ~`）之后紧跟 `rm -rf *` 或 `rm -rf .*`——斜杠在 cd 里，第一条看不见；`cd ~/proj && rm -rf *` 仍放行
 - `find /` 配合 `-delete`、`-exec rm`、`-ok rm`、`-execdir rm`；`find / | xargs rm`、`xargs rm -rf`（`find . | xargs rm` 不带递归时仍放行）
 - `mkfs.*`、`dd if=... of=/dev/sd*`、往块设备重定向（`> /dev/sda`、`>: /dev/sda`、`>| /dev/sda`、`&> /dev/sda`）、`wipefs … /dev/sd*`、`shred … /dev/sd*`、fork 炸弹

@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.306 — 2026-11-01
+
+### Fixed — `rm -rf ~/.` deleted the home directory and was allowed
+The root rule has always covered `/.` and `/..`. The home rule covered `~`, `~/`, `~/*` and `~/.*` but not
+the dot spellings, so the same deletion walked through under a different name:
+```
+before  rm -rf ~/.     ALLOW      rm -rf /.     BLOCK
+after   rm -rf ~/.     BLOCK      rm -rf ~/..   BLOCK      rm -rf $HOME/.   BLOCK
+```
+The rule's target suffix now accepts `.` and `..` as well. Control set measured after the change:
+`rm -rf ~/project`, `rm -rf ~/.cache/pip`, `rm -rf ~/.config/app`, `rm -rf /tmp/build`,
+`rm -rf /var/tmp/x`, `rm -rf ./build` are all still allowed.
+
+### Verified this round (no defect found)
+- `ssh_write` with `createDirs`: a deep path without the flag says "the parent directory does not exist.
+  Pass createDirs: true to create it"; with the flag it writes; a *file* in the parent position gets
+  "… already exists and is a file, not a directory" either way.
+- The write ceiling is exact: 1024 bytes at `maxFileBytes: 1024` is written, 1025 is refused with the knob
+  named and leaves no file behind.
+- Cold start with directories where files belong: `credentials.json` as a directory gives a
+  "could not be read (EISDIR)" warning while connections keep working, and `audit.ndjson` as a directory
+  makes the audit tool say its records are incomplete **and** unreadable, plus a `[warn] audit` stage in
+  `ssh_doctor`.
+
+### My own mistakes — the worst editing round in a while
+1. Two failed edits on the rule line, then I patched `lines[findIndex(…)]` with `findIndex` returning -1,
+   wrote `lines[-1]`, and **corrupted `guard.js`** (`SyntaxError: Unexpected token 'const'`). Recovered with
+   `git checkout -- src/guard.js` and redid the change against the exact bytes.
+2. My control helper in the new test used `Boolean(checkCommand(...))`, which is always true because the
+   verdict is an object — the test claimed `rm -rf ~/project` was blocked. It checks `verdict.blocked` now.
+3. The first comment I spliced into the file left a `'~/.'` typo, fixed in the same round.
+
+### Tests
+- One new case: four home-root spellings are refused and four ordinary targets are not.
+  Suite 893 / 888 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.305 — 2026-11-01
 
 ### Added — `ssh_credentials` says when two aliases share one environment prefix
