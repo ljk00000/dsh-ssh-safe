@@ -7,6 +7,7 @@ import path from 'node:path'
 import ssh2 from 'ssh2'
 
 import { SshPool } from '../src/pool.js'
+import { alternateHostKey } from './helpers/local-ssh-server.js'
 import { Utf8Collector, OutputBudget, countCodePoints } from '../src/buffer.js'
 
 // A channel delivers bytes, and a chunk boundary can fall inside a multi-byte
@@ -15,10 +16,11 @@ import { Utf8Collector, OutputBudget, countCodePoints } from '../src/buffer.js'
 
 const { Server } = ssh2
 
-// One key for the whole file: generating a fresh one per server occasionally
-// produced a key ssh2 refused to parse ("Malformed OpenSSH private key"), which
-// failed the test for a reason unrelated to what it checks.
-const HOST_KEY = ssh2.utils.generateKeyPairSync('ed25519').private
+// The helper's cached RSA key, not a fresh ed25519 one: ssh2's ed25519 key
+// generation occasionally produced a key its own server parser rejected
+// ("Malformed OpenSSH private key"), which failed these tests for a reason that
+// has nothing to do with what they check. The helper documented the same flake.
+const HOST_KEY = alternateHostKey()
 
 /** A server that answers exec with the given payload, split at the given byte. */
 async function servingText(payload, splitAt) {

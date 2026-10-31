@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.77 — 2026-10-31
+
+### Fixed
+- **The not-configured message told the caller to pass arguments ssh_connect does
+  not have.** "… or pass host/username explicitly to ssh_connect" was written when the
+  tool took overrides; it does not, so following the advice produced
+  "Unknown argument(s) for ssh_connect: "host", "user". Accepted: machine,
+  trustHostKey, force, password." The message now names only the settings form,
+  the settings page and the environment variables.
+- **A zero-argument tool answered "Unknown argument(s) … Accepted: .".** The list of
+  accepted names was empty, which reads like a formatting bug. It now says the
+  tool takes no arguments and that the call was refused.
+
+### Test infrastructure
+- The UTF-8 output tests used a fresh ed25519 host key, and ssh2 occasionally
+  produced one its own server parser rejected (the shared helper documented the
+  same flake). They use the helper’s cached RSA key now and passed five runs in a
+  row, where the full suite previously failed on them at random.
+
 ## 0.7.76 — 2026-10-31
 
 ### Fixed

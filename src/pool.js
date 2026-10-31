@@ -682,9 +682,9 @@ export class SshPool {
       // another 15s" when the real answer is "fill in the host".
       throw noCooldown(new Error(
         'Machine "' + alias + '" is not configured: missing ' + need.join(', ') +
-        '. Set it in the plugin settings (machines.' + alias + '), or as the environment ' +
-        'variable(s) ' + need.join(', ') + ', or pass host/username ' +
-        'explicitly to ssh_connect. Nothing was read from disk.'
+        '. Set it in the plugin settings (machines.' + alias + ') or in the settings page, ' +
+        'or as the environment variable(s) ' + need.join(', ') +
+        '. Nothing was read from disk.'
       ))
     }
     // A port that cannot be dialled is a configuration error, not a network

@@ -545,9 +545,12 @@ function assertKnownArgs(args, known, toolName) {
     }
     return '"' + key + '"' + (bestDistance <= 2 ? ' (did you mean "' + best + '"?)' : '')
   }
+  // "Accepted: ." is what a zero-argument tool printed: the list was empty.
+  const accepted = known.length > 0
+    ? '. Accepted: ' + known.join(', ') + '.'
+    : '. ' + toolName + ' takes no arguments, so the call was refused.'
   throw new Error(
-    'Unknown argument(s) for ' + toolName + ': ' + unknown.map(describe).join(', ') +
-    '. Accepted: ' + known.join(', ') + '.'
+    'Unknown argument(s) for ' + toolName + ': ' + unknown.map(describe).join(', ') + accepted
   )
 }
   // Wrap execute once so every tool rejects undeclared arguments.

@@ -529,3 +529,29 @@ test('a rule the user added is quoted, and keeps its own order', async () => {
     )
   } finally { restore() }
 })
+
+test('a tool with no parameters says so instead of ". Accepted: ."', async () => {
+  // 'Accepted: .' was the message for every zero-argument tool: the list of
+  // accepted names was empty.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-args-zero-'))
+  const tools = {}
+  await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined },
+    { defaultMachine: 't', hostKeyPolicy: 'tofu', machines: {} })
+  for (const name of ['ssh_config', 'ssh_credentials', 'ssh_machines']) {
+    await assert.rejects(
+      () => tools[name].execute({ machine: 't' }, {}),
+      (err) => {
+        assert.match(err.message, /takes no arguments, so the call was refused/)
+        assert.doesNotMatch(err.message, /Accepted: \./)
+        return true
+      },
+      name,
+    )
+  }
+  // A tool that does take one still lists it.
+  await assert.rejects(
+    () => tools.ssh_audit.execute({ machine: 't' }, {}),
+    /Unknown argument\(s\) for ssh_audit: "machine"\. Accepted: limit\./,
+  )
+  rmSync(home, { recursive: true, force: true })
+})
