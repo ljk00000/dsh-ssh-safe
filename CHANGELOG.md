@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.7.228 — 2026-11-01
+
+### Fixed
+- **`ssh_close` with `force: true` did not stop a transfer that was already running.** The tool
+  offers to "cut it off", but the SFTP operation kept waiting for its own deadline: measured
+  6289 ms for a write that was told to stop at 120 ms (`sftpTimeoutMs: 6000`). Each pool entry now
+  carries an `AbortController`; a forced close aborts it, the transfer settles on its signal, and the
+  reason travels with it:
+  ```
+  before: (waited the full 6000ms) writing … did not complete within 6000ms — the remote channel may
+          have dropped; …
+  after : (130ms) writing /b/partial.txt was cancelled (the connection was closed with force: true);
+          the file was opened (which truncates it) but no data was sent, so it is empty now
+  ```
+  The transfer still says what it did to the file, which is the part a forced stop must not lose.
+
+### Notes from making it work
+- The first attempt inserted a second `signal:` key instead of replacing the existing one; the
+  literal's later key won and the abort had no effect (6289 ms again). Replaced in place instead.
+- Aborting synchronously inside `closeOne()` rejected the caller's promise before anyone could
+  attach a handler, which Node reports as an unhandled rejection. The abort is deferred with
+  `setImmediate`, and the two tests that start an operation and then close attach their handler
+  first — which is what a tool does.
+- My removal of the duplicated keys also deleted the `signal` argument from `readRemoteFile`; the
+  type check and the suite both stayed green (nothing tests that a read stops when the turn is
+  cancelled), and I only noticed because the block printed `signal keys: 0`. Restored, and verified.
+
+### Verified, no change needed
+- `maxListEntries: 0` really is unlimited (5 of 5 rows), `2` shows two plus "… 3 more entries … pass
+  offset: 2", and `ssh_config` prints 0 as 0 for every setting where 0 has a meaning
+  (`reconnectCooldownMs`, `healthCheckIdleMs`, `maxConnections`, `maxListEntries`,
+  `keepaliveIntervalMs`), with `Live connections: 0 (no limit)`.
+- The message after a dropped connection still holds with the default 15 s cooldown: the next call
+  reconnects immediately ("the next call opens a new connection").
+
+### Tests
+- One new live case: a forced close ends a stalled 2 MB write in under 4 s with a "was cancelled"
+  message. The in-flight read test now pins the faster, more specific outcome. Suite 809 / 804
+  pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.227 — 2026-11-01
 
 ### Fixed

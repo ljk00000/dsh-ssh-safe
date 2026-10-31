@@ -1415,14 +1415,20 @@ test('a read in flight settles when the connection is force-closed', async () =>
     })
     srv2.vfs.control.stallReads = true
     const read = own.ssh_read.execute({ machine: 't', path: '/tmp/big.txt' }, {})
+    // The handler is attached before the close, which is what a tool does: a
+    // rejection that lands while nobody is listening is reported by Node as an
+    // unhandled rejection.
+    const settled = read.then((r) => 'ok: ' + String(r.text).slice(0, 40), (err) => 'err: ' + String(err.message).slice(0, 90))
     await new Promise((resolve) => setTimeout(resolve, 200))
     await own.ssh_close.execute({ machine: 't', force: true }, {})
     const outcome = await Promise.race([
-      read.then((r) => 'ok: ' + String(r.text).slice(0, 40), (err) => 'err: ' + String(err.message).slice(0, 80)),
+      settled,
       new Promise((resolve) => setTimeout(() => resolve('still pending'), 9000)),
     ])
     assert.notEqual(outcome, 'still pending', 'the read must settle after the connection is gone')
-    assert.match(outcome, /did not complete within 3000ms/)
+    // Force-close now aborts the transfer, so it stops at once instead of waiting
+    // for sftpTimeoutMs; this pins the faster, more specific outcome.
+    assert.match(outcome, /was cancelled \(the connection was closed with force: true\)/)
   } finally {
     srv2.vfs.control.stallReads = false
     await own.ssh_close.execute({}, {}).catch(() => {})
@@ -2266,6 +2272,47 @@ test('the doctor and the connection agree about a .pub file and a directory keyP
     assert.match(dirReport, /\[FAIL\] credentials: key file is a directory, not a key/)
     assert.doesNotMatch(dirReport, /EISDIR/)
   } finally {
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('force-close stops a transfer that is already running', async () => {
+  // closeOne({force: true}) closed the client but an in-flight write kept waiting for
+  // its own sftpTimeoutMs: measured 6.3 s for a write told to stop at 120 ms.
+  const srv2 = await startServer()
+  srv2.vfs.putDir('/st')
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-forceclose-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000, sftpTimeoutMs: 20000, maxFileBytes: 4 * 1048576,
+      closeTimeoutMs: 1000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    const attempt = async (promise) => {
+      try { return String((await promise).text) } catch (err) { return 'ERR: ' + err.message }
+    }
+    await attempt(own.ssh_exec.execute({ machine: 't', command: 'echo warm' }, {}))
+    srv2.vfs.control.stallWrites = true
+    const startedAt = Date.now()
+    const writing = attempt(own.ssh_write.execute({ machine: 't', path: '/st/partial.txt', content: 'z'.repeat(2 * 1048576) }, {}))
+    await new Promise((r) => setTimeout(r, 120))
+    const closed = await attempt(own.ssh_close.execute({ machine: 't', force: true }, {}))
+    assert.match(closed, /Closed/)
+    const wrote = await writing
+    const elapsed = Date.now() - startedAt
+    assert.match(wrote, /was cancelled/)
+    assert.match(wrote, /no data was sent/)
+    assert.ok(elapsed < 4000, 'the transfer must stop with the close, took ' + elapsed + 'ms')
+  } finally {
+    srv2.vfs.control.stallWrites = false
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
     await srv2.close()
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous

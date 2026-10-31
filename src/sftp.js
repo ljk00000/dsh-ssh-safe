@@ -67,7 +67,12 @@ function onAbort(signal, message, settle) {
     settle(new Error(describe() + ' (cancelled before it started)'))
     return null
   }
-  const listener = () => settle(new Error(describe()))
+  const listener = () => {
+    // The pool aborts with a reason when the cause is known ("the connection was
+    // closed with force: true"); the harness aborts without one.
+    const reason = signal.reason
+    settle(new Error(describe() + (typeof reason === 'string' && reason ? ' (' + reason + ')' : '')))
+  }
   try { signal.addEventListener('abort', listener, { once: true }) } catch { return null }
   return listener
 }

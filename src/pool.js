@@ -308,6 +308,33 @@ export function identityProblem(m) {
  */
 export const MAX_COMMAND_BYTES = 34000
 
+/**
+ * Two abort signals as one.
+ *
+ * The caller aborts when the turn is stopped; the pool aborts when the connection
+ * is force-closed. A transfer has to stop for either reason.
+ *
+ * @param {AbortSignal|undefined} signal
+ * @param {AbortSignal|undefined} extra
+ * @returns {AbortSignal|undefined}
+ */
+function anySignal(signal, extra) {
+  if (!extra) return signal
+  if (!signal) return extra
+  if (signal.aborted || extra.aborted) {
+    const done = new AbortController()
+    done.abort()
+    return done.signal
+  }
+  const combined = new AbortController()
+  const stop = () => combined.abort()
+  try {
+    signal.addEventListener('abort', stop, { once: true })
+    extra.addEventListener('abort', stop, { once: true })
+  } catch { /* a signal from another realm: fall back to the caller's */ }
+  return combined.signal
+}
+
 /** Mark an error that must not arm the reconnect cooldown. */
 function noCooldown(err) {
   /** @type {any} */ (err).noCooldown = true
@@ -377,6 +404,7 @@ function explainGone(err, alias) {
  * @property {boolean} [hostKeyVerified] false when the policy was 'off'
  * @property {boolean} [hostKeyFirstSeen] true when this run recorded the key
  * @property {string|undefined} [credentialIdentity] digest of the credential used
+ * @property {AbortController} [aborter] aborted by a forced close so in-flight transfers stop waiting
  */
 
 /**
@@ -460,7 +488,13 @@ export class SshPool {
     let e = this.entries.get(alias)
     if (!e) {
       /** @type {PoolEntry} */
-      const fresh = { client: null, ready: null, lastError: '', nextAttemptAt: 0, lastUsedAt: Date.now() }
+      const fresh = {
+        client: null, ready: null, lastError: '', nextAttemptAt: 0, lastUsedAt: Date.now(),
+        // Aborted by a forced close so a transfer that is already running stops
+        // waiting for its own deadline: force-close took 6.3 s (the sftp timeout)
+        // to reach a write that had been told to stop at 120 ms.
+        aborter: new AbortController(),
+      }
       e = fresh
       this.entries.set(alias, e)
     }
@@ -1227,7 +1261,7 @@ export class SshPool {
     return await readRemoteFile(client, remotePath, {
       maxBytes: cap,
       timeoutMs: timerValue(pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)), 30000),
-      signal,
+      signal: anySignal(signal, this.entry(alias).aborter?.signal),
     })
   }
 
@@ -1286,7 +1320,7 @@ export class SshPool {
     return await writeRemoteFile(client, remotePath, content, {
       timeoutMs: timerValue(pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)), 30000),
       createDirs: createDirs === true,
-      signal,
+      signal: anySignal(signal, this.entry(alias).aborter?.signal),
       mode,
     })
   }
@@ -1315,7 +1349,7 @@ export class SshPool {
     const client = await this.connect(alias, { sessionPassword, signal })
     return await listRemoteDir(client, remotePath, {
       timeoutMs: timerValue(pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)), 30000),
-      signal,
+      signal: anySignal(signal, this.entry(alias).aborter?.signal),
     })
   }
   /**
@@ -1340,6 +1374,20 @@ export class SshPool {
     }
     if (!force && this.isBusy(alias)) {
       return { closed: false, confirmed: false, busy: true }
+    }
+    // Stop any transfer still running on this connection before closing it; the
+    // SFTP layer settles on its signal. A fresh controller lets the next call
+    // reconnect with a signal that is not already aborted.
+    if (force && e.aborter) {
+      const aborter = e.aborter
+      e.aborter = new AbortController()
+      // On the next turn, not here: settling a transfer synchronously inside
+      // abort() rejected the caller's promise before closeOne() had returned, and
+      // node reported it as an unhandled rejection (observed with ssh_read +
+      // ssh_close force in the same turn).
+      setImmediate(() => {
+        try { aborter.abort('the connection was closed with force: true') } catch {}
+      })
     }
     const client = e.client
     e.client = null
