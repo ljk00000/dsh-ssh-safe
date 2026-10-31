@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.79 — 2026-10-31
+
+### Fixed
+- **Workspace paths were folded to lower case on every platform.** That is right on
+  Windows and macOS and wrong on Linux, where `/work/App` and `/work/app` are two
+  different directories: `ssh_workspace action: "remove"` could unregister the
+  other project, and a placeholder could look registered because a
+  differently-cased directory was. Case folding now depends on the platform.
+
+### Added — tests
+- The matching rule per platform: folded where the file system folds, exact on
+  Linux, plus an exact-path match and a non-match on both.
+
 ## 0.7.78 — 2026-10-31
 
 ### Fixed

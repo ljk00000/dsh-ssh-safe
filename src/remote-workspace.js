@@ -136,10 +136,18 @@ export function writeRemoteWorkspace(dshHome, alias, machine = {}) {
  */
 export function findWorkspace(registry, dir) {
   const { items } = listWorkspaces(registry)
-  const wanted = String(dir).toLowerCase()
+  // Case folding is a Windows/macOS rule. On Linux '/work/App' and '/work/app'
+  // are two different directories, and folding them meant 'remove' could delete
+  // the other project's workspace entry -- or report a placeholder as registered
+  // because a differently-cased one was.
+  const fold = process.platform === 'win32' || process.platform === 'darwin'
+  const normalize = (value) => {
+    const text = String(value || '')
+    return fold ? text.toLowerCase() : text
+  }
+  const wanted = normalize(dir)
   for (const workspace of items) {
-    const path = String(workspace && workspace.path || '').toLowerCase()
-    if (path === wanted) return workspace
+    if (normalize(workspace && workspace.path || '') === wanted) return workspace
   }
   return null
 }

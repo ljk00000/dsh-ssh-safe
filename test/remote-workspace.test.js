@@ -69,11 +69,23 @@ test('readMarker reports null for a directory that is not a workspace', () => {
   assert.equal(readMarker(dshHome, 'plain'), null)
 })
 
-test('findWorkspace matches the canonical path case-insensitively', () => {
-  const registry = { list: () => [{ id: 'a', path: 'C:\\Work\\Remote', title: 'x' }] }
-  assert.equal(findWorkspace(registry, 'c:\\work\\remote').id, 'a')
-  assert.equal(findWorkspace(registry, 'C:\\other'), null)
-  assert.equal(findWorkspace(undefined, 'C:\\Work\\Remote'), null, 'a missing registry is not an error')
+test('findWorkspace matches the canonical path the way the platform does', () => {
+  // Windows and macOS fold case; Linux does not, and folding there matched a
+  // different directory that happened to differ only in case -- enough for
+  // 'remove' to delete the other project's workspace entry.
+  const caseFolded = process.platform === 'win32' || process.platform === 'darwin'
+  const dirname = caseFolded ? 'C:\\Work\\Remote' : '/work/Remote'
+  const otherCase = caseFolded ? 'c:\\work\\remote' : '/work/remote'
+  const registry = { list: () => [{ id: 'a', path: dirname, title: 'x' }] }
+
+  if (caseFolded) {
+    assert.equal(findWorkspace(registry, otherCase).id, 'a', 'case-insensitive on this platform')
+  } else {
+    assert.equal(findWorkspace(registry, otherCase), null, 'a differently-cased path is a different directory here')
+    assert.equal(findWorkspace(registry, dirname).id, 'a', 'the exact path still matches')
+  }
+  assert.equal(findWorkspace(registry, dirname + '-other'), null)
+  assert.equal(findWorkspace(undefined, dirname), null, 'a missing registry is not an error')
 })
 
 test('removeRemoteDir deletes the placeholder', () => {
