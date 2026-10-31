@@ -456,11 +456,25 @@ test('machineInventory: alias hides the host from every tool that prints one', a
     machines: { t: machineFor('t', own.port) },
   })
   try {
+    // Every tool that reaches the host: a single leak undoes the setting for the
+    // whole transcript, and only four of them were checked here.
+    const lean = (name, args) => leanTools[name].execute(args, {})
+    await lean('ssh_exec', { machine: 't', command: 'echo lean' })
+    await lean('ssh_read', { machine: 't', path: '/lean-guard.txt' }).catch(() => {})
+    await lean('ssh_write', { machine: 't', path: '/lean-guard.txt', content: 'x' }).catch(() => {})
+    await lean('ssh_list', { machine: 't', path: '/' })
     const texts = [
-      String((await leanTools.ssh_machines.execute({}, {})).text),
-      String((await leanTools.ssh_workspace.execute({ action: 'list' }, {})).text),
-      String((await leanTools.ssh_connect.execute({ machine: 't' }, {})).text),
-      String((await leanTools.ssh_doctor.execute({ machine: 't' }, {})).text),
+      String((await lean('ssh_machines', {})).text),
+      String((await lean('ssh_workspace', { action: 'list' }, {})).text),
+      String((await lean('ssh_connect', { machine: 't' }, {})).text),
+      String((await lean('ssh_doctor', { machine: 't' }, {})).text),
+      String((await lean('ssh_credentials', {}, {})).text),
+      String((await lean('ssh_config', {}, {})).text),
+      String((await lean('ssh_audit', { limit: 20 }, {})).text),
+      String((await lean('ssh_exec', { machine: 't', command: 'echo again' }, {})).text),
+      String((await lean('ssh_list', { machine: 't', path: '/' }, {})).text),
+      String((await lean('ssh_read', { machine: 't', path: '/lean-guard.txt' }, {})).text),
+      String((await lean('ssh_close', { machine: 't', force: true }, {})).text),
     ]
     for (const text of texts) {
       assert.doesNotMatch(text, /127\.0\.0\.1/, text.slice(0, 120))

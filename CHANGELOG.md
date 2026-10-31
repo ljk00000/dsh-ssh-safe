@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.276 — 2026-11-01
+
+### Hardened — `machineInventory: "alias"` is now checked against every tool
+The privacy setting had a test, but it covered four tools (`ssh_machines`, `ssh_workspace list`,
+`ssh_connect`, `ssh_doctor`). One leak anywhere in a transcript defeats the setting, and ten tools were
+unverified. The test now runs operations first (so `ssh_audit` has rows to print) and asserts that the
+host and port appear in **none of eleven outputs**: machines, workspace list, connect, doctor,
+credentials, config, audit, exec, list, read and close.
+
+### Verified this round (no change needed)
+- A manual sweep of all twelve tools with a deliberately recognisable host (`secret-host.example`) and
+  port (`2222`): every output hid both, including the error paths —
+  `Could not connect to machine "s" (address hidden): getaddrinfo ENOTFOUND <host hidden>`.
+- The audit view after several operations keeps the same wording, and the stored record carries the same
+  redacted text.
+- `ssh_write` modes: `"755"` on a new file reports `(mode 0755)`; on an existing file it says
+  `asked for 0700 but the file ended up 0644 (the server applies its umask, and a file that already
+  existed …)`; `"999"`, `"-1"` and `"0"` are refused with the octal hint; a numeric `mode` is refused by
+  the schema, and the parameter description already says the value is a string of octal digits.
+- `execGuard: "confirm"` refuses `ssh_exec`, `ssh_read` and `ssh_write` without `confirm: true` and
+  accepts them with it — matching the README, which states `ssh_list` is not affected.
+
+### My own mistake
+The extended test threw on its own setup (`ssh_read` of `/`, which is a directory) and failed before any
+assertion; the call needed `.catch(() => {})` like the write beside it.
+
+### Tests
+- Suite 861 / 856 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.275 — 2026-11-01
 
 ### Fixed — the page stopped silently, exactly like the doctor did
