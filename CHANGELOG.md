@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.126 — 2026-10-31
+
+### Fixed
+- **The cooldown told `ssh_exec` to "pass force: true", an option it does not have.**
+  After a failed connect the pool refuses retries for `reconnectCooldownMs`, and the
+  message ended with advice only `ssh_connect` can follow:
+  ```
+  before: … Pass force: true to try immediately, or trustHostKey: true on ssh_connect …
+  after : … A successful connect clears this. ssh_connect accepts force: true to try
+          immediately (and trustHostKey: true on ssh_connect to accept a
+          first-contact key in the same call); ssh_exec, ssh_read, ssh_write and
+          ssh_list do not have a force option.
+  ```
+
+### Verified, no change needed
+- The cooldown counts down and says so (`Refusing to retry dead for another 30s`,
+  with the last failure included); `ssh_connect force: true` bypasses it and the
+  attempt fails with the real reason.
+- A connection that dies mid-command reports
+  `[connection closed before the command reported an exit status — the output above
+  is partial]` instead of a bare failure.
+
 ## 0.7.125 — 2026-10-31
 
 ### Fixed

@@ -1125,3 +1125,29 @@ test('a ceiling exceeded while a command ran is enforced once it is idle again',
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the cooldown advice names an option the caller actually has', async () => {
+  // ssh_exec said 'Pass force: true to try immediately' and ssh_exec has no force
+  // argument, so the way out it described did not exist in the tool printing it.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-cooldfit-'))
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 30000,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'wrong-on-purpose' } },
+    })
+    await own.ssh_exec.execute({ machine: 't', command: 'echo hi' }, {}).catch(() => {})
+    const message = await own.ssh_exec.execute({ machine: 't', command: 'echo hi' }, {})
+      .then(() => '', (err) => String(err.message))
+    assert.match(message, /Refusing to retry t for another 30s/)
+    assert.match(message, /ssh_connect accepts force: true/)
+    assert.match(message, /do not have a force option/)
+    assert.doesNotMatch(message, /^.*Pass force: true to try immediately, or trustHostKey/m)
+  } finally {
+    await own.ssh_close?.execute?.({}, {})
+    await srv2.close()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

@@ -599,8 +599,13 @@ export class SshPool {
       throw new Error(
         'Refusing to retry ' + alias + ' for another ' + Math.ceil(waitMs / 1000) + 's ' +
         '(last failure: ' + (e.lastError || 'unknown') + '). ' +
-        'Pass force: true to try immediately, or trustHostKey: true on ssh_connect to ' +
-        'accept a first-contact key and retry in the same call.'
+        // This message is produced for every tool, but only ssh_connect has a
+        // force option: ssh_exec told the caller to "pass force: true" and there was
+        // no such argument to pass.
+        'A successful connect clears this. ssh_connect accepts force: true to try ' +
+        'immediately (and trustHostKey: true on ssh_connect to accept a first-contact ' +
+        'key in the same call); ssh_exec, ssh_read, ssh_write and ssh_list do not have ' +
+        'a force option.'
       )
     }
     if (e.ready) return e.ready
