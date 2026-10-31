@@ -223,6 +223,9 @@ function renderList() {
           (m.passwordSource === 'file-dpapi' || m.passwordSource === 'file-plaintext'
             ? '<button data-act="clear-password" data-alias="' + esc(m.alias) + '">清除已存密码</button>'
             : '') +
+          (m.keyPassphraseSource === 'file-dpapi' || m.keyPassphraseSource === 'file'
+            ? '<button data-act="clear-key-passphrase" data-alias="' + esc(m.alias) + '">清除已存口令</button>'
+            : '') +
           '<button class="danger" data-act="delete" data-alias="' + esc(m.alias) + '">删除</button>' +
         "</div>" +
         '<pre hidden data-out="' + esc(m.alias) + '"></pre>' +
@@ -275,6 +278,20 @@ document.getElementById("list").addEventListener("click", async (ev) => {
       const warnings = (result && result.warnings) || [];
       toast(warnings.length ? warnings[0]
         : (result && result.removedEntry ? "已清除密码（该条目已空，一并删除）" : "已清除已存密码"));
+      await refresh();
+      return;
+    }
+    if (act === "clear-key-passphrase") {
+      if (!confirm("清除 " + alias + " 已存的私钥口令？其它字段会保留。")) return;
+      btn.disabled = true;
+      const result = await api("/api/clear-key-passphrase", { alias });
+      toast(
+        !result || result.ok === false
+          ? "清除失败：" + ((result && result.error) || "未知错误")
+          : result.cleared === false
+            ? ((result.warnings && result.warnings[0]) || "没有可清除的口令")
+            : (result.removedEntry ? "已清除口令（该条目已空，一并删除）" : "已清除已存口令"),
+      );
       await refresh();
       return;
     }

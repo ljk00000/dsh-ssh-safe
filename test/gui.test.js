@@ -1467,3 +1467,44 @@ test('the page explains a credential problem instead of pasting a Node error', a
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the page can clear a stored key passphrase', async () => {
+  // --clear-key-passphrase existed in the CLI and nowhere on the page, so a
+  // passphrase saved from the page could only be revoked from a terminal.
+  const { encryptDpapi, dpapiAvailable } = await import('../src/dpapi.js')
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-guikp-'))
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  const blob = dpapiAvailable() ? encryptDpapi('KPPW') : 'DPAPIBLOB:x'
+  const store = path.join(home, 'dsh-ssh-safe', 'credentials.json')
+  writeFileSync(store, JSON.stringify({
+    k: { host: 'h', user: 'u', keyPath: '~/.ssh/id_ed25519', keyPassphraseDpapi: blob },
+    other: { host: 'h2', user: 'u', keyPath: '~/.ssh/id_rsa', keyPassphraseDpapi: blob },
+  }, null, 2))
+  const { child, base, token } = await start(home)
+  try {
+    const state = await fetch(base + '/api/state', { headers: { 'x-gui-token': token } }).then((r) => r.json())
+    const row = (state.machines || []).find((m) => m.alias === 'k')
+    assert.equal(row.keyPassphraseSource, 'file-dpapi')
+    const html = await fetch(base + '/?t=' + token, { headers: { 'x-gui-token': token } }).then((r) => r.text())
+    assert.match(html, /清除已存口令/)
+
+    const cleared = await call(base, token, '/api/clear-key-passphrase', { alias: 'k' })
+    assert.equal(cleared.status, 200)
+    assert.equal(cleared.body.cleared, true)
+    const after = JSON.parse(readFileSync(store, 'utf8'))
+    assert.deepEqual(after.k, { host: 'h', user: 'u', keyPath: '~/.ssh/id_ed25519' })
+    assert.ok(after.other.keyPassphraseDpapi, 'another machine keeps its passphrase')
+
+    // Nothing to clear is not an error, like the password endpoint.
+    const again = await call(base, token, '/api/clear-key-passphrase', { alias: 'k' })
+    assert.equal(again.status, 200)
+    assert.equal(again.body.cleared, false)
+    assert.match(again.body.warnings.join(' '), /没有该别名的已存口令/)
+
+    const bad = await call(base, token, '/api/clear-key-passphrase', { alias: 'bad alias!' })
+    assert.equal(bad.status, 400)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

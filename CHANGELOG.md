@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.272 — 2026-11-01
+
+### Added — the page can clear a stored key passphrase
+The CLI learned `--clear-key-passphrase` in 0.7.271 and the page still had only 清除已存密码, so a
+passphrase saved from the page could be revoked only from a terminal.
+```
+• k  u@h:22
+    password   —
+    key        file  …/id_ed25519
+    passphrase file-dpapi
+    [保存] [测试连接] [清除已存口令] [删除]
+```
+`/api/state` now carries `keyPassphraseSource`, so the button appears exactly where this file holds a
+passphrase and nowhere else. `POST /api/clear-key-passphrase` mirrors the password endpoint: 400 for a
+bad alias, 409 when the store cannot be parsed, `cleared: false` with a warning when there is nothing
+to clear, and an entry that held only the passphrase is removed whole.
+
+### Tests
+- One new GUI case: the state row names `file-dpapi`, the button is in the markup, the clear removes only
+  the two passphrase fields (another machine keeps its own), a second clear answers `cleared: false`
+  with the warning, and a bad alias is a 400.
+  Suite 858 / 853 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.271 — 2026-11-01
 
 ### Added — `--clear-key-passphrase`

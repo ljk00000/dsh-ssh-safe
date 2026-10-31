@@ -506,6 +506,9 @@ function state() {
       username: m.username,
       keyPath: m.keyPath,
       passwordSource: m.sources.password,
+      // The passphrase gets the same treatment as the password: the page offers
+      // 清除 only where this file actually holds one.
+      keyPassphraseSource: m.sources.keyPassphrase,
       hostKeyPolicy: m.hostKeyPolicy || '(global)',
       fromSettings: Boolean(settings[alias] && (settings[alias].host || settings[alias].user)),
       inCredentialFile: fromDisk.includes(alias),
@@ -1070,6 +1073,36 @@ const server = createServer(async (req, res) => {
       if (settings && (settings.password || settings.privateKey)) {
         warnings.push('已清除凭据文件里的密码；该别名在 DSH 设置界面里也提供了凭据，仍然可用，要移除请改设置')
       }
+      return sendJson(res, 200, { ok: true, cleared: true, removedEntry, warnings })
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/clear-key-passphrase') {
+      // --clear-key-passphrase existed in the CLI and not on the page, so a
+      // passphrase stored from the page could only be revoked from a terminal.
+      const parsedAlias = parseAlias(body.alias)
+      if (parsedAlias.error) return sendJson(res, 400, { error: parsedAlias.error })
+      const alias = parsedAlias.alias
+      const problem = storeProblem()
+      if (problem) {
+        return sendJson(res, 409, { error: problem + '——为避免把它整个覆盖掉，本页不会写入。请先修正语法，或把文件移走再回来。' })
+      }
+      const store = readStore()
+      const entry = store[alias] && typeof store[alias] === 'object' ? store[alias] : null
+      if (!entry || (!entry.keyPassphrase && !entry.keyPassphraseDpapi)) {
+        return sendJson(res, 200, { ok: true, cleared: false, warnings: ['凭据文件里没有该别名的已存口令'] })
+      }
+      delete entry.keyPassphrase
+      delete entry.keyPassphraseDpapi
+      let removedEntry = false
+      if (Object.keys(entry).length === 0) {
+        delete store[alias]
+        removedEntry = true
+      } else {
+        store[alias] = entry
+      }
+      writeStore(store)
+      const warnings = []
+      if (removedEntry) warnings.push('该条目只剩口令，已一并删除')
       return sendJson(res, 200, { ok: true, cleared: true, removedEntry, warnings })
     }
 
