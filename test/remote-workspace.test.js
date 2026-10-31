@@ -603,6 +603,26 @@ test('the instructions file cannot be given a new heading by a machine definitio
 })
 
 
+
+test('machineInventory: alias keeps the endpoint out of the marker file', () => {
+  // readMarker() only reads .alias, so host/port/username were written and never
+  // used -- except as the address the setting keeps out of sight, inside a file in
+  // the agent's own workspace.
+  const home = mkdtempSync(join(tmpdir(), 'dsh-marker-lean-'))
+  const machine = { host: '10.9.9.9', port: 2222, username: 'secretuser' }
+  try {
+    writeRemoteWorkspace(home, 'k', machine, 'strict', true)
+    const lean = JSON.parse(readFileSync(join(remoteDir(home, 'k'), '.dsh-remote-workspace.json'), 'utf8'))
+    assert.equal(lean.alias, 'k')
+    assert.equal(lean.host, undefined)
+    assert.equal(lean.username, undefined)
+    writeRemoteWorkspace(home, 'full', machine, 'strict', false)
+    const full = JSON.parse(readFileSync(join(remoteDir(home, 'full'), '.dsh-remote-workspace.json'), 'utf8'))
+    assert.equal(full.host, '10.9.9.9')
+    assert.equal(full.username, 'secretuser')
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
 test('machineInventory: alias also hides the endpoint in AGENTS.md', () => {
   // AGENTS.md is read into a session, so it is conversation content: the file that
   // said 'secretuser@10.9.9.9:2222' undid the setting the same command had just

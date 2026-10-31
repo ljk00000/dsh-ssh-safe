@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.210 — 2026-10-31
+
+### Fixed
+- **The workspace marker stored the endpoint that `machineInventory: alias` hides.**
+  `.dsh-remote-workspace.json` carried `host`, `port` and `username` in every mode — but
+  `readMarker()` only ever reads `.alias`, so those fields were written and never used, except as
+  the address the setting keeps out of sight, in a file sitting inside the agent's own workspace:
+  ```
+  alias mode: { "alias": "k", "generatedAt": "…" }
+  full  mode: { "alias": "k", "host": "10.9.9.9", "port": 2222, "username": "secretuser", … }
+  ```
+  Full mode is unchanged, and a lean marker is still read correctly (only `.alias` matters), so
+  workspaces created by earlier versions keep working.
+
+### Verified, no change needed
+- `machineInventory: full` still writes the endpoint and `ssh_workspace list` still shows
+  `secretuser@10.9.9.9:2222`; refresh of an existing workspace still succeeds.
+
 ## 0.7.209 — 2026-10-31
 
 ### Fixed

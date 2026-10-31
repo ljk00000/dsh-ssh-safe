@@ -230,11 +230,16 @@ export function writeRemoteWorkspace(dshHome, alias, machine = {}, policy = 'str
   }
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'AGENTS.md'), remoteInstructions(alias, machine, policy, hideHost), 'utf8')
+  // readMarker() only ever reads .alias, so the endpoint fields were written and
+  // never used -- except as the address that machineInventory: alias is meant to
+  // keep out of sight, sitting in a file inside the agent's own workspace.
   writeFileSync(join(dir, MARKER), JSON.stringify({
     alias,
-    host: machine.host || '',
-    port: machine.port || 22,
-    username: machine.username || '',
+    ...(hideHost ? {} : {
+      host: machine.host || '',
+      port: machine.port || 22,
+      username: machine.username || '',
+    }),
     generatedAt: new Date().toISOString(),
   }, null, 2) + '\n', 'utf8')
   return { dir, created }
