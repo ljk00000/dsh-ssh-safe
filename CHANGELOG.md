@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.111 — 2026-10-31
+
+### Fixed
+- **`ssh_audit` said "No operations recorded yet." when the log could not be read.**
+  `recent()` swallowed every read error, so a directory in the log's place
+  (EISDIR) answered exactly like an empty log — the one answer that makes an
+  operator stop looking. It now says what happened:
+  ```
+  The audit log could not be read:
+    …\dsh-ssh-safe\audit.ndjson: EISDIR: illegal operation on a directory, read
+  No records can be shown until that is fixed.
+  ```
+  A partially readable log (one damaged generation) prints the records it could
+  read with a warning above them. `recent()` keeps its old return type; the new
+  `recentDetailed()` returns `{records, problem}`.
+
+### Verified, no change needed
+- `machineInventory: "alias"` hides every endpoint in `ssh_machines`: with two
+  machines the text contains neither host, port, user, nor key path, and the auth
+  line says "private key (config, path hidden)".
+- With no machines and no `defaultMachine`, `ssh_doctor` explains how to name one
+  instead of probing nothing; a `defaultMachine` that has no configuration fails
+  with the two environment variables it needs.
+- A log line that parses but is not an object (`"just a string"`, `null`) is shown
+  as `[unreadable record]` and does not take the renderer down.
+
 ## 0.7.110 — 2026-10-31
 
 ### Fixed

@@ -1539,8 +1539,18 @@ function assertKnownArgs(args, known, toolName) {
           'Audit logging is off. Set auditLog: true in the plugin config to record operations.\n' +
           'Records include the command summary, exit code and outcome — never output or secrets.' }
       }
-      const records = audit.recent(limit)
-      if (records.length === 0) return { text: 'No operations recorded yet.' }
+      const { records, problem } = audit.recentDetailed(limit)
+      // "No operations recorded yet" for a log that cannot be read is the one
+      // answer that makes an operator stop looking.
+      if (records.length === 0) {
+        return { text: problem
+          ? 'The audit log could not be read:\n  ' + problem +
+            '\nNo records can be shown until that is fixed.'
+          : 'No operations recorded yet.' }
+      }
+      const prefix = problem
+        ? 'Warning: part of the audit log could not be read:\n  ' + problem + '\n\n'
+        : ''
       const rows = records.map((r) => {
         // The audit module already filters non-objects, but a renderer must not
         // be the place a bad file becomes a crash.
@@ -1574,7 +1584,7 @@ function assertKnownArgs(args, known, toolName) {
         if (r.error) detail.push('error: ' + r.error)
         return detail.length > 0 ? head + '\n    ' + detail.join('  ') : head
       })
-      return { text: rows.join('\n') }
+      return { text: prefix + rows.join('\n') }
     },
   })
 

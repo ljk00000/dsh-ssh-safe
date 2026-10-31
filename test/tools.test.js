@@ -679,3 +679,26 @@ test('ssh_config says when a custom deny list replaced the built-in rules', asyn
   assert.match(await lineOf({ denyPatterns: ['^shutdown'] }), /replaces the 10 built-in rules/)
   assert.match(await lineOf({ denyPatterns: [] }), /the destructive-command guard is OFF/)
 })
+
+test('ssh_audit says the log could not be read instead of claiming it is empty', async () => {
+  // A directory where the log file should be made readFileSync throw EISDIR,
+  // which recent() swallowed: the answer was 'No operations recorded yet.' — the
+  // one answer that makes an operator stop looking.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-auddir-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'), { recursive: true })
+    const own = {}
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'a', hostKeyPolicy: 'tofu', auditLog: true, machines: { a: { host: 'h', user: 'u' } },
+    })
+    const text = String((await own.ssh_audit.execute({ limit: 5 }, {})).text)
+    assert.match(text, /could not be read/)
+    assert.doesNotMatch(text, /No operations recorded yet/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

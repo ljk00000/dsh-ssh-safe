@@ -162,6 +162,21 @@ export class AuditLog {
    * @param {number} limit
    */
   recent(limit = 50) {
+    return this.recentDetailed(limit).records
+  }
+
+  /**
+   * Read the most recent records and say whether the file could be read at all.
+   *
+   * recent() swallows every error, so a log that cannot be read (a directory in
+   * its place, a permission problem) answered exactly like an empty one:
+   * "No operations recorded yet." — the one answer that makes an operator stop
+   * looking.
+   *
+   * @param {number} limit
+   * @returns {{records: Array<Record<string, any>>, problem: string}}
+   */
+  recentDetailed(limit = 50) {
     try {
       // Oldest generation first, so the newest records end up last.
       const all = []
@@ -170,17 +185,26 @@ export class AuditLog {
       const names = []
       for (let g = ROTATED_GENERATIONS; g >= 1; g--) names.push(this.file + '.' + g)
       names.push(this.file)
+      /** @type {string[]} */
+      const problems = []
       for (const name of names) {
         try {
           for (const line of readFileSync(name, 'utf8').split('\n')) {
             if (line) all.push(line)
           }
-        } catch { /* that generation may not exist */ }
+        } catch (err) {
+          // A generation that was never written is normal; anything else means
+          // records exist that this call cannot show.
+          const code = err && /** @type {{code?: string}} */ (err).code
+          if (code !== 'ENOENT') {
+            problems.push(name + ': ' + String(err && err.message ? err.message : err).slice(0, 120))
+          }
+        }
       }
       // A negative limit used to mean 'drop the first N': slice(-(-5)) is
       // slice(5), so recent(-5) returned everything except the oldest five.
       const take = Number.isFinite(Number(limit)) ? Math.max(1, Math.floor(Number(limit))) : 50
-      return all.slice(-take).map((line) => {
+      const records = all.slice(-take).map((line) => {
         try {
           const parsed = JSON.parse(line)
           // A log line is a record or nothing. 'null', a bare number or an array
@@ -192,8 +216,12 @@ export class AuditLog {
           return { malformed: true, line: line.slice(0, 120) }
         }
       })
-    } catch {
-      return []
+      return { records, problem: problems.join('; ') }
+    } catch (err) {
+      return {
+        records: [],
+        problem: String(err && err.message ? err.message : err).slice(0, 200),
+      }
     }
   }
 }
