@@ -102,3 +102,30 @@ test('a write through a link reports where the content landed', async () => {
   const plain = await pool.writeFile('t', '/tmp/plain-write.txt', 'x')
   assert.equal(plain.linkTarget, undefined, 'a normal write carries no link note')
 })
+
+test('a link chain longer than the server allows is not claimed to be a cycle', async () => {
+  // ELOOP is what the server answers both for a real cycle and for a chain that
+  // is longer than its limit, so the plugin must not assert 'the links point at
+  // each other': a 40-link chain to a real file was reported as a cycle.
+  srv.vfs.putDir('/links')
+  srv.vfs.putFile('/links/real.txt', 'end of chain')
+  srv.vfs.putLink('/links/a', '/links/b')
+  srv.vfs.putLink('/links/b', '/links/a')
+  for (let i = 0; i < 40; i++) srv.vfs.putLink('/links/chain' + i, '/links/chain' + (i + 1))
+  srv.vfs.putFile('/links/chain40', 'end of chain')
+
+  const cycle = await pool.readFile('t', '/links/a', {}).then(() => null, (err) => err)
+  assert.ok(cycle instanceof Error, 'a cycle must reject')
+  assert.match(cycle.message, /symbolic link loop at \/links\/a/)
+  assert.match(cycle.message, /either the links point at each other or the chain is longer/)
+
+  // The long chain answers the same way, and the wording covers both causes.
+  const chain = await pool.readFile('t', '/links/chain0', {}).then(() => null, (err) => err)
+  assert.ok(chain instanceof Error, 'an over-long chain must reject')
+  assert.match(chain.message, /symbolic link loop at \/links\/chain0/)
+  assert.match(chain.message, /either the links point at each other or the chain is longer/)
+
+  // A one-hop link to a real file still resolves, so the change did not widen.
+  const through = await pool.readFile('t', '/links/real.txt', {})
+  assert.equal(through.content, 'end of chain')
+})

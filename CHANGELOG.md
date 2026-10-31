@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.310 — 2026-11-01
+
+### Fixed — a long link chain was reported as a cycle the server could see
+ELOOP is what a server answers both for a real cycle and for a chain longer than its limit. The plugin
+asserted the first:
+```
+links:  chain0 → chain1 → … → chain40 (a real file)
+before  symbolic link loop at /links/chain0 — the links point at each other, so there is no file behind them
+after   symbolic link loop at /links/chain0 — either the links point at each other or the chain is longer
+        than the server allows, so there is no file behind them; replace or remove one of the links
+```
+The same sentence is used by the createDirs path (`cannot create the parent directories … is a symbolic
+link loop (the links point at each other, or the chain is longer than the server allows)`). A true cycle and
+a one-hop link to a real file behave exactly as before.
+
+### Verified this round (no defect found)
+- Aborting `ssh_list`/`ssh_read` works in both phases: before the channel ("cancelled before it started") and
+  mid-flight against a stalled server ("listing /many was cancelled" in 74 ms); the next operations succeed
+  and the pool still holds one client.
+- Three concurrent `ssh_write … createDirs: true` calls into the same new parent: 5 rounds, 0 failures, all
+  three files created.
+- Invalid write modes are refused with the shape named: `99999`, `-1`, `u+x`, `rw-r--r--`, `abc` all answer
+  `mode must be octal digits like "600" or "0644"`; `7777` is accepted and the measured 0777 reported.
+- `redact()` has no catastrophic case: 100 kB of plain text, 50 kB after `password `, `PASSWORD=`, `key=`,
+  `Authorization: `, 2 000 quoted words, 20 000 colons and 500 repeated netrc lines all finish in ≤ 2 ms;
+  200 ordinary commands take 0 ms.
+- `ssh_doctor` against a connection with a command in flight leaves that command alone: `slept 2 [exit 0]`,
+  one client afterwards.
+
+### My own mistakes
+1. The new test used `assert.rejects(fn, (err) => err)`, whose validator must return exactly `true`; it
+   reported the correct message as a failure.
+2. My first `ssh_write -mode` probe computed "on disk" from a VFS helper that does not exist, so every mode
+   printed `?` — the mode was in the reply, not obtainable that way.
+
+### Tests
+- One new case: a cycle, a 40-link chain and a working one-hop link.
+  Suite 897 / 892 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.309 — 2026-11-01
 
 ### Added — a newline in an alias cannot forge a line or split an audit record

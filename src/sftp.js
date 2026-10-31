@@ -262,8 +262,12 @@ async function danglingLink(sftp, target, original) {
   const originalMessage = String(original && original.message || '')
   if (/too many levels|ELOOP/i.test(originalMessage)) {
     return new Error(
-      'symbolic link loop at ' + printable(target) + ' — the links point at each other, so there is no ' +
-      'file behind them; replace or remove one of the links'
+      // ELOOP is also what a chain longer than the server's limit answers, so the
+      // message must not claim a cycle it cannot see: a 40-link chain to a real file
+      // was reported as 'the links point at each other', which is false.
+      'symbolic link loop at ' + printable(target) + ' — either the links point at each other or the ' +
+      'chain is longer than the server allows, so there is no file behind them; replace or remove one ' +
+      'of the links'
     )
   }
   let points = ''
@@ -430,8 +434,8 @@ async function ensureRemoteDir(sftp, dir) {
       if (/too many levels|ELOOP/i.test(why)) {
         throw new Error(
           'cannot create the parent directories of this path: ' + probe + ' is a symbolic link ' +
-          'loop (the links point at each other), so nothing can be created through it; replace ' +
-          'or remove one of the links'
+          'loop (the links point at each other, or the chain is longer than the server allows), so ' +
+          'nothing can be created through it; replace or remove one of the links'
         )
       }
       // A component that is a symlink answering "No such file" is not missing:
