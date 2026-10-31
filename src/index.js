@@ -314,7 +314,13 @@ export async function apply(ctx, config) {
       throw new Error(field + ' must be a string (received ' + (value === null ? 'null' : typeof value) + ')')
     }
     const trimmed = value.trim()
-    if (trimmed.length === 0) throw new Error(field + ' is required')
+    // "command is required" for a string of spaces or a bare newline sent the
+    // caller looking for a missing argument they had in fact passed.
+    if (trimmed.length === 0) {
+      throw new Error(value.length === 0
+        ? field + ' is required'
+        : field + ' is blank: it contains only whitespace (received ' + JSON.stringify(value) + ')')
+    }
     return trimmed
   }
 
@@ -873,6 +879,16 @@ function assertKnownArgs(args, known, toolName) {
     async execute(args, execution) {
       const alias = machineFor(args)
       const command = requireText(args.command, 'command')
+      // A NUL cannot travel through a shell: bash drops the rest of the line or
+      // refuses it, so what runs is not what was sent. Paths refuse a NUL for the
+      // same reason; the command path did not, and the call reported success.
+      if (command.includes('\u0000')) {
+        throw new Error(
+          'command contains a NUL byte (\\u0000). A shell truncates the command there, so ' +
+          'what runs would not be what was sent. Remove it, or write the script with ' +
+          'ssh_write and run it from there.'
+        )
+      }
       const budget = optionalBudget(args.timeoutMs, 'timeoutMs')
       guard(command, optionalFlag(args.confirm, 'confirm'), alias)
       const startedAt = Date.now()

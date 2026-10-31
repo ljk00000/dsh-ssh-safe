@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.86 — 2026-10-31
+
+### Fixed
+- **A NUL byte in a command was sent and reported as success.** Measured:
+  `ssh_exec { command: "echo a\u0000b" }` answered `ran: echo a b [exit 0]`. A shell
+  truncates at the NUL (or refuses the input), so what would run is not what was
+  sent — the same reason paths already refuse one. It is refused now, before the
+  connection is used, and the message spells the byte as `\u0000` instead of
+  embedding it.
+- **A blank argument was reported as missing.** `path: "   "` answered
+  "path is required" and a newline-only command answered "command is required" — the
+  caller had passed both. They now say the value is blank and echo what arrived;
+  an empty string still says required.
+
+### Added — tests
+- The NUL refusal (including that the message does not carry the byte), blank path
+  and blank command, and the truly-empty argument that must keep saying required.
+
 ## 0.7.85 — 2026-10-31
 
 ### Fixed

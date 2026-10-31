@@ -597,3 +597,33 @@ test('a mode that could not be applied says so instead of staying silent', async
   const plain = await tools.ssh_write.execute({ machine: 't', path: '/tmp/script.sh', content: 'again' }, {})
   assert.doesNotMatch(plain.text, /asked for/, 'no mode, no note')
 })
+
+test('a NUL byte in a command is refused instead of being sent', async () => {
+  // Measured before the fix: the command went to the channel as-is and the tool
+  // reported 'ran: echo a b [exit 0]'. A shell truncates at the NUL, so what
+  // would run is not what was sent. Paths already refused one.
+  await assert.rejects(
+    () => tools.ssh_exec.execute({ machine: 't', command: 'echo a\u0000b' }, {}),
+    (err) => {
+      assert.match(err.message, /contains a NUL byte/)
+      assert.match(err.message, /truncates the command/)
+      assert.ok(!err.message.includes('\u0000'), 'the message must not carry the byte itself')
+      return true
+    },
+  )
+})
+
+test('a blank argument says it is blank, not missing', async () => {
+  // 'path is required' for a path of spaces sent the caller looking for a
+  // missing argument they had passed.
+  await assert.rejects(
+    () => tools.ssh_read.execute({ machine: 't', path: '   ' }, {}),
+    /path is blank/
+  )
+  await assert.rejects(
+    () => tools.ssh_exec.execute({ machine: 't', command: '\n' }, {}),
+    /command is blank/
+  )
+  // A truly missing argument still says required.
+  await assert.rejects(() => tools.ssh_exec.execute({ machine: 't', command: '' }, {}), /command is required/)
+})
