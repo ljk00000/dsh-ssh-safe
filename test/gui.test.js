@@ -812,3 +812,44 @@ test('the test button refuses to call a changed host key a pass', { skip: dpapiA
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a port that the settings form will override is announced on save', async () => {
+  // The save warnings named host and user but not port, while the plugin gives
+  // the settings form precedence over the file for all three: a saved 2222 lost
+  // to the settings 2200 without a word.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-guiport-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    hostKeyPolicy: tofu',
+    '    machines:',
+    '      svc:',
+    '        host: settings-host.example',
+    '        port: 2200',
+    '        user: settings-user',
+    '- id: something-else',
+    '  config: {}',
+    ''].join('\n'))
+  const { child, base: url, token } = await start(home, ['--profile', profile])
+  try {
+    const saved = await call(url, token, '/api/save', {
+      alias: 'svc', host: 'page-host.example', port: '2222', user: 'page-user', password: 'pw',
+    })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    const text = saved.body.warnings.join('\n')
+    assert.match(text, /host 在 DSH 设置界面里定义/)
+    assert.match(text, /user 在 DSH 设置界面里定义/)
+    assert.match(text, /port 在 DSH 设置界面里定义/, 'a saved port that will lose must be named: ' + text)
+
+    // The same port in the settings is not a conflict.
+    const same = await call(url, token, '/api/save', {
+      alias: 'svc', host: 'settings-host.example', port: '2200', user: 'settings-user', password: 'pw',
+    })
+    assert.doesNotMatch(same.body.warnings.join('\n'), /port 在 DSH 设置界面里定义/)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

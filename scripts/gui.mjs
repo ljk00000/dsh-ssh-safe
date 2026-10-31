@@ -651,6 +651,11 @@ const server = createServer(async (req, res) => {
       if (fromSettings.user && filled(body.user) && String(body.user).trim() !== String(fromSettings.user)) {
         warnings.push('该别名的 user 在 DSH 设置界面里定义，优先于本页')
       }
+      // The comment above says host/port/user, and the port was missing: a saved
+      // 2222 lost to the settings 2200 without a word.
+      if (fromSettings.port && filled(body.port) && Number(body.port) !== Number(fromSettings.port)) {
+        warnings.push('该别名的 port 在 DSH 设置界面里定义，优先于本页；要改 port 请改设置')
+      }
 
       store[alias] = entry
       writeStore(store)

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.130 — 2026-10-31
+
+### Fixed
+- **A saved port that the settings form overrides was saved without a word.** The
+  save warnings named host and user but not port, while the plugin gives the
+  settings form precedence for all three — so a saved `2222` lost to the settings
+  `2200` silently:
+  ```
+  settings: port 2200, page saves 2222
+  before: [host 警告, user 警告]
+  after : [host 警告, user 警告, port 警告]
+          "该别名的 port 在 DSH 设置界面里定义，优先于本页；要改 port 请改设置"
+  ```
+  The same port in both places is not reported as a conflict.
+
+### Verified, no change needed
+- A save through the settings page is visible to the plugin immediately, without a
+  restart: `sources: … password=file-dpapi` and `auth: password (file-dpapi)` on the
+  next `ssh_machines`.
+- With a profile present, the settings-over-file warnings fire for host and user, and
+  `ssh_machines` agrees that the settings host/user win (`settings-user@settings-host.example:2200`).
+
 ## 0.7.129 — 2026-10-31
 
 ### Fixed
