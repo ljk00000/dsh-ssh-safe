@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.139 — 2026-10-31
+
+### Fixed
+- **Error messages echoed the remote path raw.** Every file error ends with the path
+  it failed on, and that path can come from a listing — so a name containing an escape
+  sequence or a bidi override repainted the transcript:
+  ```
+  before: no such file: /tmp/<ESC>[31mevil<RLO>name.txt
+  after : no such file: /tmp/\x1b[31mevil\u202ename.txt
+  ```
+  Covered: `no such file`, `not a file`, `not a directory`, permission refusals, the
+  symlink-loop and dangling-link messages, `cannot reach … <prefix> is a file`, the
+  read/write/list timeout and cancel messages, and the write-state suffix.
+
+### Verified, no change needed
+- A command echoed back as `ran: …` comes from the remote shell, not from the plugin;
+  the plugin does not re-render command output, which would misrepresent it.
+
 ## 0.7.138 — 2026-10-31
 
 ### Fixed

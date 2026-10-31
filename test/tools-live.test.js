@@ -1269,3 +1269,43 @@ test('credentials, doctor and the audit trail escape what the config supplies', 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('an error message escapes the remote path it echoes', async () => {
+  // The path in 'no such file: …' came from the caller or from a listing, and it
+  // was printed verbatim: an escape sequence there repainted the transcript.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-escerr-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const srv2 = await startServer()
+  const own = {}
+  const ESC = '\u001b'
+  const RLO = '\u202e'
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    const nasty = '/tmp/' + ESC + '[31mevil' + RLO + 'name.txt'
+    const missing = await own.ssh_read.execute({ machine: 't', path: nasty }, {})
+      .then(() => '', (err) => String(err.message))
+    assert.match(missing, /no such file: \/tmp\/\\x1b\[31mevil\\u202ename\.txt/, missing)
+    assert.doesNotMatch(missing, /\u001b/)
+    assert.doesNotMatch(missing, /\u202e/)
+    // The same path through ssh_list and ssh_write.
+    for (const call of [
+      () => own.ssh_list.execute({ machine: 't', path: nasty }, {}),
+      () => own.ssh_write.execute({ machine: 't', path: nasty + '/child', content: 'x' }, {}),
+    ]) {
+      const message = await call().then(() => '', (err) => String(err.message))
+      assert.doesNotMatch(message, /\u001b/, message)
+      assert.match(message, /\\x1b/)
+    }
+  } finally {
+    await own.ssh_close.execute({}, {}).catch(() => {})
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

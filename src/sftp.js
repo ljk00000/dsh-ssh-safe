@@ -14,6 +14,7 @@
 // twice. ssh2 can fail without emitting either 'error' or 'close', so the
 // deadline is the only reliable backstop.
 
+import { printable } from './format.js'
 import { Utf8Collector } from './buffer.js'
 import { normalizeRemotePath } from './remote-path.js'
 import { redact } from './credentials.js'
@@ -109,7 +110,7 @@ function remoteError(err, target, operation) {
     }
   }
   const hint = hints.length > 0 ? ' (' + hints.join('; ') + ')' : ''
-  const wrapped = /** @type {Error & {code?: unknown}} */ (new Error(message + ': ' + target + hint))
+  const wrapped = /** @type {Error & {code?: unknown}} */ (new Error(message + ': ' + printable(target) + hint))
   const code = /** @type {{code?: unknown}} */ (err || {}).code
   if (code !== undefined) wrapped.code = code
   return wrapped
@@ -148,12 +149,12 @@ async function kindMismatch(sftp, target, expected) {
   if (!attrs || typeof attrs.isDirectory !== 'function') return null
   const isDir = attrs.isDirectory()
   if (expected === 'file' && isDir) {
-    const e = /** @type {Error & {code?: string}} */ (new Error('not a file: ' + target + ' (it is a directory; use ssh_list)'))
+    const e = /** @type {Error & {code?: string}} */ (new Error('not a file: ' + printable(target) + ' (it is a directory; use ssh_list)'))
     e.code = 'EISDIR'
     return e
   }
   if (expected === 'dir' && !isDir) {
-    const e = /** @type {Error & {code?: string}} */ (new Error('not a directory: ' + target + ' (it is a file; use ssh_read)'))
+    const e = /** @type {Error & {code?: string}} */ (new Error('not a directory: ' + printable(target) + ' (it is a file; use ssh_read)'))
     e.code = 'ENOTDIR'
     return e
   }
@@ -186,7 +187,7 @@ async function blockedByFile(sftp, target) {
     }
     if (attrs && typeof attrs.isDirectory === 'function' && !attrs.isDirectory()) {
       return new Error(
-        'cannot reach ' + target + ': ' + prefix + ' is a file, not a directory'
+        'cannot reach ' + printable(target) + ': ' + printable(prefix) + ' is a file, not a directory'
       )
     }
   }
@@ -212,7 +213,7 @@ async function danglingLink(sftp, target, original) {
   const originalMessage = String(original && original.message || '')
   if (/too many levels|ELOOP/i.test(originalMessage)) {
     return new Error(
-      'symbolic link loop at ' + target + ' — the links point at each other, so there is no ' +
+      'symbolic link loop at ' + printable(target) + ' — the links point at each other, so there is no ' +
       'file behind them; replace or remove one of the links'
     )
   }
@@ -221,7 +222,7 @@ async function danglingLink(sftp, target, original) {
     try { points = String(await callSftp(sftp, 'readlink', target)) } catch { /* the link may be gone again */ }
   }
   return new Error(
-    'no such file: ' + target + ' — that path is a symbolic link' +
+    'no such file: ' + printable(target) + ' — that path is a symbolic link' +
     (points ? ' to ' + points : '') +
     ', but the target does not exist'
   )
@@ -299,7 +300,7 @@ async function specialFileNote(sftp, target, operation) {
       ? ' — a FIFO has no end until something writes to it, so reading it blocks forever'
       : ' — a FIFO blocks until something reads from it')
     : ' — only regular files can be read or written this way'
-  return ' — ' + target + ' is ' + name + why
+  return ' — ' + printable(target) + ' is ' + name + why
 }
 
 /** Promisify an ssh2 sftp method's node-style callback. */
@@ -424,10 +425,10 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, 
       if (settled) return
       // The same fallback the write path has: a bare 'did not complete' says
       // nothing about what to look at next.
-      settle(null, new Error('reading ' + target + ' did not complete within ' + timeoutMs + 'ms' +
+      settle(null, new Error('reading ' + printable(target) + ' did not complete within ' + timeoutMs + 'ms' +
         (detail || ' — the remote channel may have dropped, or the filesystem is not answering')))
     }, timeoutMs)
-    abortListener = onAbort(signal, 'reading ' + target + ' was cancelled', (error) => settle(null, error))
+    abortListener = onAbort(signal, 'reading ' + printable(target) + ' was cancelled', (error) => settle(null, error))
 
     try {
       stream = sftp.createReadStream(target)
@@ -544,12 +545,12 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
       const detail = await specialFileNote(sftp, target, 'write')
       if (settled) return
       settle(null, new Error(
-        'writing ' + target + ' did not complete within ' + timeoutMs + 'ms' +
+        'writing ' + printable(target) + ' did not complete within ' + timeoutMs + 'ms' +
         (detail || ' — the remote channel may have dropped') + '; ' + writeState(Boolean(detail))
       ))
     }, timeoutMs)
     // A function, not a string: the state is composed when the abort happens.
-    abortListener = onAbort(signal, () => 'writing ' + target + ' was cancelled; ' + writeState(),
+    abortListener = onAbort(signal, () => 'writing ' + printable(target) + ' was cancelled; ' + writeState(),
       (error) => settle(null, error))
 
     const requestedMode = mode
@@ -684,7 +685,7 @@ export async function listRemoteDir(client, remotePath, { timeoutMs, signal }) {
       if (settled) return
       settled = true
       closeSftp(sftp)
-      reject(new Error(redact('listing ' + target + ' did not complete within ' + timeoutMs + 'ms' +
+      reject(new Error(redact('listing ' + printable(target) + ' did not complete within ' + timeoutMs + 'ms' +
         ' — the remote channel may have dropped, or the filesystem is not answering')))
     }, timeoutMs)
 
@@ -699,7 +700,7 @@ export async function listRemoteDir(client, remotePath, { timeoutMs, signal }) {
       else resolve(result)
     }
 
-    abortListener = onAbort(signal, 'listing ' + target + ' was cancelled', (error) => settle(null, error))
+    abortListener = onAbort(signal, 'listing ' + printable(target) + ' was cancelled', (error) => settle(null, error))
     try {
       sftp.readdir(target, (err, items) => {
         if (err) {
