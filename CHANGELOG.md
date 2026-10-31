@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.164 — 2026-10-31
+
+### Fixed
+- **A private key cut short by a read limit was returned verbatim.** `ssh_read` masks
+  key material by default, and the rule needs both markers — a key truncated before its
+  `-----END …` line matched nothing:
+  ```
+  read a key of 12 KB with maxFileBytes: 1024
+  before: 1130 chars, "-----BEGIN OPENSSH PRIVATE KEY-----" + 1024 bytes of key body,
+          no masking note at all
+  after :  178 chars, <redacted-pem>, "[secrets masked; pass raw: true …]"
+  ```
+  `redact` now masks from an unterminated `-----BEGIN …-----` to the end of the text, and
+  leaves prose that merely mentions a marker alone. The truncation note still explains why
+  the file was short.
+
+### Verified, no change needed
+- Masking itself: a full private key reads as `<redacted-pem>`, an `.env` reads as
+  `DB_PASSWORD=<redacted>` / `API_TOKEN=<redacted>`, and `raw: true` returns the file
+  verbatim — as documented.
+- Removing a placeholder whose own files are read-only still works (`rmSync force` clears
+  the attribute on Windows).
+- The GUI delete removes the whole credential-file entry, not just its password.
+
 ## 0.7.163 — 2026-10-31
 
 ### Fixed

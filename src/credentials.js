@@ -141,6 +141,11 @@ export function redact(text) {
   s = s.replace(/(^|[\s"'])(--?(?:password|passwd|passphrase|token|secret))(\s+|=)(\S+)/gi, '$1$2$3<redacted>')
   // PEM blocks
   s = s.replace(/-----BEGIN [\s\S]*?-----END [^-]*-----/g, '<redacted-pem>')
+  // A key whose END marker is beyond a read limit has none: the rule above needs
+  // both markers, so a 1024-byte slice of a private key was returned verbatim —
+  // exactly the material ssh_read promises to mask. Mask from BEGIN to the end.
+  s = s.replace(/-----BEGIN [A-Z0-9 ]+-----([\s\S]*)$/, (match, rest) =>
+    /-----END [^-]*-----/.test(rest) ? match : '<redacted-pem>')
   // HTTP authorization headers. 'Authorization: Bearer <token>' and
   // 'Basic <base64>' are how an API key usually reaches a config file, and
   // they are not KEY=value so the rule above missed them.

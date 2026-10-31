@@ -131,3 +131,22 @@ test('a passphrase written as prose is masked too', () => {
   // loses a word rather than a password leaking.
   assert.equal(redact('the passphrase is required'), 'the passphrase is <redacted>')
 })
+
+test('a private key cut short by a read limit is still masked', () => {
+  // The PEM rule needs BEGIN and END. A 1024-byte slice of a key has no END, so
+  // the whole body was returned verbatim — the one thing ssh_read promises not to
+  // do. Measured: 'mentions masked: false, leaks key body: true'.
+  const partial = '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAB\nb3BlbnNzaC1rZXkt\n'
+  const maskedPartial = redact(partial)
+  assert.equal(maskedPartial, '<redacted-pem>')
+  assert.doesNotMatch(maskedPartial, /b3BlbnNzaC1rZXkt/)
+
+  // A complete block is still masked once, not twice.
+  const complete = 'before\n-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----\nafter'
+  const maskedComplete = redact(complete)
+  assert.match(maskedComplete, /^before\n<redacted-pem>\nafter$/)
+
+  // Text that only mentions a marker without a body is left alone.
+  const prose = 'see the -----BEGIN marker in the docs'
+  assert.equal(redact(prose), prose)
+})
