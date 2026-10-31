@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.7.301 — 2026-11-01
+
+### Added — `ssh_config` names a deny pattern that can hang a command
+The deny list is user input, and the guard runs each pattern **synchronously** inside the tool call. A
+pattern with a quantified group around another quantifier backtracks exponentially, and no timeout can
+interrupt it:
+```
+"(a+)+$"        len 21 →   66 ms      len 27 → over 3000 ms (killed)
+"^(\\w+\\s?)*$"  len 76 → over 3000 ms (killed)
+```
+The tool call never returns, which looks like a hung connection rather than a configuration mistake.
+`ssh_config` now times each configured pattern against 12/16/20/24-character probes and names any that
+exceed 25 ms, with the measurement:
+```
+Deny patterns that can hang a command:
+  #0 needs 146 ms on a 24-character probe ("aaaaaaaa"…): denyPatterns[0] "(a+)+$"
+     A pathological pattern backtracks exponentially and ssh_exec waits with no
+     timeout. Rewrite it more specifically, or remove it.
+```
+The built-in rules take 0–1 ms and are not reported. Timing beats guessing: my first attempt was a shape
+heuristic, and it flagged two of the plugin's own rules.
+
+### Also fixed
+- `const broken = invalidPatterns(…)` had been left indented four spaces since 0.7.280.
+
+### Verified this round (no defect found)
+- A refused command **is** audited: `{"kind":"refused","outcome":"blocked","pattern":"…","reason":"matches deny
+  pattern"}` in the file, and `ssh_audit` shows the rule text underneath.
+- `ssh_connect force: true` means exactly what its description says ("bypass the reconnect cooldown"); on a
+  live connection it reports the pool as usual instead of pretending to reconnect, and `force: "yes"` is
+  refused as not a boolean.
+- Non-zero exits and signals reach the trail as `exit=3` and `signal=SIGKILL`, not as "ok".
+
+### My own mistakes
+- The heuristic version of the check (`\([^()]*[+*][^()]*\)[+*]`) flagged two built-in rules — a warning
+  that fires on a default install is worse than none. Scrapped, replaced by measurement.
+- My first probe imported a `guard` export that does not exist and then hung the whole run on the
+  catastrophic pattern (120 s deadline). The next version spawned a killable child per case.
+
+### Tests
+- Two new cases: a slow pattern is named with its measurement while the healthy one beside it is not, and
+  the built-in set produces no such warning.
+  Suite 888 / 883 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.300 — 2026-11-01
 
 ### Fixed — a refused CLI run left a directory behind, and four checks existed twice

@@ -1346,3 +1346,32 @@ test('a credential-file entry that is not an object is named, not silently dropp
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('ssh_config names a deny pattern that can hang a command', async () => {
+  // A pattern is user input, and the guard runs it synchronously: '(a+)+$' needed
+  // 146 ms on a 24-character probe and grows exponentially, which is a hang with no
+  // message rather than a slow path. The report has to name the entry and show the
+  // measurement; a shape heuristic also flagged the plugin's own rules, so it is
+  // timed instead of guessed.
+  const tools = {}
+  await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    hostKeyPolicy: 'tofu', denyPatterns: ['(a+)+$', 'rm\\s+-rf'],
+  })
+  const text = String((await tools.ssh_config.execute({}, {})).text)
+  assert.match(text, /Deny patterns that can hang a command:/)
+  assert.match(text, /denyPatterns\[0\] "\(a\+\)\+\$"/)
+  assert.match(text, /needs \d+ ms on a \d+-character probe/)
+  assert.match(text, /backtracks exponentially/)
+  // The healthy pattern next to it is not named.
+  assert.doesNotMatch(text, /denyPatterns\[1\]/)
+})
+
+test('the built-in deny rules are not reported as slow', async () => {
+  const tools = {}
+  await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    hostKeyPolicy: 'tofu',
+  })
+  const text = String((await tools.ssh_config.execute({}, {})).text)
+  assert.match(text, /the built-in set/)
+  assert.doesNotMatch(text, /Deny patterns that can hang a command/)
+})

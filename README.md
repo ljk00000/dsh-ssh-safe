@@ -455,7 +455,7 @@ ssh_read { machine: "prod", path: "/opt/app/.env", raw: true }
 
 **注意**：这是防手滑的安全带，不是安全边界。shell 总有别的路径可达。
 默认规则只匹配命令的开头与结尾各 8 KB，避免病态超长输入把检查拖成平方级；
-真实命令远短于这个窗口。
+真实命令远短于这个窗口。falsefalse自定义 `denyPatterns` 也是正则，而守卫是**同步**跑完的：形如 `(a+)+$` 的模式会指数级回溯，false实测 24 个字符就要 146 ms，再长一点就是无限期卡住，且没有任何超时能打断它。false`ssh_config` 会把每个拒绝规则在 12/16/20/24 字符的探针上实测一遍，超过 25 ms 就点名列出false（`Deny patterns that can hang a command: #0 needs 146 ms …`），不会只给一句「可能有风险」。
 
 
 ### 可选：原生加速绑定（`ERR_PNPM_IGNORED_BUILDS`）

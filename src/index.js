@@ -40,7 +40,7 @@ import {
 import { looksLikeOpenSshKnownHosts, openSshTrustLine, storePath } from './hostkey.js'
 import { parsePrivateKey } from './connect.js'
 import { stripBom, printable , clipText, printableText } from './format.js'
-import { DEFAULT_DENY_RULES, checkCommand, describeRule, invalidPatterns } from './guard.js'
+import { DEFAULT_DENY_RULES, checkCommand, describeRule, invalidPatterns, patternSpeed } from './guard.js'
 import { exitLine, formatListing, plural } from './format.js'
 import { AuditLog, summarize } from './audit.js'
 import {
@@ -331,7 +331,7 @@ export async function apply(ctx, config) {
       'rule you meant) in the plugin config listed under "dsh-ssh-safe" in cordis.patch.yml.'
     )
   }
-    const broken = invalidPatterns(configuredPatterns)
+  const broken = invalidPatterns(configuredPatterns)
   if (broken.length > 0) {
     const first = broken[0]
     throw new Error(
@@ -2276,6 +2276,26 @@ function passphraseLine(st) {
       const lines = ['Configuration in effect:']
       for (const [key, value, note] of rows) {
         lines.push('  ' + String(key).padEnd(24) + JSON.stringify(value) + (note ? '   # ' + note : ''))
+      }
+      // A deny pattern is a regular expression the guard runs synchronously, and a
+      // quantified group around another quantifier costs exponential time: measured
+      // 140 ms on 24 characters for "(a+)+$", with no way to interrupt it. That is a
+      // hang, not a slow path, so the pattern is timed here and named.
+      const slowPatterns = []
+      for (const [index, pattern] of (cfg.denyPatterns || []).entries()) {
+        if (typeof pattern !== 'string') continue
+        const speed = patternSpeed(pattern)
+        if (speed.worstMs >= 25) slowPatterns.push({ index, pattern, speed })
+      }
+      if (slowPatterns.length > 0) {
+        lines.push('', 'Deny patterns that can hang a command:')
+        for (const entry of slowPatterns) {
+          lines.push('  #' + entry.index + ' needs ' + entry.speed.worstMs + ' ms on a ' +
+            entry.speed.worstLength + '-character probe (' + JSON.stringify(entry.speed.worstSample) +
+            '…): denyPatterns[' + entry.index + '] ' + JSON.stringify(entry.pattern).slice(0, 80))
+          lines.push('     A pathological pattern backtracks exponentially and ssh_exec waits with no')
+          lines.push('     timeout. Rewrite it more specifically, or remove it.')
+        }
       }
       // A setting added to Config but not to this list would be invisible to the
       // operator, which is how pipeToShell and healthCheckTimeoutMs went missing.

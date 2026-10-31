@@ -363,6 +363,45 @@ export function invalidPatterns(patterns) {
  * @param {string} pattern the pattern that matched
  * @returns {string}
  */
+/**
+ * Time one pattern against the kind of input that makes it backtrack.
+ *
+ * A pattern is user input, and a quantified group around another quantifier
+ * (`(a+)+$`) is exponential: 66 ms on 21 characters, more than 3 s on 27, measured.
+ * The guard runs synchronously inside the tool call, so that is a hang with no
+ * message — and no timeout can interrupt it. This measures instead of guessing, so a
+ * slow pattern is reported with the number that proves it rather than a shape rule
+ * that also flags the plugin's own rules.
+ *
+ * Lengths stop at 24 characters; a healthy pattern needs microseconds at that size.
+ *
+ * @param {string} pattern a compiled-valid regular expression source
+ * @param {{limitMs?: number, lengths?: number[]}} [options]
+ * @returns {{worstMs: number, worstLength: number, worstSample: string}}
+ */
+export function patternSpeed(pattern, { limitMs = 250, lengths = [12, 16, 20, 24] } = {}) {
+  let re
+  try { re = new RegExp(pattern) } catch { return { worstMs: 0, worstLength: 0, worstSample: '' } }
+  const samples = [
+    (n) => 'a'.repeat(n) + '!',
+    (n) => 'word '.repeat(Math.max(1, Math.floor(n / 5))) + '!',
+    (n) => '-a '.repeat(Math.max(1, Math.floor(n / 3))) + '!',
+    (n) => '/'.repeat(n) + 'x',
+  ]
+  let worst = { worstMs: 0, worstLength: 0, worstSample: '' }
+  outer: for (const length of lengths) {
+    for (const make of samples) {
+      const text = make(length)
+      const started = Date.now()
+      try { re.test(text) } catch { /* a pattern that throws is reported elsewhere */ }
+      const ms = Date.now() - started
+      if (ms > worst.worstMs) worst = { worstMs: ms, worstLength: length, worstSample: text.slice(0, 8) }
+      if (ms >= limitMs) break outer
+    }
+  }
+  return worst
+}
+
 export function describeRule(pattern) {
   // Matched by the pattern itself, not by position: a user rule added in front
   // of the defaults used to shift every label by one.
