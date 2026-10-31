@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.217 — 2026-11-01
+
+### Fixed
+- **One machine's `hostKeyPolicy: off` became the policy for every machine.** The global readers
+  matched any indentation, so a per-machine override was read as the config-level value. Measured
+  with the profile's global policy left at its default (strict) and one machine carrying `off`:
+  ```
+  bplain (no override)  before: [ok] 主机密钥: SHA256:…（已记录，校验通过）
+                        after : [warn] 主机密钥: SHA256:… 还没有记录，正式连接会被拒绝
+  ```
+  The page said "ok" for a host `ssh_connect` refuses — the exact contradiction the code comment
+  warns about. Config readers now only accept lines at the config indent (`configIndent()`), and the
+  same guard is applied to `connectTimeoutMs` and `useCredentialFile`.
+
+- **With `hostKeyPolicy: off` the page claimed a check it never made.** `checkHostKey` returns ok
+  for `off` without verifying anything, so the ordinary success branch printed "（已记录，校验通过）":
+  ```
+  after: [warn] 主机密钥: SHA256:… — hostKeyPolicy 为 "off"：本页与插件都不校验主机密钥
+  ```
+
+- **Deleting an environment-provided machine said only "nothing to delete".** The row stays on the
+  page (the file never held it) and the message never named the environment, unlike the settings
+  case which already explained itself. It now says which `DSH_SSH_<ALIAS>_HOST`-style variable
+  provides it and that the page cannot remove it.
+
+### Tests
+- Two new cases: a per-machine `off` does not leak (no-override machine warns under strict, the
+  `off` machine says it was not checked), and deleting an env machine names the environment.
+  Suite 797 / 792 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.216 — 2026-11-01
 
 ### Fixed

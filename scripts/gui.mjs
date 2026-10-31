@@ -146,10 +146,42 @@ function pluginEntryCount() {
   const idLine = /^\s*-\s*id:\s*["']?dsh-ssh-safe["']?\s*(?:#.*)?$/
   return text.split(/\r?\n/).filter((line) => idLine.test(line)).length
 }
+/**
+ * The indentation of the plugin config keys inside the entry.
+ *
+ * machines.<alias>.hostKeyPolicy is a per-machine override, and the regex readers
+ * below accept any leading whitespace: one machine with `hostKeyPolicy: off` then
+ * became the GLOBAL policy for every machine, so the page reported "[ok] 主机密钥"
+ * for a host the plugin would refuse.
+ *
+ * @param {string[]|null} block
+ * @returns {number} -1 when it cannot be determined
+ */
+function configIndent(block) {
+  if (!block) return -1
+  const configAt = block.findIndex((line) => /^\s*config\s*:\s*(#.*)?$/.test(line))
+  if (configAt < 0) return -1
+  const base = (block[configAt].match(/^\s*/) || [''])[0].length
+  for (let i = configAt + 1; i < block.length; i++) {
+    const line = block[i]
+    if (!line.trim() || /^\s*#/.test(line)) continue
+    const indent = (line.match(/^\s*/) || [''])[0].length
+    return indent > base ? indent : -1
+  }
+  return -1
+}
+
+/** Whether a line is a config-level key (not one nested inside a machine). */
+function atConfigIndent(block, line) {
+  const indent = configIndent(block)
+  if (indent < 0) return true
+  return ((line.match(/^\s*/) || [''])[0].length) === indent
+}
 function settingsHostKeyPolicy() {
   const block = pluginBlock()
   if (!block) return 'strict'
   for (const line of block) {
+    if (!atConfigIndent(block, line)) continue
     const match = line.match(/^\s*hostKeyPolicy:\s*['"]?(strict|tofu|off)['"]?\s*(?:#.*)?$/)
     if (match) return match[1]
   }
@@ -166,6 +198,7 @@ function settingsConnectTimeoutMs() {
   const block = pluginBlock()
   if (!block) return 15000
   for (const line of block) {
+    if (!atConfigIndent(block, line)) continue
     const match = line.match(/^\s*connectTimeoutMs:\s*(\d+)\s*(?:#.*)?$/)
     if (match) {
       // The HTTP request waits on this, so keep it finite: ten minutes.
@@ -180,6 +213,7 @@ function settingsUseCredentialFile() {
   const block = pluginBlock()
   if (!block) return true
   for (const line of block) {
+    if (!atConfigIndent(block, line)) continue
     const match = line.match(/^\s*useCredentialFile:\s*(true|false)\s*(?:#.*)?$/)
     if (match) return match[1] === 'true'
   }
@@ -658,7 +692,11 @@ async function testConnection(alias) {
           trustHostKey: false,
           knownHostsFile: m.knownHosts ? expandHome(m.knownHosts) : '',
         })
-        if (verdict.ok) {
+        if (policy === 'off') {
+          // checkHostKey returns ok for 'off' WITHOUT checking anything: '已记录，
+          // 校验通过' said the opposite of what the setting does.
+          say('主机密钥', 'warn', fingerprint + ' — hostKeyPolicy 为 "off"：本页与插件都不校验主机密钥')
+        } else if (verdict.ok) {
           say('主机密钥', 'ok', fingerprint + '（已记录，校验通过；本页不修改记录）')
         } else if (/^HOST KEY CHANGED/.test(String(verdict.reason))) {
           mismatched = true
@@ -889,6 +927,14 @@ const server = createServer(async (req, res) => {
         warnings.push(removed
           ? '已删除凭据文件里的记录；该别名在 DSH 设置界面里也有定义，仍然可用，要移除请改设置'
           : '凭据文件里没有该别名的记录；它来自 DSH 设置界面，要从这里移除请改设置')
+      }
+      // Environment variables are a third source, and the row stays on the page
+      // after a delete for the same reason: deleting from the file cannot remove
+      // something the file never held.
+      if (envAliases().includes(alias)) {
+        warnings.push(removed
+          ? '已删除凭据文件里的记录；该别名也由环境变量提供（DSH_SSH_' + alias.toUpperCase() + '_HOST 一类），仍然可用'
+          : '凭据文件里没有该别名的记录；它来自环境变量（DSH_SSH_' + alias.toUpperCase() + '_HOST 一类），本页删不掉，要移除请改启动环境')
       }
       if (!removed && !warnings.length) {
         warnings.push('凭据文件里没有该别名的记录，没有可删除的内容')

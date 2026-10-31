@@ -1186,3 +1186,45 @@ test('testing an alias nothing defines says so instead of blaming the form', asy
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a per-machine hostKeyPolicy does not become the global one', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
+  // The global readers accepted any indentation, so one machine's
+  // 'hostKeyPolicy: off' became the policy for EVERY machine: the page reported
+  // '[ok] 主机密钥（已记录，校验通过）' for a host the plugin would refuse.
+  const srv = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    machines:',
+    '      alab:',
+    '        host: 127.0.0.1',
+    '        port: ' + srv.port,
+    '        user: tester',
+    '        hostKeyPolicy: off',
+    '      bplain:',
+    '        host: 127.0.0.1',
+    '        port: ' + srv.port,
+    '        user: tester',
+  ].join('\n'))
+  const { child, base, token } = await start(home)
+  try {
+    await call(base, token, '/api/save', { alias: 'alab', password: 'test-pass' })
+    await call(base, token, '/api/save', { alias: 'bplain', password: 'test-pass' })
+
+    const plain = (await call(base, token, '/api/test', { alias: 'bplain' })).body.lines.join('\n')
+    assert.match(plain, /\[warn\] 主机密钥/, 'a machine with no override is tested under the default strict: ' + plain)
+    assert.match(plain, /还没有记录/)
+    assert.doesNotMatch(plain, /已记录，校验通过/)
+
+    const off = (await call(base, token, '/api/test', { alias: 'alab' })).body.lines.join('\n')
+    assert.match(off, /hostKeyPolicy 为 "off"/, 'the page must not claim a check that did not happen: ' + off)
+    assert.doesNotMatch(off, /已记录，校验通过/)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+    await srv.close()
+  }
+})
