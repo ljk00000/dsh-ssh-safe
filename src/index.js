@@ -1537,7 +1537,7 @@ function assertKnownArgs(args, known, toolName) {
         }
         let created
         try {
-          ({ created } = writeRemoteWorkspace(dshHome, alias, m))
+          ({ created } = writeRemoteWorkspace(dshHome, alias, m, m.hostKeyPolicy || cfg.hostKeyPolicy))
         } catch (err) {
           // A file sitting where the placeholder directory should be fails as a
           // bare 'EEXIST: file already exists, mkdir …', which does not say which

@@ -60,6 +60,13 @@ export function safeAlias(alias) {
   return text
 }
 
+/** What each host-key policy means for the agent working in this workspace. */
+const POLICY_SENTENCE = {
+  strict: '未知主机的密钥不会被自动接受，指纹变化也会拒绝连接；这是有意的，遇到拒绝请让用户核对指纹，不要绕过。',
+  tofu: '首次连接会记录指纹，此后指纹变化会拒绝连接；首次连接前仍应让用户确认指纹来源可信。',
+  off: '主机密钥不做校验（用户显式关闭），因此连接不能证明对方是不是 impostor。',
+}
+
 /** Placeholder directory for one alias. */
 export function remoteDir(dshHome, alias) {
   return join(remoteRoot(dshHome), safeAlias(alias))
@@ -79,9 +86,10 @@ export function remoteTitle(alias) {
  *
  * @param {string} alias
  * @param {{host?: string, port?: number, username?: string}} machine
+ * @param {string} [policy] the host-key policy in effect ('strict', 'tofu' or 'off')
  * @returns {string}
  */
-export function remoteInstructions(alias, machine = {}) {
+export function remoteInstructions(alias, machine = {}, policy = 'strict') {
   const host = machine.host || '<未配置主机>'
   const port = machine.port || 22
   const user = machine.username || '<未配置用户>'
@@ -101,7 +109,9 @@ export function remoteInstructions(alias, machine = {}) {
     '   它们只看得见本机，把远端路径当本地路径会失败或写错地方。',
     '3. 第一次在这个会话里动手之前，先用 ssh_machines 确认别名，',
     '   再用 ssh_doctor 验证 配置 / TCP / 主机密钥 / 认证。',
-    '4. 主机密钥策略默认 strict：指纹变了会拒绝连接，这是有意的，不要绕过。',
+    // The line said 'strict' whatever the policy was: an agent working under
+    // tofu was told a first-contact key would be refused, which it is not.
+    '4. 主机密钥策略（' + (POLICY_SENTENCE[policy] ? policy : 'strict') + '）：' + POLICY_SENTENCE[POLICY_SENTENCE[policy] ? policy : 'strict'],
     '5. 密码、口令、私钥内容**不要写进对话**，也不要写进远端文件开头。',
     '   凭据来自凭据文件（DPAPI 加密）或环境变量 ' + envNames(alias).password + '。',
     '',
@@ -138,7 +148,7 @@ export function readMarker(dshHome, alias) {
  * @param {{host?: string, port?: number, username?: string}} machine
  * @returns {{dir: string, created: boolean}}
  */
-export function writeRemoteWorkspace(dshHome, alias, machine = {}) {
+export function writeRemoteWorkspace(dshHome, alias, machine = {}, policy = 'strict') {
   const dir = remoteDir(dshHome, alias)
   const created = !existsSync(dir)
   // Adopting a directory that already holds someone else's files would make it
@@ -190,7 +200,7 @@ export function writeRemoteWorkspace(dshHome, alias, machine = {}) {
     }
   }
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'AGENTS.md'), remoteInstructions(alias, machine), 'utf8')
+  writeFileSync(join(dir, 'AGENTS.md'), remoteInstructions(alias, machine, policy), 'utf8')
   writeFileSync(join(dir, MARKER), JSON.stringify({
     alias,
     host: machine.host || '',

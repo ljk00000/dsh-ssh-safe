@@ -525,3 +525,38 @@ test('list names the alias a placeholder belongs to instead of suggesting create
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the workspace instructions describe the policy that is actually in effect', async () => {
+  // The rule said '主机密钥策略默认 strict' whatever the policy was, so an agent
+  // working under tofu was told a first-contact key would be refused.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-wspolicy-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const readAgents = async (policy) => {
+      const own = {}
+      await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+        defaultMachine: 't', hostKeyPolicy: policy,
+        machines: { t: { host: 'h.example', user: 'u', password: 'pw' } },
+      })
+      await own.ssh_workspace.execute({ action: 'create', machine: 't' }, {})
+      return readFileSync(join(home, 'dsh-ssh-safe', 'remotes', 't', 'AGENTS.md'), 'utf8')
+    }
+
+    const strict = await readAgents('strict')
+    assert.match(strict, /主机密钥策略（strict）/)
+    assert.match(strict, /未知主机的密钥不会被自动接受/)
+
+    const tofu = await readAgents('tofu')
+    assert.match(tofu, /主机密钥策略（tofu）/)
+    assert.match(tofu, /首次连接会记录指纹/)
+
+    const off = await readAgents('off')
+    assert.match(off, /主机密钥策略（off）/)
+    assert.match(off, /不做校验/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

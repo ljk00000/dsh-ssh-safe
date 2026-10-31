@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.141 — 2026-10-31
+
+### Fixed
+- **The workspace instructions claimed `strict` whatever the policy was.**
+  `AGENTS.md` is the only context a fresh agent gets in a remote workspace, and it
+  said "主机密钥策略默认 strict" even when `tofu` was in effect — where a first
+  contact is recorded instead of refused:
+  ```
+  before: 4. 主机密钥策略默认 strict：指纹变了会拒绝连接，这是有意的，不要绕过。
+  after : 4. 主机密钥策略（tofu）：首次连接会记录指纹，此后指纹变化会拒绝连接；
+             首次连接前仍应让用户确认指纹来源可信。
+  ```
+  Each policy gets its own sentence (strict / tofu / off, the last one naming what
+  turning verification off actually means), and the value comes from the machine or
+  the global setting.
+
+### Verified, no change needed
+- `execGuard: "confirm"` gates exec, read and write with a reason per direction, and
+  leaves list/connect/doctor open; `confirm: true` lets each through.
+- Hostile aliases cannot escape the workspace directory:
+  `../escape`, `a/b`, `a\b`, `a<C0>` are refused as path separators or control
+  characters, `..` and `.` are refused as names.
+- `/api/save` rejects empty, whitespace-only and non-`[A-Za-z0-9._-]` aliases with the
+  value quoted back.
+
 ## 0.7.140 — 2026-10-31
 
 ### Fixed
