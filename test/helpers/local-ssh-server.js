@@ -94,6 +94,20 @@ export function startServer({ port = 0, user = 'tester', password = 'test-pass',
             const n = Number((command.match(/big\s+(\d+)/) || [])[1] || 1000)
             return finish(0, 'x'.repeat(n))
           }
+          if (/^tailerr\b/.test(command)) {
+            // The 'make' case: thousands of lines on stdout, then the line that
+            // explains the failure on stderr, which must survive the budget.
+            const n = Number((command.match(/tailerr\s+(\d+)/) || [])[1] || 5000)
+            stream.write('x'.repeat(n))
+            setTimeout(() => {
+              try {
+                stream.stderr.write('ERROR: the reason it failed\n')
+                stream.exit(2)
+                stream.end()
+              } catch {}
+            }, 40)
+            return
+          }
           if (/^slowout\b/.test(command)) {
             // Says something, then keeps going: a command killed mid-output.
             stream.write('started\n')

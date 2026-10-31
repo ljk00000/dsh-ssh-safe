@@ -914,3 +914,35 @@ test('a mode that the server did not apply says so for a new file too', async ()
   assert.match(text, /the server applies its umask/)
   assert.doesNotMatch(text, /the file already existed, so it kept/)
 })
+
+test('stderr survives a budget that stdout already used up', async () => {
+  // The 'make' case: thousands of lines on stdout, then the one line that says
+  // what went wrong. The reserve existed but nothing exercised it end to end.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-tailerrfit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const srv2 = await startServer()
+    const own = {}
+    try {
+      await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+        defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, maxOutputChars: 1024,
+        connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+        machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+      })
+      const text = String((await own.ssh_exec.execute({ machine: 't', command: 'tailerr 5000' }, {})).text)
+      assert.match(text, /\[stderr\]/)
+      assert.match(text, /ERROR: the reason it failed/)
+      assert.match(text, /\[exit 2\]/)
+      assert.match(text, /output truncated at maxOutputChars: \d+ more characters were dropped/)
+      assert.ok(text.length < 1400, 'the budget must hold: ' + text.length)
+    } finally {
+      await own.ssh_close.execute({ machine: 't', force: true }, {}).catch(() => {})
+      await srv2.close()
+    }
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
