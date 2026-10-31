@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -92,3 +92,29 @@ test('remove tells the truth about a directory that is not there', async () => {
   assert.doesNotMatch(deleted, /not a remote workspace placeholder/)
 })
 
+test('a marker that cannot be parsed does not authorise deleting the directory', async () => {
+  // The marker is the only proof that a directory under remotes/ was created by
+  // this plugin. A half-written marker used to fall through as "unowned" and
+  // deleteFiles: true removed the directory anyway.
+  await tools.ssh_workspace.execute({ action: 'create', machine: 'a' }, {})
+  const dir = remoteDir(home, 'a')
+  writeFileSync(path.join(dir, '.dsh-remote-workspace.json'), '{"alias":"a","host":')
+  await assert.rejects(
+    () => tools.ssh_workspace.execute({ action: 'remove', machine: 'a', deleteFiles: true }, {}),
+    (err) => {
+      assert.match(err.message, /cannot be parsed/)
+      assert.match(err.message, /Delete it yourself/)
+      return true
+    },
+  )
+  assert.equal(existsSync(dir), true, 'the directory must survive a refusal')
+  // create is the documented way back: it rewrites the marker and keeps the
+  // instructions in place.
+  const rebuilt = String((await tools.ssh_workspace.execute({ action: 'create', machine: 'a' }, {})).text)
+  assert.match(rebuilt, /已刷新远程工作区/)
+  const after = JSON.parse(readFileSync(path.join(dir, '.dsh-remote-workspace.json'), 'utf8'))
+  assert.equal(after.alias, 'a')
+  // And with a valid marker the delete works again.
+  const deleted = String((await tools.ssh_workspace.execute({ action: 'remove', machine: 'a', deleteFiles: true }, {})).text)
+  assert.match(deleted, /占位目录已删除/)
+})

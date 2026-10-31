@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.287 — 2026-11-01
+
+### Fixed — a half-written marker let `deleteFiles: true` delete the directory anyway
+The marker `.dsh-remote-workspace.json` is the only proof that a directory under `remotes/` was created
+by this plugin, and `removeRemoteDir` checked only whether the file **exists**:
+```
+before  marker = '{"alias":"m","host":'   (a crash mid-write)
+        ssh_workspace remove machine: m deleteFiles: true
+        → 占位目录已删除        (the marker parsed to nothing and read as "unowned")
+
+after   → ERR: refusing to delete …: its .dsh-remote-workspace.json cannot be parsed, so this
+          plugin cannot confirm the directory is a remote workspace placeholder. Delete it
+          yourself if that is what you meant.
+```
+A missing marker was already refused and a marker naming another alias was already refused; the
+unreadable one fell between the two. `create` remains the way back — it rewrites the marker, as the
+`list` output already advises.
+
+### My own mistakes — the patch landed in the wrong function
+My first attempt anchored on `if (owner && owner !== alias) {`, which appears twice. The block went into
+`writeRemoteWorkspace` (the create side), so `create` began refusing with a message about deleting — the
+opposite of the fix. I noticed only because the re-probe still deleted the directory; the code was then
+cut out by position and re-inserted above the delete-side refusal, which is now where it belongs.
+
+### Verified this round (no change needed)
+- A corrupt `known_hosts.json` refuses to connect under both `strict` and `tofu` and is **not** rewritten:
+  "Nothing can be verified against it, and recording a new key would overwrite the hosts already trusted
+  there. Repair or remove that file, then connect again." `off` connects and warns, as documented.
+
+### Tests
+- One new case: a corrupt marker refuses `deleteFiles: true` and the directory survives; `create` rebuilds
+  the marker; the delete then works.
+  Suite 871 / 866 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.286 — 2026-11-01
 
 ### Fixed — the CLI wrote the credential file in place, so a reader could parse half of it

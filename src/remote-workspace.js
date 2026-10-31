@@ -213,7 +213,7 @@ export function writeRemoteWorkspace(dshHome, alias, machine = {}, policy = 'str
       }
     })()
     const owner = existing && typeof existing.alias === 'string' ? existing.alias : ''
-    if (owner && owner !== alias) {
+  if (owner && owner !== alias) {
       const err = new Error(
         'refusing to use ' + dir + ' as a workspace for "' + alias + '": it is the placeholder ' +
         'for "' + owner + '". Rewriting it would leave ' + owner + ' sessions reading ' + alias +
@@ -336,6 +336,16 @@ export function removeRemoteDir(dshHome, alias) {
       return ''
     }
   })()
+  // A marker that exists but cannot be parsed is not proof that this directory is
+  // ours: recognising what this plugin created is the whole point of the marker.
+  // It used to fall through as if unowned and the directory was then deleted.
+  if (!owner) {
+    throw new Error(
+      'refusing to delete ' + dir + ': its ' + MARKER + ' cannot be parsed, so this plugin ' +
+      'cannot confirm the directory is a remote workspace placeholder. Delete it yourself ' +
+      'if that is what you meant.'
+    )
+  }
   if (owner && owner !== alias) {
     const err = new Error(
       'refusing to delete ' + dir + ' for "' + alias + '": it is the placeholder for "' + owner +
