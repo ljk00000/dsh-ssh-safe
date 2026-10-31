@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.250 — 2026-11-01
+
+### Fixed — secrets that reached the audit log verbatim
+Measured by running the commands through `ssh_exec` and then reading `audit.ndjson`:
+```
+before  PASS=hunter2 cmd                        after  PASS=<redacted> cmd
+before  DB_PASS=hunter2 psql                    after  DB_PASS=<redacted> psql
+before  SSHPASS=hunter2 sshpass -e ssh h        after  SSHPASS=<redacted> sshpass -e ssh h
+before  openssl enc -k hunter2 -d               after  openssl enc -k <redacted> -d
+before  mysqladmin -u root -w hunter2 status    after  mysqladmin -u root -w <redacted> status
+```
+- `PASS` was simply not in the name list (`PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|KEY|MYSQL_PWD`), so
+  `*_PASS=` and `SSHPASS=` — the variable `sshpass` itself reads — went through. `PWD=` stays
+  unmasked on purpose (it is the working directory far more often than a secret) and `PASSFILE=`
+  too, because the lazy key run must end right before the `=`.
+- `-k` (openssl) and `-w` (mysqladmin) were unknown flags. Masking every `-k`/`-w` would mangle
+  `sort -k 2`, `tar -k -xf a.tar`, `grep -w word` and `psql -w`, so each is handled only directly
+  after the client that means a secret by it — the same shape as the existing `redis-cli -a` rule.
+  All five look-alikes are asserted unchanged.
+
+### Tests
+- One new case: the five secret forms are masked and the seven look-alikes (including `PWD=` and
+  `PASSFILE=`) are untouched. Verified end to end against a real audit file.
+  Suite 834 / 829 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.249 — 2026-11-01
 
 ### Added

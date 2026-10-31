@@ -247,3 +247,22 @@ test('many unterminated BEGIN markers do not take quadratic time', () => {
   // Prose that only mentions the marker is still left alone.
   assert.equal(redact('see the -----BEGIN marker in the docs'), 'see the -----BEGIN marker in the docs')
 })
+
+test('PASS=, openssl -k and mysqladmin -w are masked, and their look-alikes are not', () => {
+  // Measured against the audit log: 'PASS=…', 'SSHPASS=…' (the variable sshpass
+  // itself reads), 'openssl enc -k SECRET' and 'mysqladmin -w SECRET' were all
+  // written verbatim, because PASS was not in the name list and -k/-w were not
+  // recognised flags.
+  assert.equal(redact('PASS=hunter2 cmd'), 'PASS=<redacted> cmd')
+  assert.equal(redact('DB_PASS=hunter2 psql'), 'DB_PASS=<redacted> psql')
+  assert.equal(redact('SSHPASS=hunter2 sshpass -e ssh h'), 'SSHPASS=<redacted> sshpass -e ssh h')
+  assert.equal(redact('openssl enc -k hunter2 -d'), 'openssl enc -k <redacted> -d')
+  assert.equal(redact('mysqladmin -u root -w hunter2 status'), 'mysqladmin -u root -w <redacted> status')
+
+  // The look-alikes stay readable: a field spec, a keep-old-files flag, a word
+  // match, a no-prompt flag and a filename are not secrets.
+  for (const text of ['sort -k 2 file', 'tar -k -xf a.tar', 'grep -w foo bar.txt',
+    'psql -w -c "select 1"', 'openssl enc -kfile x -d', 'PWD=/home/u cmd', 'PASSFILE=/tmp/f cmd']) {
+    assert.equal(redact(text), text, text + ' must not be rewritten')
+  }
+})

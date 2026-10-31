@@ -162,6 +162,11 @@ export function redact(text) {
   if (!s) return s
   // One pass for .env, YAML, TOML, INI and JSON.
   //
+  // PASS alone was missing, so PASS=, DB_PASS= and SSHPASS= — the variable sshpass
+  // itself reads — reached the audit log verbatim. The lazy prefix keeps PASSFILE=
+  // out (the alternative has to end right before the =), and PWD= stays unmasked:
+  // it is the working directory far more often than a secret.
+  //
   // The JSON case was the gap: '{"password": "hunter2"}' did not match, because
   // the closing quote sat between the key and the colon. A quoted key, a quoted
   // value and a value containing spaces are all common in the config files this
@@ -172,7 +177,7 @@ export function redact(text) {
   // characters, and a 200k-character single-line output took 33 seconds to
   // redact. See the timing test in test/redact-coverage.test.js.
   s = s.replace(
-    /(^|[^\w])(["']?)([A-Za-z0-9_]*?(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|KEY|MYSQL_PWD))\2(\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,}]+)/gi,
+    /(^|[^\w])(["']?)([A-Za-z0-9_]*?(?:PASSWORD|PASSWD|PASSPHRASE|PASS|SECRET|TOKEN|KEY|MYSQL_PWD))\2(\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,}]+)/gi,
     (match, lead, quote, key, separator) => {
       // 'trustHostKey: true' is an instruction, not a secret: it ends in KEY like
       // every password field does, and replacing its value with '<redacted>'
@@ -224,6 +229,13 @@ export function redact(text) {
   // 'redis-cli' that had no '-a' after it, and 20 000 of them took 785 ms.
   // 200 characters covers 'redis-cli --user u --tls -a SECRET' and stops there.
   s = s.replace(/(^|[\s"'])(redis-cli)([^\n]{0,200}?)\s(-a)\s+("[^"]*"|'[^']*'|\S+)/gi, '$1$2$3 -a <redacted>')
+  // Two more clients that take a secret after a short flag the general rules must
+  // not touch: a bare '-k' would eat 'tar -k xf a.tar' and 'sort -k 2', and a
+  // bare '-w' would eat 'grep -w word'. Only right after the client that means a
+  // secret by it: measured 'openssl enc -k SECRET -d' and
+  // 'mysqladmin -u root -w SECRET status' reaching audit.ndjson verbatim.
+  s = s.replace(/(^|[\s"'])(openssl)([^\n]{0,200}?)\s(-k)\s+("[^"]*"|'[^']*'|\S+)/gi, '$1$2$3 -k <redacted>')
+  s = s.replace(/(^|[\s"'])(mysqladmin)([^\n]{0,200}?)\s(-w)\s+("[^"]*"|'[^']*'|\S+)/gi, '$1$2$3 -w <redacted>')
   // PEM blocks: masked by scanning, not by a backtracking regex.
   //
   // /-----BEGIN [\s\S]*?-----END [^-]*-----/ is quadratic when the text holds many
