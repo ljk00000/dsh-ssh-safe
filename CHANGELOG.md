@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.73 — 2026-10-31
+
+### Fixed
+- **A corrupt known_hosts.json acted as an empty one, and following the advice
+  destroyed the rest of it.** The store was parsed in a try/catch that returned
+  `{version, hosts: {}}`, so a truncated or hand-edited file made every host
+  look unknown. The caller was then told to "call ssh_connect with trustHostKey:
+  true once", and doing that rewrote the file with that single entry: measured
+  against the previous implementation, a 40-byte truncated store became 189 bytes
+  holding only the newly trusted host -- every other host silently forgotten, and
+  the next connection to one of them trusted all over again.
+  A store that cannot be read is now its own state:
+  `Host key verification failed: the host key store <file> could not be parsed
+  (...). Nothing can be verified against it, and recording a new key would
+  overwrite the hosts already trusted there. Repair or remove that file, then
+  connect again.` The file is never rewritten in that state, for strict, tofu or
+  trustHostKey; `hostKeyPolicy: "off"` still connects and leaves it untouched. A
+  missing store is still a normal first run, and a wrong version is named as such.
+
+### Added — tests
+- A corrupt store refusing under strict and tofu without being rewritten, a wrong
+  version, policy off leaving the file alone, a missing store as a first run, and a
+  healthy store recording a new host without losing the others.
+
 ## 0.7.72 — 2026-10-31
 
 ### Fixed

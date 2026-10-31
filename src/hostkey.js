@@ -22,12 +22,48 @@ export function storePath(dshHome) {
   return path.join(dshHome, 'dsh-ssh-safe', 'known_hosts.json')
 }
 
+/**
+ * Read the trust store, and say when it could not be understood.
+ *
+ * A corrupt store used to be indistinguishable from an empty one. The next
+ * connection then looked like "unknown host", the caller was told to verify the
+ * fingerprint and connect with trustHostKey, and doing so rewrote the file with
+ * ONE entry -- silently discarding every other host that had been trusted.
+ *
+ * @param {string} file
+ * @returns {{store: {version: number, hosts: Record<string, any>}, problem: string}}
+ */
 function readStore(file) {
+  const empty = { version: STORE_VERSION, hosts: /** @type {Record<string, any>} */ ({}) }
+  let text
   try {
-    const raw = JSON.parse(readFileSync(file, 'utf8'))
-    if (raw && raw.version === STORE_VERSION && raw.hosts && typeof raw.hosts === 'object') return raw
-  } catch { /* missing or corrupt → treat as empty, never throw */ }
-  return { version: STORE_VERSION, hosts: {} }
+    text = readFileSync(file, 'utf8')
+  } catch (err) {
+    // A store that does not exist yet is the normal first run.
+    const code = err && /** @type {{code?: string}} */ (err).code
+    if (code === 'ENOENT') return { store: empty, problem: '' }
+    return {
+      store: empty,
+      problem: 'the host key store ' + file + ' could not be read (' + (code || (err && err.message) || 'unknown error') + ')',
+    }
+  }
+  try {
+    const raw = JSON.parse(text)
+    if (raw && raw.version === STORE_VERSION && raw.hosts && typeof raw.hosts === 'object') {
+      return { store: raw, problem: '' }
+    }
+    return {
+      store: empty,
+      problem: 'the host key store ' + file + ' is not in the expected format (version ' +
+        JSON.stringify(raw && raw.version) + ')',
+    }
+  } catch (err) {
+    return {
+      store: empty,
+      problem: 'the host key store ' + file + ' could not be parsed (' +
+        String(err && err.message ? err.message : err).slice(0, 80) + ')',
+    }
+  }
 }
 
 /**
@@ -57,8 +93,11 @@ function writeStore(file, store) {
  */
 function recordHost(file, id, fingerprintValue) {
   const fresh = readStore(file)
-  fresh.hosts[id] = { fingerprint: fingerprintValue, firstSeenAt: new Date().toISOString() }
-  writeStore(file, fresh)
+  // Never write over a store that could not be understood: the write would keep
+  // only this host and discard the rest of the file's contents.
+  if (fresh.problem) throw new Error(fresh.problem + ' — refusing to overwrite it')
+  fresh.store.hosts[id] = { fingerprint: fingerprintValue, firstSeenAt: new Date().toISOString() }
+  writeStore(file, fresh.store)
 }
 
 export function keyId(host, port) {
@@ -94,11 +133,25 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
   const fp = fingerprint(keyBlob)
   const file = knownHostsFile || storePath(dshHome)
   const id = keyId(host, port)
-  const store = readStore(file)
+  const read = readStore(file)
+  const store = read.store
   const recorded = store.hosts[id]
 
   if (policy === 'off') {
     return { ok: true, reason: 'host key verification disabled by policy', fp, firstSeen: !recorded }
+  }
+  // Verification against a store that cannot be read is impossible, and trusting
+  // the presented key would rewrite the file and drop everything else in it.
+  if (read.problem) {
+    return {
+      ok: false,
+      reason:
+        'Host key verification failed: ' + read.problem + '. Nothing can be verified against it, ' +
+        'and recording a new key would overwrite the hosts already trusted there. Repair or remove ' +
+        'that file, then connect again.',
+      fp,
+      firstSeen: false,
+    }
   }
   if (recorded && fingerprintsEqual(recorded.fingerprint, fp)) {
     return { ok: true, reason: 'host key matches the recorded fingerprint', fp, firstSeen: false }
