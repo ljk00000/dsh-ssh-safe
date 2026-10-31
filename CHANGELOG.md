@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.198 — 2026-10-31
+
+### Fixed
+- **"Nothing was read from disk." was said about a file that could not be parsed.** When a
+  machine was missing its host or user, the pool built the message itself and dropped the
+  warnings `credentialFor()` had already collected — so a broken `credentials.json` was reported
+  as if no file existed:
+  ```
+  before: … or as the environment variable(s) DSH_SSH_BROKEN_HOST, … Nothing was read from disk.
+  after : … or as the environment variable(s) … credentials.json could not be parsed
+          (Expected property name or '}' in JSON at position 2 (line 1 column 3));
+          no credential was used from it
+  ```
+  With no file at all the old sentence is still true and still used; the test asserts both
+  branches. `ssh_doctor` already reported the parse problem — `ssh_exec` was the outlier.
+
+### My mistake
+- The patch anchor for this change used CRLF; `src/pool.js` has mixed line endings and that
+  block is LF, so the first attempt threw "anchor missing" instead of writing. Fifth time this
+  has bitten; the anchor bytes were checked before the second attempt.
+
 ## 0.7.197 — 2026-10-31
 
 ### Changed

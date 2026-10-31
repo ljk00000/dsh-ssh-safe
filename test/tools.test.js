@@ -465,6 +465,29 @@ test('a plaintext settings password is shown as ignored, with what wins instead'
 })
 
 
+
+test('a machine that is missing its host names the broken credential file', async () => {
+  // The reply used to end with 'Nothing was read from disk.' even when the file
+  // existed and could not be parsed: the parse problem was dropped by the pool,
+  // so the message pointed at the settings and the environment instead of the
+  // one thing the user had just edited.
+  const { tools, restore } = capture({ defaultMachine: 'ghost', reconnectCooldownMs: 0 })
+  try {
+    const home = process.env.DSH_HOME
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), '{ nope', 'utf8')
+    const broken = await tools.ssh_exec.execute({ machine: 'ghost', command: 'echo x' }, {})
+      .then((r) => textOf(r), (e) => 'ERR: ' + e.message)
+    assert.match(broken, /credentials\.json could not be parsed/)
+    assert.doesNotMatch(broken, /Nothing was read from disk/, 'the claim would be false here')
+
+    rmSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), { force: true })
+    const absent = await tools.ssh_exec.execute({ machine: 'ghost', command: 'echo x' }, {})
+      .then((r) => textOf(r), (e) => 'ERR: ' + e.message)
+    assert.match(absent, /Nothing was read from disk/, 'with no file the old sentence is true')
+  } finally { restore() }
+})
+
 test('the default machine is marked in the listing', async () => {
   // The listing put the default first so a call may omit `machine`, then sorted
   // the rest: against 60 machines that read as an arbitrary order.

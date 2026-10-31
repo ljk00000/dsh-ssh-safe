@@ -805,11 +805,17 @@ export class SshPool {
       // and the user usually fixes the setting and retries at once. Marking it
       // keeps the reconnect cooldown from answering "Refusing to retry for
       // another 15s" when the real answer is "fill in the host".
+      // 'Nothing was read from disk' was a claim, and a false one when the file
+      // exists but cannot be parsed: the parse problem was dropped here, so the
+      // reply pointed at the settings and the environment instead of the file.
+      const notes = Array.isArray(auth.warnings)
+        ? auth.warnings.filter(Boolean).map((warning) => String(warning))
+        : []
       throw noCooldown(new Error(
         'Machine "' + alias + '" is not configured: missing ' + need.join(', ') +
         '. Set it in the plugin settings (machines.' + alias + ') or in the settings page, ' +
         'or as the environment variable(s) ' + need.join(', ') +
-        '. Nothing was read from disk.'
+        (notes.length > 0 ? '. ' + notes.join(' ') : '. Nothing was read from disk.')
       ))
     }
     // A port that cannot be dialled is a configuration error, not a network
