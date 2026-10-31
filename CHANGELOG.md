@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.153 — 2026-10-31
+
+### Added
+- A test that logs in **with a non-ASCII password end to end**, not just the DPAPI round
+  trip: a Chinese password stored (DPAPI) → read by the plugin → authenticates against a
+  server that only accepts that exact string. The byte-level guard matters, because a
+  password read through the wrong code page arrives as different bytes and simply looks
+  like a wrong password forever.
+
+### Verified, no change needed
+- The settings page stores a non-ASCII password correctly: `{"ok":true}` from `/api/save`,
+  no plaintext in `credentials.json`, `decryptDpapi` returns the original string.
+- `scripts/set-password.mjs` likewise: exit 0, `passwordDpapi <encrypted with DPAPI, 492 chars>`,
+  no plaintext on disk, decrypts back to the same string.
+- An alias defined in both the settings form and the credential file merges per field
+  (`sources: host=config, port=config, user=config, password=file-dpapi`).
+
 ## 0.7.152 — 2026-10-31
 
 ### Fixed

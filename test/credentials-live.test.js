@@ -130,3 +130,35 @@ test('ssh_doctor also ignores a disabled credential file', { skip }, async () =>
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a non-ASCII password stored for the plugin authenticates the plugin', { skip }, async () => {
+  // The DPAPI round trip is one thing; logging in with the result is what matters.
+  // A password read through the console code page would arrive as different bytes
+  // and the server would refuse it, so this is the end-to-end guard.
+  const password = '密码-测试-123'
+  const srv = await startServer({ user: 'tester', password })
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-cred-cjk-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  writeCredentialFile(home, 'box', {
+    host: '127.0.0.1',
+    port: srv.port,
+    user: 'tester',
+    passwordDpapi: encryptDpapi(password),
+  })
+  const tools = {}
+  await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    defaultMachine: 'box', hostKeyPolicy: 'tofu', healthCheckIdleMs: 0, reconnectCooldownMs: 0,
+    connectTimeoutMs: 3000, commandTimeoutMs: 4000, machines: {},
+  })
+  try {
+    const result = await tools.ssh_exec.execute({ machine: 'box', command: 'echo hello' }, {})
+    assert.match(String(result.text), /hello/)
+  } finally {
+    await tools.ssh_close.execute({ force: true }, {}).catch(() => {})
+    await srv.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
