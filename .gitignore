@@ -16,3 +16,4 @@ scratch/
 
 # npm artefacts: this project installs with pnpm
 package-lock.json
+pack.out

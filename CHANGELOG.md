@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.57 — 2026-10-31
+
+### Fixed
+- **A port that answers with something other than SSH was reported as
+  `Connection lost before handshake`.** That is what ssh2 says when the peer is
+  an HTTP or proxy service -- the classic wrong-port mistake (80 or 443 instead of
+  22). It now carries the reason: `the port answered but not with SSH — check the
+  port number; an HTTP or proxy service answers like this`.
+
+### Verified, no change needed
+- The health check that started working in 0.7.56 does not churn: 20 idle/probe
+  cycles on a real connection, zero reconnects, 1.1 ms per connect-with-probe.
+  A probe timeout below the schema's 100 ms minimum can only be produced by
+  constructing the pool by hand, not through the config.
+- The published package contains every file the plugin needs (24 entries), packs,
+  installs from the tarball with `npm install`, and loads with `apply`,
+  `Config` and the shipped defaults intact.
+- A server that accepts and immediately closes is explained (`ECONNRESET ...
+  the port may not be sshd`) and the retry is held by the cooldown rather than
+  retried in a loop.
+
+### Added — tests
+- The non-SSH-port hint, next to the ECONNRESET one.
+
 ## 0.7.56 — 2026-10-31
 
 ### Fixed

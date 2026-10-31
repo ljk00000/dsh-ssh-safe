@@ -124,6 +124,10 @@ export function connectFailure(err, m, { lean = false } = {}) {
     [/ECONNRESET/i, 'the server closed the connection during the handshake — the port may not be sshd'],
     [/ENOTFOUND|EAI_AGAIN/i, 'the host name did not resolve'],
     [/Timed out while waiting for handshake|ETIMEDOUT/i, 'no SSH banner arrived — the port may not speak SSH, or a firewall is dropping packets'],
+    // ssh2 says only "Connection lost before handshake" when the peer speaks
+    // something that is not SSH (an HTTP or proxy service on that port, which is
+    // what happens when port 80 or 443 is used by mistake).
+    [/Connection lost before handshake/i, 'the port answered but not with SSH — check the port number; an HTTP or proxy service answers like this'],
     [/All configured authentication methods failed|Permission denied/i, 'the server rejected the credentials — check the user, the key or password, and authorized_keys'],
     [/Host key verification failed|Unknown host/i, 'the host key store does not trust this host; run ssh_connect with trustHostKey once'],
   ]

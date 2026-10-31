@@ -207,3 +207,14 @@ test('machineInventory: alias hides the address in the error too', async () => {
   const full = connectFailure(err, machine)
   assert.match(full.message, /root@10\.9\.8\.7:22/, 'the default still names the target')
 })
+test('a port that answers with something other than SSH is named as such', async () => {
+  // ssh2 says only 'Connection lost before handshake' when the peer is an HTTP
+  // or proxy service -- the classic wrong-port mistake.
+  const { connectFailure } = await import('../src/pool.js')
+  const err = connectFailure(new Error('Connection lost before handshake'), { host: 'h', port: 80, username: 'u' })
+  assert.match(err.message, /the port answered but not with SSH/)
+  assert.match(err.message, /an HTTP or proxy service answers like this/)
+
+  const reset = connectFailure(new Error('read ECONNRESET'), { host: 'h', port: 22, username: 'u' })
+  assert.match(reset.message, /closed the connection during the handshake/)
+})
