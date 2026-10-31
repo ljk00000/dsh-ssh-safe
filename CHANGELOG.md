@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.144 — 2026-10-31
+
+### Fixed
+- **`SSH_AUTH_SOCK` pointing at a leftover file passed the doctor.** The credential
+  step only checked that the path existed, so it reported `[ok] credentials: agent`
+  for something that cannot answer a single SSH request:
+  ```
+  before: [ok] credentials: agent
+          [FAIL] tcp: ENOTFOUND        (the real problem found two steps later, and
+                                        the agent was never mentioned again)
+  after : [FAIL] credentials: the agent path … is a file, not a socket —
+          SSH_AUTH_SOCK points at something that is not an agent
+          Stopped: fix the above before testing the network.
+  ```
+  Only a regular file or a directory counts as certainly wrong: a FIFO or an unknown
+  kind may be a working pipe-based agent (Windows named pipes do not always stat), and
+  flagging those would be a false alarm. A missing path keeps its own message.
+
+### Verified, no change needed
+- `ssh_machines` already said `auth: NONE` for the same state, and `ssh_credentials`
+  listed the sources without inventing one.
+
 ## 0.7.143 — 2026-10-31
 
 ### Fixed

@@ -2047,7 +2047,29 @@ function assertKnownArgs(args, known, toolName) {
           }
         }
       } else if (auth.kind === 'agent') {
-        if (!existsSync(auth.agent)) credentialProblem = 'agent socket not found: ' + auth.agent
+        if (!existsSync(auth.agent)) {
+          credentialProblem = 'agent socket not found: ' + auth.agent
+        } else {
+          // A path that exists is not an agent: SSH_AUTH_SOCK pointing at a
+          // leftover regular file passed this step as '[ok] credentials: agent'
+          // and the connection then had nothing to authenticate with (measured).
+          let kind = ''
+          try {
+            const st = statSync(auth.agent)
+            kind = typeof st.isSocket === 'function' && st.isSocket() ? 'socket'
+              : typeof st.isFIFO === 'function' && st.isFIFO() ? 'fifo'
+              : st.isFile() ? 'file'
+              : st.isDirectory() ? 'directory'
+              : 'special'
+          } catch { kind = '' }
+          // Only file and directory are certain to be wrong. A FIFO or an
+          // unknown kind may be a working pipe-based agent (Windows named pipes
+          // do not always stat), and flagging those would be a false alarm.
+          if (kind === 'file' || kind === 'directory') {
+            credentialProblem = 'the agent path ' + auth.agent + ' is a ' + kind +
+              ', not a socket — SSH_AUTH_SOCK points at something that is not an agent'
+          }
+        }
       }
 
       if (auth.kind === 'none') {

@@ -1373,3 +1373,35 @@ test('a timed-out write does not claim previous content was destroyed on a new f
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the doctor does not call a regular file an SSH agent', async () => {
+  // SSH_AUTH_SOCK pointing at a leftover file passed the credential step as
+  // '[ok] credentials: agent' and the connection had nothing to authenticate with.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-agentfit-'))
+  const previous = { home: process.env.DSH_HOME, sock: process.env.SSH_AUTH_SOCK }
+  process.env.DSH_HOME = home
+  const fake = path.join(home, 'agent.sock')
+  writeFileSync(fake, 'not a socket')
+  process.env.SSH_AUTH_SOCK = fake
+  try {
+    const own = {}
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', connectTimeoutMs: 2000, commandTimeoutMs: 2000,
+      machines: { t: { host: 'h.example', user: 'u' } },
+    })
+    const text = String((await own.ssh_doctor.execute({ machine: 't' }, {})).text)
+    assert.match(text, /\[FAIL\] credentials: the agent path .* is a file, not a socket/)
+    assert.doesNotMatch(text, /\[ok\] credentials: agent/)
+
+    // A missing path keeps its own message.
+    process.env.SSH_AUTH_SOCK = path.join(home, 'missing.sock')
+    const missing = String((await own.ssh_doctor.execute({ machine: 't' }, {})).text)
+    assert.match(missing, /agent socket not found/)
+  } finally {
+    if (previous.home === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous.home
+    if (previous.sock === undefined) delete process.env.SSH_AUTH_SOCK
+    else process.env.SSH_AUTH_SOCK = previous.sock
+    rmSync(home, { recursive: true, force: true })
+  }
+})
