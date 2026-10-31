@@ -116,3 +116,29 @@ test('an undecryptable blob degrades with an explanation', { skip }, () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('a non-ASCII password survives the DPAPI round trip', { skip }, () => {
+  // PowerShell decodes stdin with the console code page unless told otherwise: a
+  // Chinese password came back as '瀵嗙爜' (UTF-8 bytes read as GBK) once the output
+  // encoding was set without also fixing the reader.
+  for (const plain of ['ascii-Passw0rd!', '密码-测试-123', 'naïve-café-Ω', 'emoji-🔑-key']) {
+    const cipher = encryptDpapi(plain)
+    assert.match(cipher, /^[0-9a-f]+$/i)
+    assert.equal(decryptDpapi(cipher), plain)
+  }
+})
+
+test('a failed DPAPI call reports one clean line, not a pile of mojibake', { skip }, () => {
+  // Before: 'ConvertTo-SecureString : ��������' followed by a localized traceback,
+  // 300 characters of which nothing could be acted on.
+  let message = ''
+  try {
+    decryptDpapi('zz-not-hex')
+  } catch (err) {
+    message = String(err.message)
+  }
+  assert.ok(message, 'decryptDpapi should fail on a non-hex ciphertext')
+  assert.equal((message.match(/\uFFFD/g) || []).length, 0, message)
+  assert.doesNotMatch(message, /\n/, 'the message should be one line')
+  assert.ok(message.length < 200, message)
+})

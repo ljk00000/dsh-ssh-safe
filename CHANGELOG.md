@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.152 — 2026-10-31
+
+### Fixed
+- **A DPAPI failure printed mojibake instead of a reason.** PowerShell writes text in
+  the console code page, so on a Chinese Windows the message arrived as replacement
+  characters followed by a localized traceback:
+  ```
+  before: powershell.exe failed: ConvertTo-SecureString : ��������
+          所在位置 行:1 字符: 49 … (300 characters, 42 of them U+FFFD)
+  after : powershell.exe failed: ConvertTo-SecureString : 输入字符串的格式不正确。
+  ```
+  The shell now runs with `[Console]::OutputEncoding = UTF8`, and only the first line
+  of a failure is kept — the location/category lines were never actionable.
+- **Stdin is read as UTF-8 explicitly.** Setting the output encoding alone changed how
+  `[Console]::In` decoded, and a Chinese password came back as `瀵嗙爜` — the round trip
+  broke for every non-ASCII password. Measured before the reader was fixed:
+  `"密码-测试-123" → "瀵嗙爜-娴嬭瘯-123"`. `StreamReader(OpenStandardInput(), UTF8)`
+  removes the dependency on the console code page entirely.
+
+### Verified, no change needed
+- An alias defined in both the settings form and the credential file merges per field,
+  config first, and `sources:` names each origin:
+  `sources: host=config, port=config, user=config, password=file-dpapi`.
+- `execGuard: confirm` does not change what `ssh_doctor` checks.
+
 ## 0.7.151 — 2026-10-31
 
 ### Fixed

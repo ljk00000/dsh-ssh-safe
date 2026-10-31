@@ -39,11 +39,22 @@ function shell() {
   return probe.status === 0 ? 'pwsh' : 'powershell.exe'
 }
 
+// Reading stdin through a UTF-8 StreamReader keeps a non-ASCII password intact no
+// matter what code page the console would otherwise assume.
+const STDIN_UTF8_READER =
+  "$reader = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), " +
+  '[System.Text.Encoding]::UTF8); '
+
 let cachedShell = ''
 
 function runShell(args, input, timeoutMs) {
   if (!cachedShell) cachedShell = shell()
-  const result = spawnSync(cachedShell, ['-NoProfile', '-NonInteractive', '-Command', args], {
+  // PowerShell writes text in the console code page, so on a Chinese Windows the
+  // error text arrived as replacement characters ('ConvertTo-SecureString : ���')
+  // and buried the real reason. Setting the output encoding inside the shell makes
+  // both success and failure text plain UTF-8 for Node.
+  const script = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ' + args
+  const result = spawnSync(cachedShell, ['-NoProfile', '-NonInteractive', '-Command', script], {
     input,
     encoding: 'utf8',
     timeout: timeoutMs,
@@ -51,7 +62,15 @@ function runShell(args, input, timeoutMs) {
   })
   if (result.error) throw new Error('could not run ' + cachedShell + ': ' + result.error.message)
   if (result.status !== 0) {
-    throw new Error((cachedShell + ' failed: ' + String(result.stderr || '').trim()).slice(0, 300))
+    // PowerShell's traceback (location, line, category) says nothing a user can act
+    // on, and only the first line is the reason. Keep that, and never the mojibake.
+    const lines = String(result.stderr || '')
+      .replace(/\uFFFD/g, '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+    const reason = lines[0] || 'no message'
+    throw new Error(cachedShell + ' failed: ' + reason.slice(0, 200))
   }
   return String(result.stdout || '')
 }
@@ -69,7 +88,10 @@ export function encryptDpapi(plain) {
   // The secret arrives on stdin so it never appears in a process command line,
   // where any local user could read it from the process table.
   const out = runShell(
-    '$s = [Console]::In.ReadToEnd(); ' +
+    // stdin is decoded as UTF-8 explicitly: setting the console output encoding
+    // above also changed how [Console]::In decoded, and a Chinese password came
+    // back as '瀵嗙爜' (UTF-8 bytes read as the code page).
+    STDIN_UTF8_READER + '$s = $reader.ReadToEnd(); ' +
     '$sec = ConvertTo-SecureString -String $s -AsPlainText -Force; ' +
     'ConvertFrom-SecureString -SecureString $sec',
     text,
@@ -97,7 +119,7 @@ export function decryptDpapi(cipher) {
   if (!key) throw new Error('no ciphertext')
   if (memory.has(key)) return memory.get(key)
   const out = runShell(
-    '$hex = [Console]::In.ReadToEnd().Trim(); ' +
+    STDIN_UTF8_READER + '$hex = $reader.ReadToEnd().Trim(); ' +
     '$sec = ConvertTo-SecureString -String $hex; ' +
     '$b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec); ' +
     'try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } ' +
