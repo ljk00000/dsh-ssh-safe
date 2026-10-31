@@ -28,7 +28,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { networkInterfaces } from 'node:os'
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import process from 'node:process'
@@ -446,8 +446,41 @@ function renameWithRetry(from, to) {
     ' antivirus, a sync client, or a concurrent writer. Try again.')
 }
 
+/**
+ * Remove temp files a crashed save left behind.
+ *
+ * writeStore() writes credentials.json.tmp-<pid> and renames it over the real
+ * file. A crash in that window leaves the temp file in the profile directory with
+ * every password still in it, at a path nothing ever mentioned — and on Windows the
+ * ACL restriction is applied to credentials.json only, so the leftover keeps the
+ * inherited ACLs the real file was hardened against.
+ *
+ * A live save holds its temp file for milliseconds, so anything older than
+ * STALE_TMP_MS belongs to a writer that is gone.
+ */
+const STALE_TMP_MS = 10 * 60 * 1000
+function sweepStaleTemps(now = Date.now()) {
+  const removed = []
+  let names = []
+  try { names = readdirSync(path.dirname(credFile)) } catch { return removed }
+  const base = path.basename(credFile)
+  const pattern = new RegExp('^' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.tmp-\\d+$')
+  for (const name of names) {
+    if (!pattern.test(name)) continue
+    const full = path.join(path.dirname(credFile), name)
+    try {
+      const age = now - statSync(full).mtimeMs
+      if (age < STALE_TMP_MS) continue
+      rmSync(full, { force: true })
+      removed.push(name)
+    } catch { /* a temp file that vanished or cannot be read is not fatal */ }
+  }
+  return removed
+}
+
 function writeStore(store) {
   mkdirSync(path.dirname(credFile), { recursive: true })
+  sweepStaleTemps()
   // Write beside the file and rename over it.
   //
   // The plugin reads this file on every connection, from another process. An
@@ -1135,6 +1168,12 @@ const server = createServer(async (req, res) => {
   }
 })
 
+// A crashed save may have left credentials.json.tmp-<pid> behind with every
+// password in it. Sweep here, after the constants it uses are initialised: running
+// it beside credFile hit the temporal dead zone of STALE_TMP_MS and the error was
+// swallowed by the per-file try/catch.
+const sweptTemps = sweepStaleTemps()
+
 server.listen(port, '127.0.0.1', () => {
   const actual = server.address().port
   const url = 'http://127.0.0.1:' + actual + '/?t=' + token
@@ -1144,6 +1183,9 @@ server.listen(port, '127.0.0.1', () => {
   console.log('  ' + url)
   console.log('')
   console.log('  凭据文件: ' + credFile)
+  if (sweptTemps.length > 0) {
+    console.log('  已清理上次写入残留的临时文件: ' + sweptTemps.join(', '))
+  }
   console.log('  DPAPI 加密: ' + (dpapiAvailable() ? '可用' : '不可用（请改用环境变量）'))
   console.log('  关闭页面即退出；闲置 ' + idleWords(idleMs) + '也会退出。')
   console.log('')

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { request as httpRequest } from 'node:http'
 import { startServer } from './helpers/local-ssh-server.js'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, utimesSync } from 'node:fs'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -1534,6 +1534,35 @@ test('the page says when it stopped instead of leaving stages out', async () => 
   } finally {
     child.kill()
     await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1200))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a temp file a crashed save left behind is swept, a live one is not', async () => {
+  // writeStore() writes credentials.json.tmp-<pid> and renames it over the real
+  // file. A crash in that window left every password in the profile directory at a
+  // path nothing ever mentioned, and on Windows the ACL restriction covers only
+  // credentials.json.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-tmpsweep-'))
+  const dir = path.join(home, 'dsh-ssh-safe')
+  mkdirSync(dir, { recursive: true })
+  const stale = path.join(dir, 'credentials.json.tmp-99999')
+  const fresh = path.join(dir, 'credentials.json.tmp-20000')
+  writeFileSync(stale, JSON.stringify({ old: { host: 'h', user: 'u', password: 'LEFT-BEHIND' } }))
+  writeFileSync(fresh, JSON.stringify({ live: { host: 'h', user: 'u', password: 'IN-FLIGHT' } }))
+  const past = new Date(Date.now() - 60 * 60 * 1000)
+  utimesSync(stale, past, past)
+  const { child, output } = await start(home)
+  try {
+    assert.equal(existsSync(stale), false, 'a stale temp file must be removed')
+    assert.equal(existsSync(fresh), true, 'a temp file a live writer may be using must stay')
+    // The URL line is printed before the sweep line, so give stdout a moment to
+    // catch up instead of asserting the instant start() resolves.
+    const deadline = Date.now() + 2000
+    while (Date.now() < deadline && !/残留的临时文件/.test(output())) await new Promise((r) => setTimeout(r, 25))
+    assert.match(output(), /已清理上次写入残留的临时文件: credentials\.json\.tmp-99999/)
+  } finally {
+    child.kill()
     rmSync(home, { recursive: true, force: true })
   }
 })

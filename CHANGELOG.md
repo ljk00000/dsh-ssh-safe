@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.285 — 2026-11-01
+
+### Fixed — a crashed save left a copy of every password in the profile directory
+`writeStore()` writes `credentials.json.tmp-<pid>` and renames it over the real file. A crash in that
+window left the temp file behind, with every password still in it, at a path neither the page nor any
+tool ever mentioned:
+```
+before  dsh-ssh-safe/            after
+        credentials.json                 credentials.json
+        credentials.json.tmp-99999       (the leftover is removed and named)
+          {"old":{"password":"LEFT-BEHIND-SECRET"}}
+```
+On Windows this is worse than clutter: `icacls` hardens `credentials.json` after the rename, so the
+leftover keeps the inherited ACLs the real file was explicitly hardened against.
+`sweepStaleTemps()` now removes `credentials.json.tmp-*` older than ten minutes — a live save holds its
+temp for milliseconds — both at startup and before every write, and the console says what it removed.
+A fresh temp file is left alone: another instance may be mid-save.
+
+### My own mistakes — three in one small change
+1. The first version silently did nothing: `readdirSync` and `statSync` were not imported, and the
+   `ReferenceError` was swallowed by the per-file `try/catch` I had written for unreadable files.
+2. After that the sweep still never ran at startup: I called it beside `credFile`, which is before the
+   `const STALE_TMP_MS` it uses — the temporal dead zone threw, and the same `try/catch` hid it. Moved the
+   call below the constants (and left a comment saying why).
+3. The new test asserted the console line the instant `start()` resolved, but the URL is printed first and
+   the sweep line after it; it now waits up to 2 s. The file assertions never failed — the announcement
+   did.
+
+### Tests
+- One new GUI case: a temp file with an hour-old mtime is removed and announced, a temp file written now
+  is kept.
+  Suite 869 / 864 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.284 — 2026-11-01
 
 ### Hardened — the secret shapes that carried no keyword now have a test
