@@ -1064,6 +1064,11 @@ export class SshPool {
         stream = s
         const outDecoder = new StringDecoder('utf8')
         const errDecoder = new StringDecoder('utf8')
+        // Bytes received, so the caller can be told when the decoder replaced
+        // some of them: '�' in the text is otherwise indistinguishable from a
+        // command that printed one.
+        let rawOut = 0
+        let rawErr = 0
         // Close the stdin side at once. Nothing in this plugin ever writes to a
         // channel, so leaving it open means every command that reads input waits
         // for a line that will never arrive: 'sudo apt-get install' sat for the
@@ -1097,6 +1102,7 @@ export class SshPool {
           // A chunk boundary can fall inside a multi-byte character: decoding each
           // chunk on its own turned one '中' (3 bytes) into three U+FFFD. The
           // decoder holds the partial sequence until the rest arrives.
+          if (Buffer.isBuffer(d)) rawOut += d.length
           const text = Buffer.isBuffer(d) ? outDecoder.write(d) : String(d)
           // The timeline is what the caller renders, so it has to draw from the
           // same budget as the accumulators. Pushing every chunk and letting the
@@ -1105,6 +1111,7 @@ export class SshPool {
           if (kept) timeline.push({ stream: 'out', text: kept })
         })
         s.stderr.on('data', (d) => {
+          if (Buffer.isBuffer(d)) rawErr += d.length
           const text = Buffer.isBuffer(d) ? errDecoder.write(d) : String(d)
           if (budget.remaining === 0 && out.text.length > stdoutFloor) {
             let need = Math.min(text.length, out.text.length - stdoutFloor)
@@ -1151,6 +1158,14 @@ export class SshPool {
             dropped: typeof code !== 'number' && !named,
             truncated: budget.truncated,
             droppedChars: budget.dropped,
+            // A byte count that does not match the text means the decoder
+            // replaced something: the text is a rendering, not the bytes. A
+            // genuine U+FFFD in the output round-trips to the same bytes, so it
+            // does not trigger this.
+            lossy: budget.truncated ? null : {
+              out: Buffer.byteLength(out.text, 'utf8') !== rawOut,
+              err: Buffer.byteLength(err.text, 'utf8') !== rawErr,
+            },
             timeline,
           })
         })

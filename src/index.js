@@ -1144,6 +1144,17 @@ function assertKnownArgs(args, known, toolName) {
           'the order between them: a [stderr] block was not necessarily printed after the output above it. ' +
           'The order inside each stream is exact.')
       }
+      // A command whose output is not text (cat a binary, head /dev/urandom) used
+      // to come back as replacement characters with nothing said: the caller could
+      // copy a lossy rendering thinking it was the bytes. ssh_read already says
+      // '[binary file: …]' for the same situation.
+      if (r.lossy && (r.lossy.out || r.lossy.err)) {
+        const which = r.lossy.out && r.lossy.err ? 'stdout and stderr' : (r.lossy.out ? 'stdout' : 'stderr')
+        parts.push('[note] ' + which + ' was not valid UTF-8, so some bytes became replacement characters — ' +
+          'what is shown is a lossy rendering, not the bytes themselves. If the bytes matter, ' +
+          'base64 them on the remote side (for example: base64 file) and decode here, or use ' +
+          'ssh_read, which says so for a binary file.')
+      }
       if (r.truncated) {
         // "truncated" alone left the caller guessing whether one character or a
         // megabyte was lost, and what to do about it.

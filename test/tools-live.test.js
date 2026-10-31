@@ -1846,6 +1846,36 @@ test('an exit code is shown once, not twice', async () => {
 
 
 
+
+test('binary output from a command says it is a lossy rendering', async () => {
+  // ssh_read said '[binary file: …]' but ssh_exec handed back replacement
+  // characters with nothing said: 'cat a.bin' looked like ordinary output.
+  const srv4 = await startServer()
+  const own = {}
+  await apply(
+    { tools: { register: (def) => { own[def.name] = def } }, effect: () => {}, get: () => undefined },
+    {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+      machines: { t: { host: '127.0.0.1', port: srv4.port, user: 'tester', password: 'test-pass' } },
+    },
+  )
+  try {
+    const binary = String((await own.ssh_exec.execute({ machine: 't', command: 'binary' }, {})).text)
+    assert.match(binary, /not valid UTF-8/, binary.slice(0, 200))
+    assert.match(binary, /lossy rendering/)
+    // Nothing may fire for text that happened to contain U+FFFD itself, or an emoji.
+    for (const command of ['echo hello', 'echo \uFFFD\uFFFD', 'echo 😀']) {
+      const text = String((await own.ssh_exec.execute({ machine: 't', command }, {})).text)
+      assert.doesNotMatch(text, /not valid UTF-8/, command + ' -> ' + text.slice(0, 80))
+    }
+  } finally {
+    await own.ssh_close.execute({ force: true }, {}).catch(() => {})
+    srv4.killClients()
+    await Promise.race([srv4.close(), new Promise((r) => setTimeout(r, 1500))])
+  }
+})
+
 test('a handshake timeout is recorded as timeout, not error', async () => {
   // pool.exec() throws for a dialling failure, and the catch in ssh_exec wrote a
   // hardcoded 'error' while outcomeOf() classified the same failure as 'timeout'

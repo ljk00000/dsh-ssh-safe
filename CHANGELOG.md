@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.189 — 2026-10-31
+
+### Fixed
+- **A command whose output was not text came back as replacement characters with nothing said.**
+  `ssh_read` already answers `[binary file: …decoded as UTF-8, so the text below is a lossy
+  rendering…]`, but `ssh_exec` handed the same situation back as ordinary output:
+  ```
+  before: ��\u0000A
+          [exit 0]
+  after : ��\u0000A
+          [note] stdout was not valid UTF-8, so some bytes became replacement characters —
+          what is shown is a lossy rendering, not the bytes themselves. If the bytes matter,
+          base64 them on the remote side (for example: base64 file) and decode here, or use
+          ssh_read, which says so for a binary file.
+          [exit 0]
+  ```
+  Detection compares the bytes received with `Buffer.byteLength()` of the decoded text, so a
+  genuine U+FFFD in the output (which round-trips to the same bytes) and emoji do not trigger
+  it. Checked: ascii, emoji, literal U+FFFD, 5000 chars of ascii → no note; the `binary`
+  helper command → note.
+
+### Verified, no change needed
+- Machine aliases are case-insensitive in the settings form too: a machine saved as `Prod` is
+  reachable as `prod`, `PROD` and `pRoD`, and `ssh_machines` reports it once, lower-cased.
+- `ssh_doctor` at every failing stage: configuration (missing host/user), credentials, TCP
+  (`ECONNREFUSED`), host key (strict + unknown, with the fingerprint and both options), and
+  authentication (bad password / unknown user). In strict mode it stops at the host key before
+  a credential is offered.
+
 ## 0.7.188 — 2026-10-31
 
 ### Fixed (documentation)
