@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.281 — 2026-11-01
+
+### Hardened — the dropped-character count now has an exact test
+`maxOutputChars` had a test that the cap is enforced, but none that the **number** in the message is
+right. It is now checked against arithmetic, using the local server’s `big N`, which prints exactly N
+characters:
+```
+big 1024   → no marker                      (exactly the cap must not truncate)
+big 1025   → 1 more character was dropped   and 1024 kept
+big 2000   → 976 more characters were dropped and 1024 kept
+```
+The singular/plural wording is asserted too, since the message is what the caller acts on.
+
+### No defect this round — and two mistakes of my own
+I thought I had found an off-by-one: `echo` of a 2000-character payload reported 987 dropped while my
+arithmetic said 986, and repeating it with 2000 CJK characters reported 987 again where I expected 986.
+Both counts were mine, and both were wrong:
+1. I subtracted from the payload length (2000) and forgot that the test server’s `echo` answer is
+   `ran: <command>` — the ‘a’ in `ran` and the trailing newline are part of the output.
+2. I then blamed the plugin for a difference that disappeared as soon as I used a command whose output
+   length is exactly known (`big N`), where the accounting is exact at every boundary.
+I also briefly suspected a second bug — a long command line eating the output budget — because the fake
+server echoes the command back. A real sshd does not, so there was nothing to fix; the suspicion came
+from the harness, not the product.
+
+### Tests
+- One new live case covering the three boundaries above.
+  Suite 865 / 860 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.280 — 2026-11-01
 
 ### Fixed — `denyPatterns: ['']` blocked every command with no explanation

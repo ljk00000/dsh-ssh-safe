@@ -3236,3 +3236,39 @@ test('every doctor run names all seven stages, however early it stops', async ()
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the dropped-character count is exact at the maxOutputChars boundary', async () => {
+  // 'big N' prints exactly N 'x', so the true length is known: the message can be
+  // checked against arithmetic instead of against a guess.
+  const own = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-capexact-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own2 = {}
+  try {
+    await apply({ tools: { register: (d) => { own2[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 8000, maxOutputChars: 1024,
+      machines: { t: machineFor('t', own.port) },
+    })
+    const run = async (n) => String((await own2.ssh_exec.execute({ machine: 't', command: 'big ' + n }, {})).text)
+    const exact = await run(1024)
+    assert.doesNotMatch(exact, /output truncated/, 'exactly the cap must not truncate')
+    assert.equal((exact.match(/(?:^|\n)x+/g) || []).join('').replace(/\n/g, '').length, 1024)
+
+    const one = await run(1025)
+    assert.match(one, /\[output truncated at maxOutputChars: 1 more character was dropped from the end/)
+
+    const many = await run(2000)
+    assert.match(many, /maxOutputChars: 976 more characters were dropped from the end/)
+    // The kept part is the beginning, and it is exactly the cap.
+    const body = many.slice(0, many.indexOf('[output truncated'))
+    assert.equal((body.match(/x/g) || []).length, 1024)
+  } finally {
+    try { await own2.ssh_close.execute({ force: true }, {}) } catch {}
+    await own.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
