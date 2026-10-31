@@ -1179,3 +1179,41 @@ test('a remote workspace holds no credential', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('ssh_credentials shows where the key passphrase comes from and flags a plaintext one', async () => {
+  // The passphrase can be DPAPI-encrypted, plaintext, unusable or absent, and the
+  // tool that lists credential sources said nothing about it.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-kpcred-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    const entry = (extra) => ({ host: 'h', user: 'u', keyPath: '~/.ssh/id_ed25519', ...extra })
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      enc: entry({ keyPassphraseDpapi: 'DPAPIBLOB:notreally' }),
+      plain: entry({ keyPassphrase: 'PLAINPW' }),
+      none: entry({}),
+    }, null, 2))
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, useCredentialFile: true, machines: {},
+    })
+    const text = String((await own.ssh_credentials.execute({}, {})).text)
+    // A plaintext passphrase is named as such, with the fix.
+    assert.match(text, /passphrase file \(plaintext — re-run scripts\/set-password\.mjs to store it encrypted\)/)
+    // A blob that cannot be used says so rather than reading as 'none'.
+    assert.match(text, /passphrase none \(UNUSABLE\)/)
+    assert.match(text, /not a DPAPI blob/)
+    // A machine without a passphrase gets no row at all.
+    const blocks = text.split('\n\n• ')
+    const noneBlock = blocks.find((block) => block.startsWith('none '))
+    assert.ok(noneBlock, 'the none machine must be in the listing')
+    assert.doesNotMatch(noneBlock, /passphrase/)
+    // Never the value itself.
+    assert.doesNotMatch(text, /PLAINPW/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

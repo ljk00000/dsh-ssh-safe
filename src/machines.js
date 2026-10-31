@@ -509,6 +509,10 @@ export function credentialState(alias, { machines = {}, dshHome = '' } = {}) {
     envPassword: filled(machineFromEnv(alias).password),
     keyPathSource: m.sources.keyPath,
     keyPath: m.keyPath,
+    // A passphrase stored in plaintext is the same mistake as a plaintext
+    // password; the listing has to be able to tell them apart.
+    keyPassphraseSource: m.sources.keyPassphrase,
+    keyPassphraseProblem: m.keyPassphraseProblem || '',
     hostKeyPolicy: m.hostKeyPolicy || '(global)',
     configured: Boolean(m.host && m.username),
     sources: m.sources,

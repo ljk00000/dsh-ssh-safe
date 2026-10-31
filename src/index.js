@@ -2036,6 +2036,28 @@ function credentialFileAge(file) {
       : '  (cannot be read)'
   }
 }
+/**
+ * The passphrase line for ssh_credentials, or an empty string.
+ *
+ * A key passphrase protects the key exactly like a password protects the account,
+ * so it gets the same honesty: which source, and a warning when it is readable.
+ *
+ * @param {{keyPassphraseSource?: string, keyPassphraseProblem?: string}} st
+ * @returns {string}
+ */
+function passphraseLine(st) {
+  const source = String(st.keyPassphraseSource || 'none')
+  const problem = String(st.keyPassphraseProblem || '')
+  if (source === 'none' && !problem) return ''
+
+  // Its own row: appending to the key line read as if the path were the passphrase.
+  let line = '\n    passphrase ' + printable(source)
+  if (problem) line += ' (UNUSABLE) — ' + printable(problem)
+  else if (source === 'file') {
+    line += ' (plaintext — re-run scripts/set-password.mjs to store it encrypted)'
+  }
+  return line
+}
   // ── ssh_credentials ──────────────────────────────────────────────────
   registerTool({
     name: 'ssh_credentials',
@@ -2124,7 +2146,8 @@ function credentialFileAge(file) {
               ? 'file (IGNORED: plaintext)' + (st.envPassword ? ' — this connection uses env' : '')
                 : where(st.passwordSource)),
           '    key        ' + where(st.keyPathSource) +
-            (st.keyPath ? '  ' + printable(String(st.keyPath).replace(/^.*[\\/]/, '…/')) : ''),
+            (st.keyPath ? '  ' + printable(String(st.keyPath).replace(/^.*[\\/]/, '…/')) : '') +
+            passphraseLine(st),
           '    host key   ' + printable(st.hostKeyPolicy) +
           (st.passwordSource === 'file-plaintext'
             ? '\n    WARNING    plaintext password in the credential file is ignored;' +

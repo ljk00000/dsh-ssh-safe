@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.270 — 2026-11-01
+
+### Fixed — `ssh_credentials` never mentioned the key passphrase
+It exists to answer "where does each secret come from", and since 0.7.269 a passphrase can be DPAPI
+encrypted, plaintext, unusable or absent. The listing said nothing about it:
+```
+• plain  u@h:22
+    password   —
+    key        file  …/id_ed25519
+    passphrase file (plaintext — re-run scripts/set-password.mjs to store it encrypted)
+
+• broken  u@h:22
+    passphrase none (UNUSABLE) — the stored key passphrase is not a DPAPI blob; re-run
+               scripts/set-password.mjs on this account
+```
+A machine with no passphrase gets no row; the value is never printed. `credentialState()` now carries
+`keyPassphraseSource` and `keyPassphraseProblem`, and the plaintext case gets the same warning a
+plaintext password gets.
+
+### Verified this round (no change needed)
+- Both fields present: `keyPassphraseDpapi` wins over `keyPassphrase`, as documented. If the blob cannot
+  be decrypted on this account the plaintext field is used instead, and when neither works
+  `keyPassphraseProblem` explains why.
+
+### My own mistakes
+- The first `ssh_credentials` patch appended the passphrase to the key row, so the line read
+  `key file …/id_ed25519    passphrase file-dpapi`; it needed a leading newline.
+- The new test sliced the listing with `text.slice(indexOf("• none")).split("•")[0]`, which is the empty
+  string, so it fell back to the whole block and failed on another machine’s line. Splitting the listing
+  on blank lines is the right way to pick one machine.
+- My first probe forgot to set `DSH_HOME`, so `ssh_credentials` — correctly — read the real profile and
+  printed the operator’s own machine list. Nothing was written; the probe was the thing at fault, and it
+  is a reminder that `resolveDshHome()` is what the tools use, not the apply-time config.
+
+### Tests
+- One new case with three machines (encrypted blob, plaintext passphrase, none): the plaintext warning,
+  the UNUSABLE row, no row for the machine without one, and the value never printed.
+  Suite 856 / 851 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.269 — 2026-11-01
 
 ### Fixed — a key passphrase was written to disk in plaintext while the password beside it was encrypted
