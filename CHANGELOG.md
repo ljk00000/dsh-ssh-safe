@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.218 — 2026-11-01
+
+### Fixed
+- **Deleting (or testing) `gpu/1` acted on the different machine `gpu1`.** `parseAlias()` was fixed
+  to refuse such names in 0.7.x — "stripping used to store the password under a different name than
+  the one ssh_exec looks up" — but `/api/delete` and `/api/test` still used `aliasOf()`, which
+  strips forbidden characters:
+  ```
+  delete { alias: 'gpu/1' }   before: removed gpu1's entry   after: 400 别名只能用…
+  test   { alias: 'gpu/1' }   before: tested gpu1            after: 400 别名只能用…
+  ```
+  Both endpoints now use the same rule as save, and the unused `aliasOf()` is gone rather than left
+  as a trap.
+
+### Verified, no change needed
+- Settings keys with capitals work in both directions: `machines: { GPU: … }` is listed as `gpu`,
+  marked `(default)` when `defaultMachine: GPU`, and `ssh_exec` accepts `GPU`, `gpu` and `GpU`
+  (also for a dotted alias `Mixed.Case`).
+
+### Tests
+- One new case: `gpu1` survives `delete gpu/1` (400, file unchanged) and `test gpu/1` is refused.
+  Suite 798 / 793 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.217 — 2026-11-01
 
 ### Fixed

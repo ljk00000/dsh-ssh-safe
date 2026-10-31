@@ -1228,3 +1228,28 @@ test('a per-machine hostKeyPolicy does not become the global one', { skip: dpapi
     await srv.close()
   }
 })
+
+test('delete and test use the same alias rule as save', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
+  // aliasOf() stripped characters, so deleting 'gpu/1' deleted the credentials of
+  // the different machine called 'gpu1' -- and testing it reported on that one.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    const saved = await call(base, token, '/api/save', { alias: 'gpu1', host: '10.0.0.1', user: 'root' })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    const file = path.join(home, 'dsh-ssh-safe', 'credentials.json')
+    assert.ok(JSON.parse(readFileSync(file, 'utf8')).gpu1)
+
+    const deleted = await call(base, token, '/api/delete', { alias: 'gpu/1' })
+    assert.equal(deleted.status, 400, JSON.stringify(deleted.body))
+    assert.match(deleted.body.error, /别名只能用/)
+    assert.ok(JSON.parse(readFileSync(file, 'utf8')).gpu1, 'the other machine must survive')
+
+    const tested = await call(base, token, '/api/test', { alias: 'gpu/1' })
+    assert.equal(tested.status, 400)
+    assert.match(tested.body.error, /别名只能用/)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

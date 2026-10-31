@@ -374,9 +374,6 @@ function idleWords(ms) {
   return (Math.round(ms / 100) / 10) + ' 秒'
 }
 
-/** The alias a request refers to, normalised the same way. */
-const aliasOf = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '')
-
 /**
  * Names that collide with Object.prototype.
  *
@@ -908,7 +905,11 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && url.pathname === '/api/delete') {
-      const alias = aliasOf(body.alias)
+      // Same rule as save: stripping "gpu/1" to "gpu1" deleted a different
+      // machine's credentials, and testing it reported on that other machine.
+      const parsedAlias = parseAlias(body.alias)
+      if (parsedAlias.error) return sendJson(res, 400, { error: parsedAlias.error })
+      const alias = parsedAlias.alias
       const problem = storeProblem()
       if (problem) {
         return sendJson(res, 409, { error: problem + '——为避免把它整个覆盖掉，本页不会写入。请先修正语法，或把文件移走再回来。' })
@@ -943,8 +944,9 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && url.pathname === '/api/test') {
-      const alias = aliasOf(body.alias)
-      if (!alias) return sendJson(res, 400, { error: '别名不能为空' })
+      const parsedAlias = parseAlias(body.alias)
+      if (parsedAlias.error) return sendJson(res, 400, { error: parsedAlias.error })
+      const alias = parsedAlias.alias
       if (RESERVED_ALIASES.has(alias)) {
         return sendJson(res, 400, { error: '别名 "' + alias + '" 与 JavaScript 内置属性冲突，请换一个名字' })
       }
