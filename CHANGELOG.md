@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.294 — 2026-11-01
+
+### Fixed — the page said "letters" while refusing every non-ASCII letter
+```
+before  别名只能用字母、数字、点、下划线、连字符（收到 "pröd"）
+        — ö IS a letter, so the reader cannot see what is wrong
+
+after   别名只能用 a-z 的英文字母、数字、点、下划线、连字符（收到 "pröd"）
+```
+The check is `[a-z0-9._-]` after lower-casing, so `ü`, `ö` and Cyrillic letters are refused by design;
+the message now says which letters. The CLI already said `a-z`, which is where the wording came from.
+
+### Verified this round (three entry points agree)
+| input | `set-password.mjs` | settings page | plugin |
+| --- | --- | --- | --- |
+| `--alias "a b"` / `pröd` | refused (exit 2) | 400 | — |
+| `--alias Prod` | stored as `prod` | stored as `prod` | resolves case-insensitively |
+| `--alias prod.1` | accepted | accepted | accepted |
+| `--port abc` / `0` / `70000` | refused | 400 | `BAD PORT` with the value shown |
+| `--host "  h.example  "` | trimmed | trimmed | trimmed on read |
+| `--user "a b"` | accepted | accepted | accepted |
+| `--password ""` | nothing stored | `{ok: true}` and nothing stored | reports no password |
+
+### Tests
+- The GUI assertion now requires `a-z 的英文字母`, so the wording cannot drift back.
+  Suite 876 / 871 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.293 — 2026-11-01
 
 ### Hardened — the "which ceiling" test now covers the larger-`maxBytes` case

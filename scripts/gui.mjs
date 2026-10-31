@@ -357,7 +357,9 @@ function parseAlias(value) {
   if (!raw) return { error: '别名不能为空' }
   const alias = raw.toLowerCase()
   if (!/^[a-z0-9._-]+$/.test(alias)) {
-    return { error: '别名只能用字母、数字、点、下划线、连字符（收到 ' + JSON.stringify(raw) + '）' }
+    // "字母" is not what is checked: ü, ö and Cyrillic letters are letters and are
+    // refused, so a reader could not see why their alias failed.
+    return { error: '别名只能用 a-z 的英文字母、数字、点、下划线、连字符（收到 ' + JSON.stringify(raw) + '）' }
   }
   return { alias }
 }

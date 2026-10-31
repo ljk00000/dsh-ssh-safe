@@ -689,7 +689,9 @@ test('an alias that cannot be used is refused, not silently rewritten', async ()
     for (const alias of ['prod/x', 'a b', '服务器']) {
       const bad = await call(base, token, '/api/save', { alias, host: 'h', user: 'u', password: 'p' })
       assert.equal(bad.status, 400, alias + ' must be refused')
-      assert.match(bad.body.error, /别名只能用字母、数字、点、下划线、连字符/)
+      // "字母" alone was wrong: ü is a letter and is refused. The message must say
+    // which letters.
+    assert.match(bad.body.error, /别名只能用 a-z 的英文字母、数字、点、下划线、连字符/)
     }
 
     // No password: this test is about the alias, and a save with one needs
