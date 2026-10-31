@@ -154,7 +154,7 @@ export function redact(text) {
   // characters, and a 200k-character single-line output took 33 seconds to
   // redact. See the timing test in test/redact-coverage.test.js.
   s = s.replace(
-    /(^|[^\w])(["']?)([A-Za-z0-9_]*?(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|KEY))\2(\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,}]+)/gi,
+    /(^|[^\w])(["']?)([A-Za-z0-9_]*?(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|KEY|MYSQL_PWD))\2(\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,}]+)/gi,
     (match, lead, quote, key, separator) => {
       // 'trustHostKey: true' is an instruction, not a secret: it ends in KEY like
       // every password field does, and replacing its value with '<redacted>'
@@ -169,11 +169,15 @@ export function redact(text) {
   // never sit between the space and the dash. That was why 'curl -u a:b' kept
   // leaking after the rule was added.
   s = s.replace(/(^|[\s"'])(-u|--user)(\s+|=)([^\s:@]+):(\S+)/g, '$1$2$3$4:<redacted>')
+  // 'openssl enc -pass pass:SECRET' names its own flag, and the glued '-p' rule
+  // below read '-pass' as one: the flag became '-p<redacted>' and 'pass:hunter2'
+  // survived. Consumed first, so the glued rule never sees it.
+  s = s.replace(/(^|\s)(-pass)(\s+)(?:pass:|file:|env:|fd:|stdin:)?(\S+)/g, '$1$2$3<redacted>')
   // 'mysql -uroot -pSECRET' / 'mysqldump -pSECRET db': the password is glued to
   // the flag, so no '=' or ':' appears and every rule above misses it. Only the
   // glued form is handled: 'ssh -p 2222 host' and '-p22' keep the flag as a
   // port, because masking a port would make the log say the wrong thing.
-  s = s.replace(/(^|\s)(-p)([^\s-]\S*)/g, (match, lead, flag, value) =>
+  s = s.replace(/(^|\s)(-p)(?!ass\b)([^\s-]\S*)/g, (match, lead, flag, value) =>
     /^\d+$/.test(value) ? match : lead + flag + '<redacted>')
   // 'sshpass -p SECRET pw ssh …': the value is a separate argument, so the glued
   // rule above missed it and the password was recorded in the audit command.

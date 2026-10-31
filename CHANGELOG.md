@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.193 — 2026-10-31
+
+### Fixed
+- **`MYSQL_PWD=secret` was not redacted.** The key rule knew PASSWORD, PASSWD, TOKEN, KEY —
+  not PWD, because masking every `PWD` would also hit the shell variable `PWD=/home/user`,
+  which is not a secret. Now the literal `MYSQL_PWD` is in the alternation:
+  `MYSQL_PWD=<redacted> mysql -u root`. `PWD=/app` still reads as itself.
+- **`openssl enc -pass pass:secret` leaked, and mangled the flag doing it.** The glued `-p`
+  rule read `-pass` as `-p` + `ass`, so the line came out as `-p<redacted> pass:hunter2`.
+  `-pass` is now consumed first (keeping the flag readable) and the glued rule skips it:
+  ```
+  before: openssl enc -aes-256 -p<redacted> pass:hunter2 -in a
+  after : openssl enc -aes-256 -pass <redacted> -in a
+  ```
+  `-pass file:/root/.pw` is masked the same way. Ports are untouched: `ssh -p 2222 host`,
+  `scp -P 2222`, `psql -p 5432 db`, `ls -la`.
+
+### Verified, no change needed
+- A survey of fourteen password shapes found no other leaks: glued `-p$(cat .pw)`,
+  `--password=$(cat .pw)`, `PGPASSWORD=`, a postgres URL with a password, a Basic auth header,
+  a git clone URL with a token, `AWS_SECRET_ACCESS_KEY=`, `sshpass -p`, `< /root/.pw`.
+- Timing after the two new rules: 600 KB single lines in 4–10 ms.
+
+### Known over-masking
+- `grep -pass x y` becomes `grep -pass <redacted> y`: the rule does not know which commands
+  own a `-pass` flag. A masked non-secret is preferable to a leaked one, and the command and
+  flag stay readable.
+
 ## 0.7.192 — 2026-10-31
 
 ### Fixed

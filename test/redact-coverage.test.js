@@ -217,6 +217,22 @@ test('a password piped into sudo is masked', () => {
   assert.equal(redact('echo hi | sudo tee f'), 'echo hi | sudo tee f')
 })
 
+
+test('MYSQL_PWD and openssl -pass are masked', () => {
+  // MYSQL_PWD is a password variable whose name ends in PWD, which the key rule
+  // did not know; and the glued -p rule read openssl's -pass as -p + 'ass',
+  // masking the flag while leaving 'pass:hunter2' in the log.
+  assert.equal(redact('MYSQL_PWD=hunter2 mysql -u root'), 'MYSQL_PWD=<redacted> mysql -u root')
+  assert.equal(redact('openssl enc -aes-256 -pass pass:hunter2 -in a'),
+    'openssl enc -aes-256 -pass <redacted> -in a')
+  assert.equal(redact('openssl enc -pass file:/root/.pw -in a'),
+    'openssl enc -pass <redacted> -in a')
+  // Ports and ordinary flags still read as they are.
+  for (const unchanged of ['ssh -p 2222 host', 'scp -P 2222 file host:', 'psql -p 5432 db', 'ls -la']) {
+    assert.equal(redact(unchanged), unchanged)
+  }
+})
+
 test('many unterminated BEGIN markers do not take quadratic time', () => {
   // The regex needed BEGIN and END: with thousands of BEGINs and no END, every
   // candidate scanned to the end of the string before failing. Measured 3.58 s on
