@@ -1348,6 +1348,17 @@ function assertKnownArgs(args, known, toolName) {
           // bare 'EEXIST: file already exists, mkdir …', which does not say which
           // machine, which tool, or what to do about it.
           const code = err && /** @type {{code?: string}} */ (err).code
+          // A directory holding someone else's files is a deliberate refusal,
+          // not an fs failure: say it in the caller's language and name them.
+          if (code === 'DSH_WORKSPACE_FOREIGN') {
+            const foreign = /** @type {{foreign?: string[]}} */ (err).foreign || []
+            throw new Error(
+              '无法创建机器 "' + alias + '" 的远程工作区：那个目录里已经有本插件没有创建的内容' +
+              (foreign.length ? '（' + foreign.slice(0, 3).join('、') + (foreign.length > 3 ? ' 等' : '') + '）' : '') +
+              '。\n  目录：' + dir + '\n' +
+              '把它们移走，或者换一个机器别名，再重试。'
+            )
+          }
           const detail = code === 'EEXIST' || code === 'ENOTDIR'
             ? '那个位置已经有一个同名文件，占位目录建不出来'
             : '目录无法创建（' + (code || (err && err.message) || '未知原因') + '）'

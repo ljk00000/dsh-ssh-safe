@@ -22,7 +22,7 @@
 // from those two files, so a local tool pointed at it finds nothing to confuse
 // with the remote tree.
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { envNames } from './credentials.js'
 
@@ -141,6 +141,26 @@ export function readMarker(dshHome, alias) {
 export function writeRemoteWorkspace(dshHome, alias, machine = {}) {
   const dir = remoteDir(dshHome, alias)
   const created = !existsSync(dir)
+  // Adopting a directory that already holds someone else's files would make it
+  // a placeholder, and 'remove deleteFiles: true' would then delete them — the
+  // marker check only recognises directories this plugin marked, and this is how
+  // a foreign directory could acquire a marker. An empty directory is fine.
+  if (!created && !existsSync(join(dir, MARKER))) {
+    const foreign = readdirSync(dir).filter((name) => name !== MARKER && name !== 'AGENTS.md')
+    if (foreign.length > 0) {
+      const err = new Error(
+        'refusing to use ' + dir + ' as a workspace: it already holds ' +
+        foreign.length + ' entr' + (foreign.length === 1 ? 'y' : 'ies') +
+        ' this plugin did not create (first: ' + foreign[0] + '). ' +
+        'Move them elsewhere, or pick a different machine alias.'
+      )
+      // @ts-expect-error -- marking the error so the tool can say it in the user's language
+      err.code = 'DSH_WORKSPACE_FOREIGN'
+      // @ts-expect-error -- same
+      err.foreign = foreign
+      throw err
+    }
+  }
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'AGENTS.md'), remoteInstructions(alias, machine), 'utf8')
   writeFileSync(join(dir, MARKER), JSON.stringify({

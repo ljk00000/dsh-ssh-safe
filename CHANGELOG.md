@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.95 — 2026-10-31
+
+### Fixed
+- **`ssh_workspace create` adopted a directory that held someone else's files.** It
+  wrote `AGENTS.md` and the marker into whatever directory the alias named, so a
+  directory with the user's files was silently turned into a placeholder — and
+  because the marker was then present, a later
+  `remove { deleteFiles: true }` deleted those files. Measured: `notes.txt`
+  survived the create because the guard now refuses:
+  ```
+  无法创建机器 "prod" 的远程工作区：那个目录里已经有本插件没有创建的内容（notes.txt）。
+    目录：…\remotes\prod
+  把它们移走，或者换一个机器别名，再重试。
+  ```
+  An empty directory is still adopted (a first run that made the folder). This was
+  the missing half of the 0.7.91 marker check: that check trusted "has no marker",
+  and create was a way to acquire one.
+
+### Verified, no change needed
+- `AGENTS.md` names only tools that exist (`ssh_exec`, `ssh_read`, `ssh_write`,
+  `ssh_list`, `ssh_machines`, `ssh_doctor`) and the env var name it prints is the
+  one the credential loader looks up.
+- Its claim that the default host-key policy is `strict` matches the schema default.
+- The workspace states render distinctly: absent, empty dir, instructions only,
+  corrupted marker, marker for another alias, marker without instructions, and a
+  file where the directory should be.
+
 ## 0.7.94 — 2026-10-31
 
 ### Fixed

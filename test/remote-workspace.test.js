@@ -293,3 +293,28 @@ test('only a placeholder this plugin created can be deleted', () => {
   removeRemoteDir(dshHome, 'temp')
   assert.equal(existsSync(dir), false)
 })
+
+test('create refuses to adopt a directory that holds foreign files', () => {
+  // writeRemoteWorkspace() only wrote AGENTS.md and the marker, so create over a
+  // directory with someone else's files silently adopted it — and once the marker
+  // was there, remove deleteFiles deleted those files.
+  const dshHome = home()
+  const dir = remoteDir(dshHome, 'busy')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(path.join(dir, 'notes.txt'), 'mine')
+  assert.throws(() => writeRemoteWorkspace(dshHome, 'busy', machine), (err) => {
+    assert.equal(err.code, 'DSH_WORKSPACE_FOREIGN')
+    assert.match(err.message, /already holds 1 entry/)
+    assert.deepEqual(err.foreign, ['notes.txt'])
+    return true
+  })
+  assert.equal(existsSync(path.join(dir, '.dsh-remote-workspace.json')), false, 'no marker was written')
+  assert.equal(readFileSync(path.join(dir, 'notes.txt'), 'utf8'), 'mine')
+
+  // An empty directory is a normal case (a first run that made the folder).
+  const empty = remoteDir(dshHome, 'fresh')
+  mkdirSync(empty, { recursive: true })
+  const made = writeRemoteWorkspace(dshHome, 'fresh', machine)
+  assert.equal(made.created, false)
+  assert.equal(existsSync(path.join(empty, 'AGENTS.md')), true)
+})
