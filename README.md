@@ -261,7 +261,7 @@ DSH_SSH_PROD_KNOWN_HOSTS=~/.ssh/known_hosts.json
 | --- | --- |
 | `ssh_machines` | 列出已配置的机器、认证方式、指纹信任状态（**不显示任何密钥**） |
 | `ssh_connect` | 建立或复用连接，返回主机指纹与远端 `uname` |
-| `ssh_exec` | 在远端执行命令，返回 stdout / stderr / 退出码（输出里的密钥样式文本默认打码，见下文「脱敏」） |
+| `ssh_exec` | 在远端执行命令，返回 stdout / stderr / 退出码（输出里的密钥样式文本默认打码，`raw: true` 关闭；见下文「脱敏」） |
 | `ssh_read` | 读远端文件（UTF-8，按字节上限截断；默认对疑似密钥打码，`raw: true` 关闭） |
 | `ssh_write` | 写远端文件（覆盖）；父目录不存在时报错，`createDirs: true` 自动创建；新建文件的权限用 `mode: "600"` 指定（写私钥、`.env` 时务必指定），回执里会报出实际权限 |
 | `ssh_list` | 列远端目录（超过 `maxListEntries` 截断并说明略过多少条） |
@@ -374,7 +374,8 @@ ssh_list { machine: "prod", path: "/var/log", offset: 2000 } → 接着的 2000 
 里的任意单词没有任何标记可依，不会被认出来；二进制或压缩内容里的密钥同样认不出。
 真正的边界是：不要把密码放进对话，也不要为了看密码而读文件。
 
-需要看原文时传 `raw: true`（只对 `ssh_read` 生效）：
+需要看原文时传 `raw: true`（`ssh_read` 与 `ssh_exec` 都支持；打码是尽力而为，
+掩码把你要读的数字或校验和也遮住时用它）：
 
 ```
 ssh_read { machine: "prod", path: "/opt/app/.env", raw: true }
@@ -601,7 +602,7 @@ Restart DeepSeek Harness — environment variables are read at process start.
 | --- | --- |
 | `ssh_machines` | Configured machines, auth kind, fingerprint trust (never shows key material) |
 | `ssh_connect` | Open/reuse a connection; reports fingerprint and remote `uname` |
-| `ssh_exec` | Run a command; returns stdout, stderr, exit code (secret-shaped text in the output is masked; see below) |
+| `ssh_exec` | Run a command; returns stdout, stderr, exit code (secret-shaped text in the output is masked unless `raw: true`; see below) |
 | `ssh_read` | Read a remote file (UTF-8, byte-capped; secret-shaped text masked unless `raw: true`) |
 | `ssh_write` | Write a remote file (overwrite); `createDirs: true` creates missing parents; `mode: "600"` sets the permissions of a new file (always do this for keys and `.env`), and the reply reports the mode that resulted |
 | `ssh_list` | List a remote directory (capped by `maxListEntries`) |

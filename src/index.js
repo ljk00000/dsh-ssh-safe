@@ -1098,6 +1098,7 @@ function assertKnownArgs(args, known, toolName) {
       timeoutMs: { type: 'integer', description: 'Override the per-command timeout. 0 = configured value.' },
       confirm: { type: 'boolean', description: 'Required when execGuard is "confirm".' },
       password: { type: 'string', description: 'Only honoured when the profile sets allowSessionPassword: true.' },
+      raw: { type: 'boolean', description: 'Return stdout and stderr verbatim, skipping secret redaction. Use when the masker hides something you need to read (a count, a checksum, a field name); the output then reaches the transcript as-is.' },
     },
     output: textOut,
     // Every call owns its own SSH channel, so two calls never share one; the
@@ -1250,7 +1251,11 @@ function assertKnownArgs(args, known, toolName) {
       for (const warning of credentialWarnings(alias, optionalText(args.password, 'password'))) {
         parts.push('[note] ' + warning)
       }
-      return { text: redact(parts.join('\n')) }  },
+      // Over-redaction had no way out here: a command printing "token=<redacted>"
+      // (a count, a checksum, a field name) could not be read at all, while
+      // ssh_read had raw: true. Same escape hatch, same rule: the caller asked.
+      const text = parts.join('\n')
+      return { text: args.raw === true ? text : redact(text) }  },
   })
 
   // ── ssh_read ──────────────────────────────────────────────────────────

@@ -2861,3 +2861,57 @@ test('a read .netrc or .pgpass is masked on the way out', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('ssh_exec masks secret-shaped output and raw: true bypasses the mask', async () => {
+  // The README promises masked exec output, and it did mask -- but there was no way
+  // out when the masker hid something the caller needed (a count, a checksum),
+  // while ssh_read already had raw: true.
+  const ssh2 = (await import('ssh2')).default
+  const hostKey = testHostKey()
+  const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
+    client.on('authentication', (ctx) => ctx.accept())
+    client.on('ready', () => {
+      client.on('session', (accept) => {
+        const session = accept()
+        session.on('exec', (acceptExec) => {
+          const stream = acceptExec()
+          stream.write('DB_PASSWORD=AAA9\n')
+          stream.write('token=AAA8\n')
+          stream.stderr.write('Authorization: Bearer AAA7\n')
+          stream.exit(0)
+          stream.end()
+        })
+      })
+    })
+  })
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  const port = server.address().port
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-execmask-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'n', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 4000,
+      machines: { n: { host: '127.0.0.1', port, user: 'tester', password: 'x' } },
+    })
+    const run = async (args) => String((await own.ssh_exec.execute({ machine: 'n', command: 'print', ...args }, {})).text)
+    const masked = await run({})
+    assert.match(masked, /DB_PASSWORD=<redacted>/)
+    assert.match(masked, /token=<redacted>/)
+    assert.match(masked, /Authorization: <redacted>/)
+    assert.doesNotMatch(masked, /AAA7|AAA8|AAA9/)
+    // The escape hatch returns the bytes as they arrived, stderr included.
+    const raw = await run({ raw: true })
+    assert.match(raw, /DB_PASSWORD=AAA9/)
+    assert.match(raw, /token=AAA8/)
+    assert.match(raw, /Authorization: Bearer AAA7/)
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    server.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

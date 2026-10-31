@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.255 — 2026-11-01
+
+### Added
+- **`ssh_exec` accepts `raw: true`.** Its output is masked (the README promises it, and it works), but
+  there was no way out when the masker hid something the caller needed:
+  ```
+  ssh_exec { command: "grep -c 'token=' app.log" }   →  token=<redacted>
+  ssh_exec { …, raw: true }                          →  token=42
+  ```
+  `ssh_read` already had `raw: true`; over-redaction had no equivalent escape hatch on the command
+  side. Masked by default, verbatim only when asked — the same rule, now on both tools. README table
+  and the masking section say so.
+
+### Verified while hunting (no change needed)
+- `ssh_exec` output really is masked: `DB_PASSWORD=`, `token=` and `Authorization: Bearer` lines all
+  came back `<redacted>` from a server that printed them; a plain line was untouched.
+- `ssh_list` caps at `maxListEntries` with `… N more entries not shown — pass offset: X to continue`;
+  measured pages of 5000 files: 2000 / 2000 / 1000 rows, the note advancing 2000 → 4000,
+  `offset: 9999` answering `(offset 9999 is past the last of 5000 entries)`, and `offset: -1`
+  refused. Sort is directories-first then byte order (deterministic, matching what the pages do).
+- Limits: a 40005-byte command is refused with the real ceiling and a `ssh_write` workaround;
+  `maxFileBytes` exact passes and one byte over is refused; a path with a NUL byte is refused.
+
+### My own mistake this round
+The first schema edit matched the `password:` line of `ssh_connect` and gave *that* tool `raw`, so
+`ssh_exec` still answered `Unknown argument(s) … "raw"`. The probe showed it immediately; the line
+was moved and both tools re-checked.
+
+### Tests
+- One new case with a server that prints secrets on both streams: masked by default, verbatim with
+  `raw: true`. Suite 842 / 837 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.254 — 2026-11-01
 
 ### Fixed — the two credential files whose secrets have no key name
