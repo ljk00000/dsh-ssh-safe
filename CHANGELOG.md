@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.7.313 — 2026-11-01
+
+### Fixed — the workspace hint told the user to run a command that refuses
+`ssh_workspace list` answered a marker-less directory with "use `action: "create"` to rebuild". For a directory
+that holds anything the plugin did not write, `create` refuses:
+```
+before  目录已存在，但不是占位目录（…）；用 action: "create" 重建
+after   目录已存在，但不是占位目录（…）；目录为空时可用 action: "create" 重建，里面有本插件没写过的内容时
+        create 会拒绝，请先清空或改用别的别名
+```
+That is exactly the directory a user tends to have, so the advice failed on first use. The other two hints
+are unchanged because they are accurate: a placeholder whose `AGENTS.md` was deleted is refreshed in place
+(with the user files kept), and a file sitting on the path has to be removed first.
+
+### Verified this round (no defect found)
+- `remove … deleteFiles: true` refuses a directory it did not create ("it is not a remote workspace
+  placeholder"), one whose marker cannot be parsed, and a regular file in that position; the user data
+  survives all three. `create` over a non-empty foreign directory refuses and names the file; over an *empty*
+  foreign directory it adopts it, which loses nothing.
+- Two plugin processes connecting to two servers for the first time, 8 rounds: both fingerprints are always
+  in `known_hosts.json` (0 lost). The merge already re-reads the store immediately before writing.
+- `ssh_audit` limit boundaries were already exact (0 answers "no records were requested", negatives refused,
+  above 200 says which cap is showing).
+- The packaged tarball resolves every relative import inside itself (20 sources + 4 scripts, 0 missing), and
+  the installed copy under the desktop profile matches the repo file for file apart from dev-only files.
+- Closing a connection during a stalled 500 kB write cancels it with "the file was opened (which truncates
+  it) but no data was sent, so it is empty now", and the connection is reusable afterwards.
+
+### My own mistakes
+1. My first foreign-directory probe called `remove` before `create` and I nearly wrote "create adopts foreign
+   directories" from the `list` output instead of testing `create` directly.
+2. The hint edit first landed with 8 spaces of indentation in a 20-space expression; corrected in the same
+   round.
+
+### Tests
+- One new live case: the hint mentions the precondition and `create` really refuses, leaving the user file.
+  Suite 900 / 895 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.312 — 2026-11-01
 
 ### Fixed — a read that asked for more than the ceiling did not say it was clamped

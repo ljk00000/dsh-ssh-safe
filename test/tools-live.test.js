@@ -3678,3 +3678,24 @@ test('a read that asked for more than the config ceiling says it was clamped', a
   const tighter = String((await tools.ssh_read.execute({ machine: 't', path: '/tmp/large.txt', maxBytes: 10 }, {})).text)
   assert.match(tighter, /raise maxBytes in this call/)
 })
+
+test('the workspace list hint names the precondition create enforces', async () => {
+  // The hint said 'use action: "create" to rebuild' for a marker-less directory,
+  // but create refuses one that holds files the plugin did not write — so the
+  // advice failed for exactly the directories a user is likely to have.
+  const foreign = path.join(home, 'dsh-ssh-safe', 'remotes', 't')
+  mkdirSync(foreign, { recursive: true })
+  writeFileSync(path.join(foreign, 'keep.txt'), 'x')
+  try {
+    const listed = String((await tools.ssh_workspace.execute({ action: 'list' }, {})).text)
+    assert.match(listed, /目录为空时可用 action: "create" 重建/)
+    assert.match(listed, /create 会拒绝/)
+    await assert.rejects(
+      () => tools.ssh_workspace.execute({ action: 'create', machine: 't' }, {}),
+      /本插件没有创建的内容/,
+    )
+    assert.ok(existsSync(path.join(foreign, 'keep.txt')), 'the user file must survive the refusal')
+  } finally {
+    rmSync(foreign, { recursive: true, force: true })
+  }
+})

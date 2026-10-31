@@ -1699,7 +1699,7 @@ function assertKnownArgs(args, known, toolName) {
                 : dirIsFile
                   ? '同名路径已存在，但它是一个文件，不是目录；删掉那个文件再用 action: "create" 重建'
                   : dirExists
-                    ? '目录已存在，但不是占位目录（.dsh-remote-workspace.json 缺失或无法解析）；用 action: "create" 重建'
+                    ? '目录已存在，但不是占位目录（.dsh-remote-workspace.json 缺失或无法解析）；目录为空时可用 action: "create" 重建，里面有本插件没写过的内容时 create 会拒绝，请先清空或改用别的别名'
                   : (() => {
                     // Saying "no workspace service" when the path is blocked sent the
                     // reader to fix a setting that was never the problem.
