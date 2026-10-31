@@ -955,6 +955,46 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, removed, warnings })
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/clear-password') {
+      // The page could store a password but never remove one: saving without a
+      // password means "leave it alone", so a stored DPAPI blob could only be
+      // revoked through the CLI or by editing the file.
+      const parsedAlias = parseAlias(body.alias)
+      if (parsedAlias.error) return sendJson(res, 400, { error: parsedAlias.error })
+      const alias = parsedAlias.alias
+      const problem = storeProblem()
+      if (problem) {
+        return sendJson(res, 409, { error: problem + '——为避免把它整个覆盖掉，本页不会写入。请先修正语法，或把文件移走再回来。' })
+      }
+      const store = readStore()
+      const entry = store[alias] && typeof store[alias] === 'object' ? store[alias] : null
+      const warnings = []
+      if (!entry || (!entry.password && !entry.passwordDpapi)) {
+        // Not an error: the row may get its password from the environment or the
+        // settings form, which this file cannot remove.
+        const envs = envAliases()
+        if (envs.includes(alias)) {
+          warnings.push('凭据文件里没有该别名的密码；它来自环境变量（DSH_SSH_' + alias.toUpperCase() + '_PASSWORD 一类），要移除请改启动环境')
+        }
+        return sendJson(res, 200, { ok: true, cleared: false, warnings: warnings.length ? warnings : ['凭据文件里没有该别名的已存密码'] })
+      }
+      delete entry.password
+      delete entry.passwordDpapi
+      let removedEntry = false
+      if (Object.keys(entry).length === 0) {
+        delete store[alias]
+        removedEntry = true
+      } else {
+        store[alias] = entry
+      }
+      writeStore(store)
+      const settings = settingsMachines()[alias]
+      if (settings && (settings.password || settings.privateKey)) {
+        warnings.push('已清除凭据文件里的密码；该别名在 DSH 设置界面里也提供了凭据，仍然可用，要移除请改设置')
+      }
+      return sendJson(res, 200, { ok: true, cleared: true, removedEntry, warnings })
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/test') {
       const parsedAlias = parseAlias(body.alias)
       if (parsedAlias.error) return sendJson(res, 400, { error: parsedAlias.error })

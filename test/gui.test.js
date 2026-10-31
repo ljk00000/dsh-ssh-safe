@@ -1280,3 +1280,62 @@ test('a non-object JSON body is refused with 400, not a 500', { skip: dpapiAvail
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the page can clear a stored password', async () => {
+  // A saved password could not be removed from the page at all: saving without one
+  // means 'leave it alone', so the blob stayed until the machine was deleted.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-clear-'))
+  const { child, base, token } = await start(home)
+  const file = path.join(home, 'dsh-ssh-safe', 'credentials.json')
+  try {
+    assert.equal((await call(base, token, '/api/save', { alias: 'g1', host: 'h1', user: 'u', password: 'pw' })).status, 200)
+    assert.equal((await call(base, token, '/api/save', { alias: 'g2', host: 'h2', password: 'pw2' })).status, 200)
+    const stored = JSON.parse(readFileSync(file, 'utf8'))
+    assert.ok(stored.g1.passwordDpapi, 'the password must be stored first')
+
+    const cleared = await call(base, token, '/api/clear-password', { alias: 'g1' })
+    assert.equal(cleared.status, 200)
+    assert.equal(cleared.body.cleared, true)
+    const after = JSON.parse(readFileSync(file, 'utf8'))
+    assert.equal(after.g1.passwordDpapi, undefined)
+    assert.equal(after.g1.host, 'h1', 'other fields stay')
+    assert.ok(after.g2.passwordDpapi, 'another machine is untouched')
+
+    // Clearing twice is not an error, but it must not claim to have cleared.
+    const again = await call(base, token, '/api/clear-password', { alias: 'g1' })
+    assert.equal(again.status, 200)
+    assert.equal(again.body.cleared, false)
+    assert.match(String(again.body.warnings.join(' ')), /没有该别名的已存密码/)
+
+    // An entry that held only the password disappears entirely.
+    await call(base, token, '/api/save', { alias: 'solo', password: 'pw3' })
+    const removed = await call(base, token, '/api/clear-password', { alias: 'solo' })
+    assert.equal(removed.body.cleared, true)
+    assert.equal(removed.body.removedEntry, true)
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).solo, undefined)
+
+    // The same alias rules as save and delete.
+    const bad = await call(base, token, '/api/clear-password', { alias: 'a/b' })
+    assert.equal(bad.status, 400)
+    assert.match(String(bad.body.error), /别名/)
+
+    // No endpoint returns the password itself.
+    const state = await call(base, token, '/api/state', {})
+    assert.doesNotMatch(JSON.stringify(state.body), /pw2/)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('the page offers a clear button only where this file holds the password', () => {
+  // Placed unconditionally it would appear on machines whose password comes from the
+  // environment or the settings form, where it can only say it has nothing to clear.
+  const html = readFileSync(path.join(here, '..', 'scripts', 'gui.html'), 'utf8')
+  assert.match(html, /data-act="clear-password"/)
+  assert.match(html, /m\.passwordSource === 'file-dpapi' \|\| m\.passwordSource === 'file-plaintext'/)
+  // The handler posts to the endpoint the server serves.
+  assert.match(html, /api\("\/api\/clear-password", \{ alias \}\)/)
+  // And asks first: the blob cannot be recovered.
+  assert.match(html, /confirm\("清除 " \+ alias/)
+})

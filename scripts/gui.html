@@ -218,6 +218,11 @@ function renderList() {
         '<div class="actions">' +
           '<button class="primary" data-act="save" data-alias="' + esc(m.alias) + '">保存</button>' +
           '<button data-act="test" data-alias="' + esc(m.alias) + '">测试连接</button>' +
+          // Only where this file actually holds a password: elsewhere the button
+          // could only explain that it has nothing to clear.
+          (m.passwordSource === 'file-dpapi' || m.passwordSource === 'file-plaintext'
+            ? '<button data-act="clear-password" data-alias="' + esc(m.alias) + '">清除已存密码</button>'
+            : '') +
           '<button class="danger" data-act="delete" data-alias="' + esc(m.alias) + '">删除</button>' +
         "</div>" +
         '<pre hidden data-out="' + esc(m.alias) + '"></pre>' +
@@ -260,6 +265,16 @@ document.getElementById("list").addEventListener("click", async (ev) => {
         password: password || undefined,
       });
       toast(password ? "已保存，密码已加密" : "已保存");
+      await refresh();
+      return;
+    }
+    if (act === "clear-password") {
+      if (!confirm("清除 " + alias + " 已存的密码？其它字段会保留，凭据文件里的密文会被删除。")) return;
+      btn.disabled = true;
+      const result = await api("/api/clear-password", { alias });
+      const warnings = (result && result.warnings) || [];
+      toast(warnings.length ? warnings[0]
+        : (result && result.removedEntry ? "已清除密码（该条目已空，一并删除）" : "已清除已存密码"));
       await refresh();
       return;
     }

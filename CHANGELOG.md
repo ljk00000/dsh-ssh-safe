@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.249 — 2026-11-01
+
+### Added
+- **The settings page can clear a stored password.** Saving without a password means "leave it
+  alone" — an empty box too — so a DPAPI blob saved from the page could only be revoked through the
+  CLI or by editing `credentials.json`. Rows whose password lives in that file now carry a
+  「清除已存密码」button, which asks first and then posts to a new `POST /api/clear-password`:
+  ```
+  { alias: "g1" }  →  { ok: true, cleared: true, removedEntry: false, warnings: [] }
+  ```
+  Other fields stay (`host`, `port`, `user`, `keyPath`), an entry that held only the password is
+  removed outright, the rest of the file is untouched, and the alias rules match save and delete.
+  Clearing something that is not there answers `cleared: false` with a warning rather than an
+  error — and says when the password comes from the environment or the settings form instead.
+
+### Docs
+- README: the page paragraph now describes the button and repeats that environment / settings
+  passwords cannot be removed from this file.
+
+### Tests
+- Two new cases: the endpoint clears one machine and leaves the other, refuses a second clear with
+  `cleared: false`, deletes a password-only entry (`removedEntry: true`), rejects `a/b` with the same
+  400 as save, and no response contains the secret; plus the markup check that the button is emitted
+  only for `file-dpapi` / `file-plaintext` rows and asks for confirmation.
+  Suite 833 / 828 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.248 — 2026-11-01
 
 ### Fixed

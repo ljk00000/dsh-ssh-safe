@@ -145,8 +145,9 @@ node scripts/set-password.mjs --alias prod \
 node scripts/set-password.mjs --alias gpu --clear-password
 ```
 
-> 页面上没有办法删掉已存的密码：保存时不带密码表示「不改动它」，清空输入框也一样。
-> 撤销一个已存的 DPAPI 密码用上面这条命令，或直接删掉整个机器的记录。
+> 页面上也可以：密码来源是 `file-dpapi` / `file-plaintext` 的机器会多一个「清除已存密码」按钮，
+> 点击后先确认，再删除该别名在凭据文件里的密文（其它字段保留；只剩密码的条目会整条删除）。
+> 来自环境变量或 DSH 设置界面的密码不在这个文件里，页面删不掉——那两条路径的密码要改启动环境或改设置。
 
 > 为什么不提供 `.ps1`：这台机器的 PowerShell 执行策略会拒绝未签名脚本。
 > Node 脚本不受该策略影响，而插件本来就依赖 Node。
