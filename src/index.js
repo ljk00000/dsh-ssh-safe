@@ -1717,18 +1717,27 @@ function assertKnownArgs(args, known, toolName) {
           'Audit logging is off. Set auditLog: true in the plugin config to record operations.\n' +
           'Records include the command summary, exit code and outcome — never output or secrets.' }
       }
+      // Records that never reached the file are invisible to the tool that reads
+      // them: a read-only home, a full disk or the log path replaced by a
+      // directory loses every record while each command still reports success.
+      const writeProblem = Number(audit.failures) > 0
+        ? 'Warning: ' + audit.failures + ' audit write' + (audit.failures === 1 ? '' : 's') +
+          ' failed since the plugin started' + (audit.lastError ? ' (' + audit.lastError + ')' : '') +
+          ', so these records are incomplete.'
+        : ''
+      const lostPrefix = writeProblem ? writeProblem + '\n\n' : ''
       const { records, problem } = audit.recentDetailed(limit)
       // "No operations recorded yet" for a log that cannot be read is the one
       // answer that makes an operator stop looking.
       if (records.length === 0) {
-        return { text: problem
+        return { text: lostPrefix + (problem
           ? 'The audit log could not be read:\n  ' + problem +
             '\nNo records can be shown until that is fixed.'
-          : 'No operations recorded yet.' }
+          : 'No operations recorded yet.') }
       }
-      const prefix = problem
+      const prefix = lostPrefix + (problem
         ? 'Warning: part of the audit log could not be read:\n  ' + problem + '\n\n'
-        : ''
+        : '')
       const rows = records.map((r) => {
         // The audit module already filters non-objects, but a renderer must not
         // be the place a bad file becomes a crash.

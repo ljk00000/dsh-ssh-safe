@@ -93,6 +93,8 @@ export class AuditLog {
     this.maxBytes = Number(options.maxBytes) || DEFAULT_MAX_BYTES
     this.file = path.join(directory, 'audit.ndjson')
     this.failures = 0
+    /** Message from the most recent failed write, for the operator to see. */
+    this.lastError = ''
   }
 
   /**
@@ -112,10 +114,12 @@ export class AuditLog {
       appendFileSync(this.file, line + '\n', { encoding: 'utf8' })
       // After the write: the file must exist before its mode can be set.
       this.#ensurePrivate()
-    } catch {
+    } catch (err) {
       // A read-only home directory, a full disk, a permission change: none of
-      // these should turn a successful command into a failure.
+      // these should turn a successful command into a failure -- but the record
+      // is gone all the same, and nothing said so. Keep the reason.
       this.failures += 1
+      this.lastError = String(err && err.message ? err.message : err)
     }
   }
 
@@ -136,6 +140,7 @@ export class AuditLog {
       // A filesystem without POSIX modes (or a permission change) must not turn
       // a successful command into a failure.
       this.failures += 1
+      this.lastError = 'could not restrict the log to its owner'
     }
   }
 

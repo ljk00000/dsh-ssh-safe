@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -1402,6 +1402,40 @@ test('the doctor does not call a regular file an SSH agent', async () => {
     else process.env.DSH_HOME = previous.home
     if (previous.sock === undefined) delete process.env.SSH_AUTH_SOCK
     else process.env.SSH_AUTH_SOCK = previous.sock
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a failed audit write is reported instead of leaving a quiet hole', async () => {
+  // failures was counted and never read: with the log path unwritable every
+  // command still reported success and the trail silently lost the records.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-audfailfit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const dir = path.join(home, 'dsh-ssh-safe')
+  mkdirSync(dir, { recursive: true })
+  // A directory where the log file goes: every append fails with EISDIR.
+  mkdirSync(path.join(dir, 'audit.ndjson'))
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, auditLog: true,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    // The command still succeeds: auditing must never break an operation.
+    const ran = await own.ssh_exec.execute({ machine: 't', command: 'echo works' }, {})
+    assert.match(String(ran.text), /exit 0/)
+    const text = String((await own.ssh_audit.execute({ limit: 5 }, {})).text)
+    assert.match(text, /Warning: 1 audit write failed since the plugin started/)
+    assert.match(text, /EISDIR/)
+    assert.match(text, /incomplete/)
+  } finally {
+    await own.ssh_close?.execute?.({}, {}).catch(() => {})
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
     rmSync(home, { recursive: true, force: true })
   }
 })

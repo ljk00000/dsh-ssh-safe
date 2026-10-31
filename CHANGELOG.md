@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.145 — 2026-10-31
+
+### Fixed
+- **Audit writes could fail silently.** `AuditLog.write` counted failures and never
+  threw (correct — a command must not fail because the log could not be written), but
+  nothing ever read that counter. With the log path replaced by a directory (or a
+  read-only home, or a full disk) every command reported success while the trail lost
+  the record:
+  ```
+  exec : ok: ran: echo works [exit 0]          (unchanged: auditing never breaks a call)
+  audit: Warning: 1 audit write failed since the plugin started
+         (EISDIR: illegal operation on a directory, write), so these records are
+         incomplete.
+         The audit log could not be read: … EISDIR …
+  ```
+  The reason for the last failure is kept (`lastError`) and shown on every path of
+  `ssh_audit`, including the "could not be read" one, so a gap is never invisible.
+
 ## 0.7.144 — 2026-10-31
 
 ### Fixed
