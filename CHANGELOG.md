@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.256 — 2026-11-01
+
+### Fixed — the settings page told the wrong story about a failed TCP probe
+```
+before  [FAIL] TCP: ECONNREFUSED
+        已停止：主机不可达，无法测试认证。
+
+after   [FAIL] TCP: ECONNREFUSED —— 端口上没有服务在监听（sshd 未运行、端口写错，或服务器只监听别的地址）
+        已停止：TCP 没有连通，无法测试认证（原因见上面的 TCP 一行）。
+```
+ECONNREFUSED means the host **answered** and nothing is listening on that port, so 主机不可达 sent the
+reader to check the wrong thing. The page now maps the four errnos the tool layer already explains —
+`ECONNREFUSED`, `ENOTFOUND`/`EAI_*`, timeouts, `ECONNRESET`/`EPIPE` — and the page has the same advice
+as `ssh_doctor` instead of less. The stop line points at the detail rather than repeating it.
+
+### Verified while hunting (no change needed)
+- `raw: true` on `ssh_exec` still records a **masked** command in the audit log and never logs the
+  output: `echo DB_PASSWORD=<redacted>` in the file, the secret payload only in the reply.
+- `/api/test` never echoes a credential: an unreachable port and a bad host name both answered with
+  the stage lines and no trace of the stored password.
+
+### Tests
+- One new case: ECONNREFUSED and ENOTFOUND produce the new hints, and 主机不可达 is gone.
+  Suite 843 / 838 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.255 — 2026-11-01
 
 ### Added

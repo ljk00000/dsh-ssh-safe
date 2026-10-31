@@ -1339,3 +1339,29 @@ test('the page offers a clear button only where this file holds the password', (
   // And asks first: the blob cannot be recovered.
   assert.match(html, /confirm\("清除 " \+ alias/)
 })
+
+test('the page names why TCP failed instead of saying the host is unreachable', async () => {
+  // ECONNREFUSED means the host answered and nothing is listening; the page said
+  // 主机不可达 and printed the bare errno, while the tool had the right advice.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-tcpmsg-'))
+  const { child, base, token } = await start(home)
+  try {
+    await call(base, token, '/api/save', { alias: 'refused', host: '127.0.0.1', port: 45999, user: 'u' })
+    const refused = await call(base, token, '/api/test', { alias: 'refused' })
+    assert.equal(refused.status, 200)
+    const text = refused.body.lines.join('\n')
+    assert.match(text, /ECONNREFUSED/)
+    assert.match(text, /端口上没有服务在监听/)
+    assert.doesNotMatch(text, /主机不可达/)
+    assert.match(text, /已停止：TCP 没有连通/)
+
+    await call(base, token, '/api/save', { alias: 'nodns', host: 'no-such-host.invalid', user: 'u' })
+    const dns = await call(base, token, '/api/test', { alias: 'nodns' })
+    const dnsText = dns.body.lines.join('\n')
+    assert.match(dnsText, /ENOTFOUND/)
+    assert.match(dnsText, /主机名解析不了/)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

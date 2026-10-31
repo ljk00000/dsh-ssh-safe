@@ -585,9 +585,22 @@ async function testConnection(alias) {
 
   const connectTimeoutMs = settingsConnectTimeoutMs()
   const tcp = await tcpProbe(m.host, m.port, connectTimeoutMs)
-  say('TCP', tcp.ok ? 'ok' : 'FAIL', tcp.detail)
+  // The errno alone sent the reader to the wrong place: ECONNREFUSED means the
+  // host answered and nothing is listening on that port, while the stop line said
+  // 主机不可达. The tool version has carried this advice for a while; the page,
+  // which is the least technical surface, had none.
+  const tcpHint = /ECONNREFUSED/.test(String(tcp.detail))
+    ? '端口上没有服务在监听（sshd 未运行、端口写错，或服务器只监听别的地址）'
+    : /ENOTFOUND|EAI_AGAIN|EAI_FAIL/.test(String(tcp.detail))
+      ? '主机名解析不了（检查拼写、DNS，或改用 IP）'
+      : /ETIMEDOUT|no answer/.test(String(tcp.detail))
+        ? '连接超时：可能被防火墙丢弃，或主机不在线'
+        : /ECONNRESET|EPIPE/.test(String(tcp.detail))
+          ? '连接被对方关闭：那个端口可能不是 sshd'
+          : ''
+  say('TCP', tcp.ok ? 'ok' : 'FAIL', tcp.detail + (tcpHint ? ' —— ' + tcpHint : ''))
   if (!tcp.ok) {
-    lines.push('', '已停止：主机不可达，无法测试认证。')
+    lines.push('', '已停止：TCP 没有连通，无法测试认证（原因见上面的 TCP 一行）。')
     return finish(false)
   }
 
