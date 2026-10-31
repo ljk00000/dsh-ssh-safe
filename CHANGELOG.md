@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.314 — 2026-11-01
+
+### Verification round — no defect found
+Six areas were probed against the real loopback server and the real page process; all behaved as documented,
+and every case below was already covered by an existing test.
+
+- **The file-on-path hint and the refusal agree.** `ssh_workspace list` says "同名路径已存在，但它是一个文件，
+  不是目录；删掉那个文件再用 action: \"create\" 重建", and `create` answers "那个位置已经有一个同名文件，占位
+  目录建不出来 … 先删除或改名那个文件，再重试" — the file is untouched in both cases.
+- **`execGuard: "confirm"` audits every refusal with the right reason**: `kind: refused`, `outcome: blocked`,
+  and either `matches deny pattern` (for a denied command, even with `confirm: true`) or
+  `execGuard is "confirm" and confirm was not passed` for exec, read and write.
+- **Binary command output is labelled**: a NUL- and 0xFF-laden stream arrives with "[note] stdout was not
+  valid UTF-8, so some bytes became replacement characters" instead of silently mangled text.
+- **`maxOutputChars` truncation is explained**: 300 kB against a 1 KiB cap answers in 21 ms with
+  "… were dropped from the end — what is shown is the beginning of the output. Raise maxOutputChars, or
+  send the output to a file and read it with ssh_read", and the connection stays usable.
+- **Repeated authentication failures leak nothing**: three wrong session passwords each fail with
+  "… this attempt offered session-password …", the client count stays at one, and the correct password
+  afterwards connects.
+- **A missing credential is a different message from a rejected one**: no password at all answers
+  "Machine \"t\" has no usable credentials. Set DSH_SSH_T_PASSWORD or DSH_SSH_T_KEY_PATH … Or pass password
+  (this profile allows it)."
+
+### My own mistakes
+1. My first listing probe filtered the output for the alias name, which dropped the hint line (it does not
+   contain the alias) and made it look as if no hint was printed at all.
+2. I expected the list hint to be missing for the file-on-path case after that — it was there; the filter was
+   mine.
+
+### Tests
+- No new test: every invariant probed this round already had one.
+  Suite 900 / 895 pass / 5 skipped / 0 fail; `tsc` clean.
+
 ## 0.7.313 — 2026-11-01
 
 ### Fixed — the workspace hint told the user to run a command that refuses
