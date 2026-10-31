@@ -299,6 +299,12 @@ export async function apply(ctx, config) {
     .filter((key) => !key.startsWith('$') && !knownKeys.includes(key))
     .map((key) => [key, knownKeys.find((known) => near(key.toLowerCase(), known.toLowerCase()))])
     .filter(([, suggestion]) => suggestion)
+  // Keys that are nothing like a real setting are left alone (the host may add
+  // metadata), but silence made a plausible guess such as 'auditRotateBytes' look
+  // applied while governing nothing. ssh_config names them instead.
+  const ignoredSettings = Object.keys(config && typeof config === 'object' ? config : {})
+    .filter((key) => !key.startsWith('$') && !knownKeys.includes(key))
+
   if (suspicious.length > 0) {
     throw new Error(
       'dsh-ssh-safe: unknown setting "' + suspicious[0][0] + '" — did you mean "' + suspicious[0][1] + '"? ' +
@@ -1912,6 +1918,10 @@ function assertKnownArgs(args, known, toolName) {
       const missing = Object.keys(cfg).filter((k) => !shown.has(k))
       if (missing.length > 0) {
         lines.push('', 'Settings not shown above (report this): ' + missing.join(', '))
+      }
+      if (ignoredSettings.length > 0) {
+        lines.push('', 'Ignored settings (not recognised, so they govern nothing): ' +
+          ignoredSettings.join(', ') + ' — check the spelling against the README')
       }
 
       if (cfg.useCredentialFile === true) {

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.134 — 2026-10-31
+
+### Added
+- **`ssh_config` names settings it does not recognise.** A misspelling close to a real
+  key is refused at load; a key that is nothing like one is left alone on purpose (the
+  host may add metadata), but it vanished without a word — so a plausible guess such as
+  `auditRotateBytes` looked applied while changing nothing:
+  ```
+  Ignored settings (not recognised, so they govern nothing): auditRotateBytes,
+  proxies — check the spelling against the README
+  ```
+  The line only appears when there is something to report.
+
+### Verified, no change needed
+- A torn line in the audit log shows as `[unreadable record] <text>` in place rather
+  than disappearing, and the records around it still read correctly.
+- Command output is passed through as bytes: CRLF, NUL and non-UTF-8 sequences arrive
+  unchanged (a NUL byte reaches the transcript, which is what a terminal-like tool
+  should do), and a signal death reports `[signal SIGKILL]`.
+
 ## 0.7.133 — 2026-10-31
 
 ### Fixed

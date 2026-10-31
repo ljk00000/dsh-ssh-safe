@@ -766,3 +766,33 @@ test('asking for more records than the cap says the view is capped', async () =>
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a setting the plugin does not recognise is named, not silently ignored', async () => {
+  // Near-misses are refused at load; a key that is nothing like a real setting is
+  // left alone (the host may add metadata), but it used to vanish without a word,
+  // so 'auditRotateBytes' looked applied while governing nothing.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-ignfit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const own = {}
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', auditRotateBytes: 500,
+      machines: { t: { host: 'h.example', user: 'u' } },
+    })
+    const text = String((await own.ssh_config.execute({}, {})).text)
+    assert.match(text, /Ignored settings \(not recognised, so they govern nothing\): auditRotateBytes/)
+    assert.match(text, /check the spelling against the README/)
+
+    const clean = {}
+    await apply({ tools: { register: (d) => { clean[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu',
+      machines: { t: { host: 'h.example', user: 'u' } },
+    })
+    assert.doesNotMatch(String((await clean.ssh_config.execute({}, {})).text), /Ignored settings/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
