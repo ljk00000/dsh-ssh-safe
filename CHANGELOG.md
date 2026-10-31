@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.263 — 2026-11-01
+
+### Fixed — a symlink chain was reported as a single hop
+```
+/d/hop1 -> /d/link-file -> /d/target.txt
+
+before  Wrote 3 bytes to /d/hop1
+        [note] that path is a symbolic link to /d/link-file; the content was written there
+after   Wrote 3 bytes to /d/hop1
+        [note] that path is a symbolic link chain ending at /d/target.txt; the content was
+               written there, not to the link itself (the first hop was /d/link-file)
+```
+`readlink` answers one hop, so the note named a path that is itself a link and claimed the bytes were
+written there. `followLinkChain()` now walks up to 12 hops (resolving relative targets against the
+link’s directory, as the server does) and the note, the audit `linkTarget` field and the tool reply all
+name the end of the chain. A single hop keeps its shorter sentence, and a dangling link — where the
+write creates the missing target — still reads `a symbolic link to /d/nothing.txt`.
+
+### Also verified (no change needed)
+- Write fidelity: trailing newline, CRLF, leading and trailing spaces, and a lone newline all round-trip
+  byte for byte; an empty file reads back as `(empty file: … 0 bytes)`, which is a note, not content.
+- Alias normalisation: `prod`, `PROD`, `" prod "` and `Prod` all reach the same machine, and
+  `ssh_workspace create PROD` makes the directory `remotes/prod`.
+- Hostile file names: `evil\n- 9 … forged.txt`, `ansi\x1b[31mred`, `rtl\u202egnp.exe` all render
+  escaped, the listing still has exactly four rows, and no raw ESC/RTL byte reaches the caller.
+- Control characters in the audit view: a command containing ESC, a bidi override and a tab renders as
+  `\x1b`, `\u202e`, `\t`.
+
+### My own mistake
+The first patch used an anchor built with CRLF because the file contains a few CRLF lines, while this
+block is LF — the patch silently failed to match (`decl anchor missing`). A second attempt with the
+right newline style, and a JSDoc return type I forgot, produced four `tsc` errors that the suite run
+caught before the release.
+
+### Tests
+- One new live case: chain note, first-hop mention, the bytes verified in the file at the end of the
+  chain, and the single-hop sentence unchanged.
+  Suite 851 / 846 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.262 — 2026-11-01
 
 ### Fixed — a file whose name ends in a space was unreachable

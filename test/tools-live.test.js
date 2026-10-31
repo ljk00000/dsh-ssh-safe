@@ -3087,3 +3087,42 @@ test('aborting one call does not disturb a sibling on the same connection', asyn
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('writing through a symlink chain names where the bytes actually landed', async () => {
+  // readlink answers one hop. '/d/hop1' -> '/d/link-file' -> '/d/target.txt' used to
+  // report 'a symbolic link to /d/link-file; the content was written there', which
+  // is a path that is itself a link: the bytes went to the end of the chain.
+  const srv2 = await startServer()
+  srv2.vfs.putDir('/d')
+  srv2.vfs.putFile('/d/target.txt', Buffer.from('original\n'))
+  srv2.vfs.putLink('/d/link-file', '/d/target.txt')
+  srv2.vfs.putLink('/d/hop1', '/d/link-file')
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-linkchain-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    const reply = String((await own.ssh_write.execute({ machine: 't', path: '/d/hop1', content: 'HOP' }, {})).text)
+    assert.match(reply, /chain ending at \/d\/target\.txt/)
+    assert.match(reply, /the first hop was \/d\/link-file/)
+    // The claim must be true: the bytes are in the file at the end of the chain.
+    const landed = String((await own.ssh_read.execute({ machine: 't', path: '/d/target.txt', raw: true }, {})).text)
+    assert.equal(landed, 'HOP')
+    // A single hop keeps its shorter sentence.
+    const single = String((await own.ssh_write.execute({ machine: 't', path: '/d/link-file', content: 'ONE' }, {})).text)
+    assert.match(single, /symbolic link to \/d\/target\.txt/)
+    assert.doesNotMatch(single, /chain ending at/)
+    assert.equal(String((await own.ssh_read.execute({ machine: 't', path: '/d/target.txt', raw: true }, {})).text), 'ONE')
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1500))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

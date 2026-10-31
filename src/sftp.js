@@ -14,6 +14,7 @@
 // twice. ssh2 can fail without emitting either 'error' or 'close', so the
 // deadline is the only reliable backstop.
 
+import { posix } from 'node:path'
 import { printable } from './format.js'
 import { Utf8Collector } from './buffer.js'
 import { normalizeRemotePath } from './remote-path.js'
@@ -572,6 +573,37 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, 
   })
 }
 
+/** How far a symlink chain is followed before it is treated as a loop. */
+const LINK_CHAIN_HOPS = 12
+
+/**
+ * Resolve a symlink chain to the path the bytes actually reach.
+ *
+ * readlink answers one hop. A relative target ("../x") is resolved against the
+ * directory of the link, the way the server resolves it.
+ *
+ * @param {any} sftp session
+ * @param {string} link the path that resolved to `first`
+ * @param {string} first the immediate target
+ * @returns {Promise<string|undefined>} the final target, or undefined when `first` is it
+ */
+async function followLinkChain(sftp, link, first) {
+  if (typeof sftp.lstat !== 'function' || typeof sftp.readlink !== 'function') return undefined
+  let current = first
+  let base = link
+  for (let hop = 0; hop < LINK_CHAIN_HOPS; hop += 1) {
+    const absolute = current.startsWith('/') ? current : posix.join(posix.dirname(base), current)
+    const resolved = posix.normalize(absolute)
+    let attrs = null
+    try { attrs = await callSftp(sftp, 'lstat', resolved) } catch { return undefined }
+    if (!attrs || typeof attrs.isSymbolicLink !== 'function' || !attrs.isSymbolicLink()) {
+      return resolved === first ? undefined : resolved
+    }
+    base = resolved
+    try { current = String(await callSftp(sftp, 'readlink', resolved)) } catch { return undefined }
+  }
+  return undefined
+}
 /**
  * Write UTF-8 text to a remote file.
  *
@@ -582,7 +614,7 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, 
  * @param {string} remotePath
  * @param {string|Buffer} content
  * @param {{timeoutMs: number, createDirs?: boolean, signal?: AbortSignal, mode?: number}} options
- * @returns {Promise<{bytes: number, path: string, linkTarget?: string, mode?: number, modeRequested?: number}>}
+ * @returns {Promise<{bytes: number, path: string, linkTarget?: string, linkFinalTarget?: string, mode?: number, modeRequested?: number}>}
  *   `linkTarget` is set when the path was a symlink (where the bytes went);
  *   `mode` is the permission bits the file ended up with
  */
@@ -676,6 +708,7 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
       // result used to say only the path it was given, so the caller never
       // learned where the content actually landed.
       let linkTarget
+      let linkFinalTarget
       let mode
       try {
         if (typeof sftp.lstat === 'function') {
@@ -683,6 +716,11 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
           if (attrs && typeof attrs.isSymbolicLink === 'function' && attrs.isSymbolicLink() &&
             typeof sftp.readlink === 'function') {
             linkTarget = String(await callSftp(sftp, 'readlink', target))
+            // The bytes travel the whole chain, but readlink names only the first
+            // hop: writing to /d/hop1 (→ /d/link-file → /d/target.txt) reported
+            // "the content was written there" about a path that is itself a link.
+            // Follow the chain and record where it ends.
+            linkFinalTarget = await followLinkChain(sftp, target, linkTarget)
             // A link's own mode is 0777 on a real server and says nothing about the
             // file the bytes landed in: stat() the target when there is a link.
             try {
@@ -705,7 +743,7 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
       // with an executable script that is not executable.
       // (the local 'mode' above shadows the parameter, so the requested value
       // is the one captured before the write started)
-      settle({ bytes: payload.length, path: target, linkTarget, mode, modeRequested: requestedMode })
+      settle({ bytes: payload.length, path: target, linkTarget, linkFinalTarget, mode, modeRequested: requestedMode })
     }
     stream.on('error', (e) => {
       if (explain) return

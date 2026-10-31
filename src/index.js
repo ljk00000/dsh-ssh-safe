@@ -1446,15 +1446,21 @@ function assertKnownArgs(args, known, toolName) {
         // The link target is where the bytes actually went; an operator reading
         // the log after 'why did /etc change?' needs it. The mode says who can
         // read the file afterwards.
-        ...(r.linkTarget ? { linkTarget: r.linkTarget } : {}),
+        ...(r.linkTarget ? { linkTarget: r.linkFinalTarget || r.linkTarget } : {}),
         ...(typeof r.mode === 'number' ? { mode: r.mode.toString(8).padStart(4, '0') } : {}),
         ms: Date.now() - startedAt,
       })
       // A symlink means the bytes are somewhere the path did not name. Say where;
       // the audit line records the real target too.
+      // A chain (a → b → c) means the bytes went to c, so naming the first hop
+      // and saying 'the content was written there' described a path that is
+      // itself a link. linkFinalTarget carries the end of the chain.
+      const landedAt = r.linkFinalTarget || r.linkTarget
       const viaLink = r.linkTarget
-        ? '\n[note] that path is a symbolic link to ' + r.linkTarget +
-          '; the content was written there, not to the link itself'
+        ? '\n[note] that path is a symbolic link' +
+          (r.linkFinalTarget ? ' chain ending at ' + printable(landedAt) : ' to ' + printable(landedAt)) +
+          '; the content was written there, not to the link itself' +
+          (r.linkFinalTarget ? ' (the first hop was ' + printable(r.linkTarget) + ')' : '')
         : ''
       // The mode the file ended up with decides who can read what was just
       // written; the server applies its umask, so it is not always the one asked
