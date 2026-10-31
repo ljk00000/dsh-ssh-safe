@@ -99,7 +99,7 @@ const args = parseArgs(process.argv.slice(2))
 // written and then never found -- and the user was told it had been stored.
 // Keep this in step with every option the body reads (grep for "args[" / "args.").
 const KNOWN_OPTIONS = ['alias', 'host', 'port', 'user', 'key-path', 'key-passphrase', 'password',
-  'plaintext', 'dsh-home', 'help']
+  'plaintext', 'clear-password', 'dsh-home', 'help']
 for (const key of Object.keys(args)) {
   if (!KNOWN_OPTIONS.includes(key)) {
     console.error('Unknown option --' + key + '. Accepted: ' + KNOWN_OPTIONS.map((o) => '--' + o).join(', '))
@@ -200,6 +200,42 @@ if (typeof args['key-passphrase'] === 'string') {
   entry.keyPassphrase = args['key-passphrase']
 } else if (args['key-passphrase'] === true) {
   entry.keyPassphrase = await readSecret('Key passphrase for "' + alias + '" (input hidden): ')
+}
+
+// Removing a stored password had no path at all: the page ignores an empty
+// password (saving without one means "leave it alone"), and this script had no
+// flag for it. The only way to revoke a DPAPI blob was to delete the machine or
+// edit credentials.json by hand.
+if (args['clear-password'] === true) {
+  const had = Boolean(entry.password || entry.passwordDpapi)
+  delete entry.password
+  delete entry.passwordDpapi
+  if (!had) {
+    console.error('No stored password for "' + alias + '" — nothing to clear.')
+    console.error('Other fields in that entry were left untouched.')
+    process.exit(2)
+  }
+  // An entry that held only the password is now empty: leaving "alias": {}
+  // behind would show up as a machine with no host.
+  if (Object.keys(entry).length === 0) delete store[alias]
+  else store[alias] = entry
+  try {
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(file, JSON.stringify(store, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
+  } catch (err) {
+    const code = err && err.code
+    if ((code === 'EEXIST' || code === 'ENOTDIR') && existsSync(dir) && statSync(dir).isFile()) {
+      console.error('Cannot write ' + file + ': ' + dir + ' is a file, not a directory.')
+      console.error('Remove or rename that file, then run this again. Nothing was written.')
+    } else {
+      console.error('Cannot write ' + file + ' (' + (code || 'unknown error') + '). Nothing was written.')
+    }
+    process.exit(2)
+  }
+  console.log('Cleared the stored password for "' + alias + '".')
+  console.log('Set DSH_SSH_' + alias.toUpperCase() + '_PASSWORD, or store a key with --key-path, to' +
+    ' authenticate this machine again.')
+  process.exit(0)
 }
 
 let secret = typeof args.password === 'string' ? args.password : undefined

@@ -139,6 +139,15 @@ node scripts/set-password.mjs --alias prod \
   --key-path ~/.ssh/id_ed25519 --key-passphrase
 ```
 
+不需要那个密码时，把它删掉（其余字段保留）：
+
+```bash
+node scripts/set-password.mjs --alias gpu --clear-password
+```
+
+> 页面上没有办法删掉已存的密码：保存时不带密码表示「不改动它」，清空输入框也一样。
+> 撤销一个已存的 DPAPI 密码用上面这条命令，或直接删掉整个机器的记录。
+
 > 为什么不提供 `.ps1`：这台机器的 PowerShell 执行策略会拒绝未签名脚本。
 > Node 脚本不受该策略影响，而插件本来就依赖 Node。
 ### 密码怎么存：磁盘上没有明文

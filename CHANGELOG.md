@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.247 — 2026-11-01
+
+### Added
+- **`set-password --clear-password` removes a stored password.** There was no way to revoke one:
+  the page treats a missing or empty password as "leave it alone", and the CLI had no flag, so the
+  only options were deleting the whole machine entry or editing `credentials.json` by hand — in a
+  plugin whose point is keeping secrets off disk and revocable.
+  ```
+  node scripts/set-password.mjs --alias gpu --clear-password
+  Cleared the stored password for "gpu".
+  Set DSH_SSH_GPU_PASSWORD, or store a key with --key-path, to authenticate this machine again.
+  ```
+  Other fields (`host`, `port`, `user`, `keyPath`) stay. An entry that held only the password is
+  removed rather than left as `"gpu": {}`, which would have listed a machine with no host. Clearing
+  twice is a refusal with exit 2 (`No stored password for "gpu" — nothing to clear`), not a silent
+  success. The write path uses the same blocked-directory guard as the normal save.
+
+### Docs
+- README gains the command and says plainly that the settings page cannot remove a stored password.
+
+### Tests
+- One new case: two machines stored, one cleared (blob gone, host kept, other machine untouched),
+  a second clear exits 2 with the sentence. Suite 829 / 824 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.246 — 2026-11-01
 
 ### Fixed

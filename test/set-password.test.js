@@ -213,3 +213,37 @@ test('a blocked credential directory is reported, not a stack trace', { skip: !d
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('--clear-password removes a stored password and keeps the rest', { skip: !dpapiAvailable() && 'DPAPI unavailable' }, () => {
+  // There was no way to revoke a stored DPAPI password: the page ignores an empty
+  // password (omitting one means 'leave it alone') and the CLI had no flag, so the
+  // only options were deleting the machine or editing credentials.json by hand.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-clear-'))
+  const file = path.join(home, 'dsh-ssh-safe', 'credentials.json')
+  try {
+    assert.equal(runSetPassword(home, ['--alias', 'c1', '--host', 'h1', '--password', 'pw']).status, 0)
+    assert.equal(runSetPassword(home, ['--alias', 'c2', '--password', 'pw2']).status, 0)
+    const before = JSON.parse(readFileSync(file, 'utf8'))
+    assert.ok(before.c1.passwordDpapi, 'the password must be stored first')
+
+    const cleared = runSetPassword(home, ['--alias', 'c1', '--clear-password'])
+    assert.equal(cleared.status, 0, cleared.stderr)
+    assert.match(String(cleared.stdout), /Cleared the stored password for "c1"/)
+    const after = JSON.parse(readFileSync(file, 'utf8'))
+    assert.equal(after.c1.passwordDpapi, undefined, 'the blob must be gone')
+    assert.equal(after.c1.password, undefined)
+    assert.equal(after.c1.host, 'h1', 'other fields stay')
+    assert.ok(after.c2.passwordDpapi, 'another machine is untouched')
+
+    // Clearing again is a refusal, not a silent success.
+    const again = runSetPassword(home, ['--alias', 'c1', '--clear-password'])
+    assert.equal(again.status, 2)
+    assert.match(String(again.stderr), /No stored password for "c1"/)
+
+    // An entry that held only the password disappears instead of becoming {}.
+    const final = JSON.parse(readFileSync(file, 'utf8'))
+    assert.equal(final.c2.passwordDpapi === undefined, false)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
