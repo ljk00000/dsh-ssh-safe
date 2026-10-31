@@ -468,6 +468,22 @@ test('a plaintext settings password is shown as ignored, with what wins instead'
 
 
 
+
+test('the inventory shows a local key path exactly as configured', async () => {
+  // m.keyPath is a LOCAL file. printable() escapes for remote text and doubled
+  // every backslash, so the listing showed a path nobody had configured.
+  const keyPath = path.join(tmpdir(), 'keys', 'id_ed25519')
+  const { tools, restore } = capture({
+    defaultMachine: 'k', hostKeyPolicy: 'tofu',
+    machines: { k: { host: 'h.example', user: 'u', keyPath } },
+  })
+  try {
+    const shown = textOf(await tools.ssh_machines.execute({}))
+    assert.ok(shown.includes(keyPath), 'shows the configured path: ' + shown.slice(0, 300))
+    assert.ok(!shown.includes(keyPath.replace(/\\/g, '\\\\')), 'no doubled backslashes')
+  } finally { restore() }
+})
+
 test('an OpenSSH knownHosts file is described, not called unreadable', async () => {
   // ssh_machines parsed the override as this plugin's JSON store and answered
   // 'known-hosts store unreadable (parse error)' for a file the connection path

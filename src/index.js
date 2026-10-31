@@ -938,7 +938,10 @@ function assertKnownArgs(args, known, toolName) {
           : m.keyPath
             ? (lean
                 ? 'private key (' + m.sources.keyPath + ', path hidden)'
-                : 'key ' + printable(m.keyPath) + ' (' + m.sources.keyPath + ')')
+                // m.keyPath is a LOCAL file: printable() escapes for remote text and
+                // doubled every backslash, so the listing showed C:\\Users\\... instead
+                // of the path that was configured.
+                : 'key ' + m.keyPath + ' (' + m.sources.keyPath + ')')
             : blobProblem
               ? 'NONE (' + blobProblem + ')'
               : plaintextIgnored

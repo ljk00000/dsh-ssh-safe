@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.206 — 2026-10-31
+
+### Fixed
+- **`ssh_machines` printed the local private-key path with doubled backslashes.** `keyPath` names
+  a file on this machine, but the line ran it through `printable()`, which escapes text coming
+  from the remote side:
+  ```
+  configured: C:\Users\Administrator\.ssh\id_ed25519
+  before    : auth: key C:\\Users\\Administrator\\.ssh\\id_ed25519 (config)
+  after     : auth: key C:\Users\Administrator\.ssh\id_ed25519 (config)
+  ```
+  Found by auditing every `printable()` call site after the same mistake twice in a row; the other
+  sites take remote text (filenames, commands, audit fields) or values that cannot contain a
+  backslash (host, alias), and `ssh_credentials` already reduced the path to `…/id_ed25519`.
+
+### Verified, no change needed
+- A `keyPath`-only machine still authenticates as `key (config)` and never prints key material.
+
 ## 0.7.205 — 2026-10-31
 
 ### Fixed
