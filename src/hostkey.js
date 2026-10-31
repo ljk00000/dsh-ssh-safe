@@ -281,11 +281,15 @@ function storeState(file) {
  * @param {string} file already printable
  * @param {string} host
  * @param {number} port
+ * @param {boolean} [hideHost] machineInventory: alias hides host and port
  * @returns {string}
  */
-export function openSshTrustLine(text, file, host, port) {
+export function openSshTrustLine(text, file, host, port, hideHost = false) {
   const parsed = parseOpenSshKnownHosts(text)
-  const id = hostLabel(host, port)
+  // hostLabel() is the host and port, which machineInventory: alias exists to keep
+  // out of the conversation: the panel said '<host hidden>' and the trust line
+  // printed '10.9.9.9:2222' two rows below it.
+  const id = hideHost ? 'this host' : hostLabel(host, port)
   const revoked = parsed.revoked.filter((entry) => entryCoversHost(entry.hostField, host, port))
   if (revoked.length > 0) {
     return 'trust: REFUSED — ' + id + ' is marked @revoked in ' + file

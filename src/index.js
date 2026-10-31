@@ -847,10 +847,12 @@ function assertKnownArgs(args, known, toolName) {
       return trimmed !== '' && !trimmed.startsWith('#')
     })
     if (looksLikeOpenSshKnownHosts(text) || (m.knownHosts && !hasContent)) {
+      // lean lives in the tool body, not here: trustedLine is defined beside it.
+      const lean = cfg.machineInventory === 'alias'
       // The path is local config, not remote text: printable() here doubled every
       // backslash in a Windows path ('C:\\Users\\...'), which reads as a different
       // path. The rest of the plugin prints these raw for the same reason.
-      return openSshTrustLine(text, file, m.host, m.port || 22)
+      return openSshTrustLine(text, file, m.host, m.port || 22, lean)
     }
     let raw
     try {

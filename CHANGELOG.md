@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.208 — 2026-10-31
+
+### Fixed
+- **`machineInventory: alias` leaked the host in the new trust line.** The panel said
+  `<host hidden>` and the line added in 0.7.204 printed the address two rows below it:
+  ```
+  • k  <host hidden>
+      trust: OpenSSH known_hosts … — it has an entry for 10.9.9.9:2222 …   ← before
+      trust: OpenSSH known_hosts … — it has an entry for this host …      ← after
+  ```
+  `openSshTrustLine()` now takes the lean flag; `ssh_machines` and `ssh_doctor` already
+  honoured the setting, this line was the exception. A test asserts both modes: lean shows no
+  address, full still shows `10.9.9.9:2222`.
+
+### My mistakes
+- First attempt passed `lean` from the tool body into a helper defined in an outer scope; the probe
+  answered `ERR: lean is not defined` instead of a wrong line, which is how it was caught in one
+  round rather than shipped.
+- The new test called `ssh_machines.execute({})` without awaiting it, so the assertion compared
+  against an empty string. Rewritten with `capture()` and `await`.
+
 ## 0.7.207 — 2026-10-31
 
 ### Fixed

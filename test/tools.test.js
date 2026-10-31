@@ -469,6 +469,28 @@ test('a plaintext settings password is shown as ignored, with what wins instead'
 
 
 
+
+test('machineInventory: alias hides the host in the trust line too', async () => {
+  // The panel said '<host hidden>' and the trust line printed '10.9.9.9:2222'
+  // two rows below it.
+  const khDir = mkdtempSync(path.join(tmpdir(), 'dsh-leantrust-'))
+  const file = path.join(khDir, 'kh')
+  writeFileSync(file, '[10.9.9.9]:2222 ssh-rsa AAAAB3NzaC1yc2E=\n', 'utf8')
+  const machine = { host: '10.9.9.9', port: 2222, user: 'u', knownHosts: file }
+  try {
+    const lean = capture({ defaultMachine: 'k', hostKeyPolicy: 'strict', machineInventory: 'alias', machines: { k: machine } })
+    try {
+      const shown = textOf(await lean.tools.ssh_machines.execute({}))
+      assert.match(shown, /it has an entry for this host/)
+      assert.doesNotMatch(shown, /10\.9\.9\.9/)
+    } finally { lean.restore() }
+    const full = capture({ defaultMachine: 'k', hostKeyPolicy: 'strict', machineInventory: 'full', machines: { k: machine } })
+    try {
+      assert.match(textOf(await full.tools.ssh_machines.execute({})), /it has an entry for 10\.9\.9\.9:2222/)
+    } finally { full.restore() }
+  } finally { rmSync(khDir, { recursive: true, force: true }) }
+})
+
 test('the inventory shows a local key path exactly as configured', async () => {
   // m.keyPath is a LOCAL file. printable() escapes for remote text and doubled
   // every backslash, so the listing showed a path nobody had configured.
