@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.96 — 2026-10-31
+
+### Fixed — two ways a secret reached the transcript
+- **A URL whose user part is empty kept its password.** The rule required
+  something before the colon, so a normal Redis URL passed through untouched:
+  `redis://:hunter2@cache:6379` → `redis://:hunter2@cache:6379`
+  It is masked now: `redis://:<redacted>@cache:6379`. URLs with a user
+  (`mysql://root:hunter2@db/app`) behave as before.
+- **A passphrase written as prose was not recognised.** The rules only accepted
+  `key=value`, so `the key passphrase is hunter2` came back verbatim. It now reads
+  `the key passphrase is <redacted>`. A sentence that names no secret
+  (`the passphrase is required`) is over-redacted rather than leaked — that is the
+  right way to be wrong.
+
+### Verified, no change needed
+- `createDirs` failure paths name the exact component: a file in the way, a
+  read-only parent directory, and the no-createDirs variant all say which path
+  failed and why. A failed write leaves nothing behind.
+- `maxBytes` boundaries: 10 for a 10-byte file is not truncated, 9 is, `0` means
+  no limit, and the header only appears when content was actually cut.
+- A bare secret with no keyword (`echo hunter2 | nc host 25`) is still not
+  detected, on purpose: guessing would shred ordinary output.
+
 ## 0.7.95 — 2026-10-31
 
 ### Fixed

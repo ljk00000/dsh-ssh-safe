@@ -152,7 +152,13 @@ export function redact(text) {
   // Credentials inside a URL: scheme://user:password@host.
   // Anchored and bounded for the same reason as the key rule: an unbounded
   // [a-z0-9+.-]* scheme run was retried from every position of a long line.
-  s = s.replace(/(^|[^\w])([a-z][a-z0-9+.-]{0,31}:\/\/)([^\s:@/]+):([^\s@/]+)@/gi, '$1$2$3:<redacted>@')
+  // The user part may be EMPTY: 'redis://:hunter2@cache:6379' is a normal
+  // Redis URL and it carried the password through this rule untouched.
+  s = s.replace(/(^|[^\w])([a-z][a-z0-9+.-]{0,31}:\/\/)([^\s:@/]*):([^\s@/]+)@/gi, '$1$2$3:<redacted>@')
+  // Prose, as in a note or a shell comment: 'the key passphrase is hunter2'.
+  // A sentence that ends in a non-secret ('the passphrase is required') is
+  // over-redacted rather than leaked; that is the right way to be wrong.
+  s = s.replace(/\b(passphrase|passwd|password|pwd)\s+(?:is|was)\s+(\S+)/gi, '$1 is <redacted>')
   // bare long secrets are left alone on purpose: guessing wrong shreds output.
   return s
 }

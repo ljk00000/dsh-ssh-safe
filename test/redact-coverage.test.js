@@ -116,3 +116,18 @@ test('a password glued to -p is redacted and a port is not', () => {
     assert.equal(redact(line), line)
   }
 })
+
+test('a URL with no user part still has its password masked', () => {
+  // 'redis://:hunter2@cache:6379' is a normal shape and the rule required a
+  // non-empty user, so the password went through untouched.
+  assert.equal(redact('redis://:hunter2@cache:6379'), 'redis://:<redacted>@cache:6379')
+  assert.equal(redact('mysql://root:hunter2@db:3306/app'), 'mysql://root:<redacted>@db:3306/app')
+})
+
+test('a passphrase written as prose is masked too', () => {
+  assert.equal(redact('the key passphrase is hunter2'), 'the key passphrase is <redacted>')
+  assert.equal(redact('PASSWORD was hunter2'), 'PASSWORD is <redacted>')
+  // Over-redaction is the accepted direction: a sentence that names no secret
+  // loses a word rather than a password leaking.
+  assert.equal(redact('the passphrase is required'), 'the passphrase is <redacted>')
+})
