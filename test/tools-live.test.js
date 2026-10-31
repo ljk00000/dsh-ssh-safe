@@ -3007,3 +3007,83 @@ test('no listing tool ever prints a password, a key body or file content', async
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('nine mixed calls in flight at once all land, and the audit stays parseable', async () => {
+  // The pool shares one connection per alias and each call owns a channel; a
+  // regression there shows up as a dropped call or a torn audit line, and neither
+  // is covered by the sequential tests.
+  const srv2 = await startServer()
+  srv2.vfs.putFile('/c.txt', Buffer.from('concurrent-file\n'))
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-conc-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 5000, auditLog: true,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    const run = (name, args) => own[name].execute(args, {}).then((r) => String(r.text), (e) => 'ERR: ' + e.message)
+    const calls = []
+    for (let i = 0; i < 3; i += 1) {
+      calls.push(run('ssh_exec', { machine: 't', command: 'echo run' + i }))
+      calls.push(run('ssh_read', { machine: 't', path: '/c.txt' }))
+      calls.push(run('ssh_write', { machine: 't', path: '/w' + i + '.txt', content: 'body' + i }))
+    }
+    const results = await Promise.all(calls)
+    const errors = results.filter((text) => text.startsWith('ERR:'))
+    assert.deepEqual(errors, [], 'every concurrent call must succeed')
+    assert.equal(results.filter((text) => text.includes('concurrent-file')).length, 3)
+    assert.equal(results.filter((text) => /^Wrote \d+ bytes/.test(text)).length, 3)
+    assert.equal(results.filter((text) => /\[exit 0\]/.test(text)).length, 3)
+    // The log is NDJSON: one record per line, every line parseable. A torn write
+    // would make the whole history unreadable for the operator.
+    const raw = readFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'), 'utf8').split('\n').filter(Boolean)
+    assert.equal(raw.length, 9)
+    for (const line of raw) JSON.parse(line)
+    const kinds = raw.map((line) => JSON.parse(line).kind).sort()
+    assert.deepEqual(kinds, ['exec', 'exec', 'exec', 'read', 'read', 'read', 'write', 'write', 'write'])
+    // One connection carried all nine: the pool is shared, not per call.
+    assert.equal(srv2.clientCount(), 1)
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1500))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('aborting one call does not disturb a sibling on the same connection', async () => {
+  // Cancellation tears down one channel. If it reached the connection instead, the
+  // sibling would fail or the pool would be left broken.
+  const srv2 = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-cancelsib-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 8000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    const controller = new AbortController()
+    const doomed = own.ssh_exec.execute({ machine: 't', command: 'sleep 5' }, { signal: controller.signal })
+      .then((r) => String(r.text), (e) => 'ERR: ' + e.message)
+    setTimeout(() => controller.abort(), 250)
+    const sibling = String((await own.ssh_exec.execute({ machine: 't', command: 'echo sibling' }, {})).text)
+    assert.match(sibling, /sibling/)
+    const cancelled = await doomed
+    assert.match(cancelled, /\[cancelled at the caller request/)
+    const after = String((await own.ssh_exec.execute({ machine: 't', command: 'echo after' }, {})).text)
+    assert.match(after, /after/, 'the connection survives one cancellation')
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1500))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

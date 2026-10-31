@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.261 — 2026-11-01
+
+### Added — two guards for the shared connection
+Nothing tested what happens when several calls are in flight on one alias.
+- **Nine mixed calls at once** (3 × `ssh_exec`, 3 × `ssh_read`, 3 × `ssh_write`) must all succeed, the
+  pool must report **one** connection (`srv2.clientCount() === 1`), and `audit.ndjson` must hold nine
+  lines that every one parses — a torn line would make the whole history unreadable.
+- **Cancelling one call must not disturb a sibling**: a `sleep 5` is aborted at 250 ms while
+  `echo sibling` runs beside it; the sibling finishes, the cancelled call answers
+  `[cancelled at the caller request…]`, and the next call still works.
+
+### Verified this round (no change needed)
+- Concurrency: 9 parallel mixed calls, 0 errors, 9 parseable audit lines, kinds `{exec:3, read:3, write:3}`.
+- Async cancellation resolves for `ssh_exec` (partial output is worth keeping) and rejects for `ssh_read`
+  (a half-read file is not a result) — both were already deliberate, and a mid-stream abort under a
+  stalled read answered `reading /stalled.txt was cancelled` in 259 ms with the connection still usable.
+- Audit rotation with `maxBytes: 400`: 40 records produced `audit.ndjson` plus `.1`–`.4`, 25 records
+  kept, no duplicates, in order, oldest dropped — the cap is approximate by one record, by design.
+- `ssh_close` on a busy connection: refuses with "a command is still running on it… pass force: true";
+  with `force` the running call settles as `[connection closed before the command reported an exit
+  status — the output above is partial]` instead of hanging, and the next call reconnects.
+
+### My own mistakes
+- A probe failed to parse because I split one `console.log` across two array elements; the retry then
+  hit "file changed since it was read" from the failed first write, so I wrote a new file.
+
+### Tests
+- Suite 849 / 844 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.260 — 2026-11-01
 
 ### Added
