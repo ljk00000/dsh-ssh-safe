@@ -1764,7 +1764,17 @@ function assertKnownArgs(args, known, toolName) {
       try {
         await pool.connect(alias, { force: true })
         const e = pool.entry(alias)
-        say('host key', 'ok', e.fingerprint || 'verified')
+        // "ok" plus a fingerprint read as "this key is verified". With
+        // hostKeyPolicy 'off' it never was, and on a tofu-first contact the
+        // recording is the part worth mentioning.
+        if (e.hostKeyVerified === false) {
+          say('host key', 'warn',
+            'NOT verified: hostKeyPolicy is "off", so any key would be accepted' +
+            (e.fingerprint ? ' (presented ' + e.fingerprint + ')' : ''))
+        } else {
+          say('host key', 'ok',
+            (e.fingerprint || 'verified') + (e.hostKeyFirstSeen ? ' (first contact: recorded now)' : ''))
+        }
         const probe = await pool.exec(alias, 'echo doctor-ok', { timeoutMs: 8000 })
         const replied = String(probe.stdout || '').includes('doctor-ok')
         doctorRecord(replied ? 'ok' : 'error', replied ? '' : 'the session opened but produced no stdout')

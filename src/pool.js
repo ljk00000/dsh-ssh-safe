@@ -319,6 +319,9 @@ function explainGone(err, alias) {
  * @property {number} nextAttemptAt epoch ms before which retries are refused
  * @property {number} lastUsedAt  epoch ms of the last use, for LRU ordering
  * @property {string|null} [fingerprint] host key fingerprint, null when unknown
+ * @property {string} [hostKeyPolicy] effective policy for this connection
+ * @property {boolean} [hostKeyVerified] false when the policy was 'off'
+ * @property {boolean} [hostKeyFirstSeen] true when this run recorded the key
  * @property {string|undefined} [credentialIdentity] digest of the credential used
  */
 
@@ -796,6 +799,11 @@ export class SshPool {
           return false
         }
         e.fingerprint = verdict.fp
+        // Whether this run is what recorded the key. ssh_doctor says so: "ok"
+        // alone let "hostKeyPolicy: off" read like a verified host.
+        e.hostKeyPolicy = effectivePolicy(this.config.hostKeyPolicy, m.hostKeyPolicy)
+        e.hostKeyFirstSeen = verdict.firstSeen === true
+        e.hostKeyVerified = e.hostKeyPolicy !== 'off'
         return true
       }
       client.connect(connectConfig)

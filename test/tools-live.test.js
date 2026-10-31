@@ -676,3 +676,33 @@ test('the binary heuristic keeps ordinary text out of it', () => {
   assert.equal(looksBinary('one \uFFFD stray').binary, false, 'a single stray byte is not a binary file')
   assert.equal(looksBinary('\uFFFDPNG\u0000\u0000').binary, true)
 })
+
+test('the doctor does not call an unverified host key ok', async () => {
+  // With hostKeyPolicy: off the key is never checked, yet the report said
+  // '[ok] host key: SHA256:...', which reads as verified.
+  const off = {}
+  await apply({ tools: { register: (d) => { off[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    defaultMachine: 't', hostKeyPolicy: 'off', allowPlaintextPassword: true,
+    connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+    machines: { t: { host: '127.0.0.1', port: srv.port, user: 'tester', password: 'test-pass' } },
+  })
+  const text = String((await off.ssh_doctor.execute({ machine: 't' }, {})).text)
+  assert.match(text, /\[warn\] host key: NOT verified: hostKeyPolicy is "off"/)
+  assert.doesNotMatch(text, /\[ok\] host key/)
+  await off.ssh_close.execute({ machine: 't', force: true }, {})
+})
+
+test('the doctor says when its own run recorded the key', async () => {
+  const tofu = {}
+  await apply({ tools: { register: (d) => { tofu[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+    connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+    machines: { t: { host: '127.0.0.1', port: srv.port, user: 'tester', password: 'test-pass' } },
+  })
+  const first = String((await tofu.ssh_doctor.execute({ machine: 't' }, {})).text)
+  assert.match(first, /\[ok\] host key: SHA256:[^ ]+ \(first contact: recorded now\)/)
+  await tofu.ssh_close.execute({ machine: 't', force: true }, {})
+  const second = String((await tofu.ssh_doctor.execute({ machine: 't' }, {})).text)
+  assert.doesNotMatch(second, /first contact/)
+  await tofu.ssh_close.execute({ machine: 't', force: true }, {})
+})

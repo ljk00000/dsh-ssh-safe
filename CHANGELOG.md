@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.93 — 2026-10-31
+
+### Fixed
+- **`ssh_doctor` called an unverified host key `[ok]`.** With `hostKeyPolicy: off`
+  the key is never checked — nothing is recorded, any key would be accepted — yet
+  the report read:
+  `[ok] host key: SHA256:Okc5chWH…`
+  which is exactly the false assurance this plugin is supposed to avoid. It now
+  says
+  `[warn] host key: NOT verified: hostKeyPolicy is "off", so any key would be
+  accepted (presented SHA256:…)`
+- **A first contact under `tofu` looked like a match.** The key is recorded by that
+  very run, which is worth saying: `[ok] host key: SHA256:… (first contact:
+  recorded now)`. Later runs print the fingerprint alone.
+
+### Verified, no change needed
+- Ten concurrent commands on two aliases produced ten well-formed audit records,
+  one per command, with the right machine on each.
+- After `ssh_close`, the next call reconnects cleanly (the server sees a new
+  client).
+- A failed connect starts a cooldown: the next attempts refuse in 0 ms and quote
+  the last failure. `force: true` re-dials, `ssh_doctor` ignores the cooldown and
+  reports the real TCP failure.
+
 ## 0.7.92 — 2026-10-31
 
 ### Fixed
