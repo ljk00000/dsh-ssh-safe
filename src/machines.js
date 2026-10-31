@@ -398,6 +398,10 @@ export function credentialState(alias, { machines = {}, dshHome = '' } = {}) {
     port: m.port,
     username: m.username,
     passwordSource: m.sources.password,
+    // What a stored-but-unusable password means: the settings form's plaintext
+    // password is listed as the source and then ignored, so the report has to be
+    // able to say what the connection would actually use instead.
+    envPassword: filled(machineFromEnv(alias).password),
     keyPathSource: m.sources.keyPath,
     keyPath: m.keyPath,
     hostKeyPolicy: m.hostKeyPolicy || '(global)',

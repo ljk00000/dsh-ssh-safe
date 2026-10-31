@@ -424,13 +424,44 @@ test('ssh_credentials lists every source in the order actually used', async () =
     const text = String((await tools['ssh_credentials'].execute({}, {})).text)
     const line = text.split('\n').filter((l) => l.includes('precedence')).join(' ') +
       ' ' + (text.split('\n')[text.split('\n').findIndex((l) => l.includes('precedence')) + 1] || '')
-    for (const part of ['settings password', 'encrypted file', 'plaintext file', 'environment', 'key file', 'session password', 'SSH agent']) {
+    // With the default allowPlaintextPassword: false the first two sources are
+    // refused, so the line must not put a settings password ahead of the file --
+    // every machine below it carried a WARNING that said exactly the opposite.
+    assert.doesNotMatch(line, /settings password > encrypted file/)
+    for (const part of ['encrypted file', 'environment', 'key file', 'session password', 'SSH agent']) {
       assert.ok(line.includes(part), 'the precedence line omits ' + part + ': ' + line)
     }
-    assert.match(text, /a usable password always outranks a key/)
+    assert.match(text, /plaintext passwords — settings form and credential file —/)
+    assert.match(text, /are refused while allowPlaintextPassword is off/)
     assert.doesNotMatch(text, /\n\n  encryption/, 'no blank line inside the header')
   } finally { restore() }
 })
+test('allowPlaintextPassword on restores the full precedence and the source lines', async () => {
+  const { tools, restore } = capture({ allowPlaintextPassword: true, machines: { box: { host: 'h', user: 'u', password: 'pw' } } })
+  try {
+    const text = String((await tools['ssh_credentials'].execute({}, {})).text)
+    const head = text.split('\n').slice(0, 10).join('\n')
+    assert.match(head, /settings password > encrypted file > plaintext file > environment/)
+    assert.match(head, /a usable password always outranks a key/)
+    assert.match(text, /password   config/)
+    assert.doesNotMatch(text, /IGNORED/)
+  } finally { restore() }
+  delete process.env.DSH_SSH_BOX_PASSWORD
+})
+
+test('a plaintext settings password is shown as ignored, with what wins instead', async () => {
+  // The line said 'config' and only the next one admitted it was never used.
+  process.env.DSH_SSH_BOX_PASSWORD = 'env-secret'
+  const { tools, restore } = capture({ machines: { box: { host: 'h', user: 'u', password: 'cfg-secret' } } })
+  try {
+    const text = String((await tools['ssh_credentials'].execute({}, {})).text)
+    assert.match(text, /password   config \(IGNORED: plaintext\) — this connection uses env/)
+  } finally {
+    restore()
+    delete process.env.DSH_SSH_BOX_PASSWORD
+  }
+})
+
 test('the defaults in the README table match the defaults in the code', async () => {
   // A default that drifts silently makes the documentation a trap: someone tunes
   // maxFileBytes to 2 MB because the README said 1 MB, and it was already 1 MB.

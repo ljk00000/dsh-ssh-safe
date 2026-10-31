@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.101 — 2026-10-31
+
+### Fixed
+- **`ssh_credentials` printed the wrong precedence for the default settings.** The
+  header said
+  `settings password > encrypted file > plaintext file > environment > …`
+  while every machine below it carried a warning that the settings-form password is
+  plaintext and ignored. With `allowPlaintextPassword: false` (the default) the two
+  plaintext sources are skipped entirely, so the header now matches the code:
+  ```
+  precedence      encrypted file (DPAPI) > environment > key file
+                  > session password > SSH agent
+                  (plaintext passwords — settings form and credential file —
+                  are refused while allowPlaintextPassword is off)
+  ```
+  Turning `allowPlaintextPassword` on restores the full six-source order, which is
+  what that setting actually changes.
+- **A source that is ignored was still reported as the source.**
+  `password   config` now reads
+  `password   config (IGNORED: plaintext) — this connection uses env`
+  when an environment password is what the connection will really use. Reporting
+  `config` and leaving the admission to the next line made the tool contradict
+  itself in two consecutive lines.
+
 ## 0.7.100 — 2026-10-31
 
 ### Fixed

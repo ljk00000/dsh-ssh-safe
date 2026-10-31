@@ -1543,9 +1543,18 @@ function assertKnownArgs(args, known, toolName) {
         // Matches credentialFor(): any usable password outranks a key, and a key
         // outranks the agent. Listing only three of the six sources sent users
         // looking in the wrong place, and hid the fact that a password beats a key.
-        '  precedence      settings password > encrypted file > plaintext file > environment',
-        '                  > key file > session password > SSH agent',
-        '                  (a usable password always outranks a key)',
+        // Only true while plaintext is accepted. With the default
+        // allowPlaintextPassword: false, steps 1 and 3 are skipped — the header
+        // said "settings password" came first while every machine below it
+        // carried a WARNING that the settings password is ignored.
+        cfg.allowPlaintextPassword === true
+          ? '  precedence      settings password > encrypted file > plaintext file > environment'
+            + '\n                  > key file > session password > SSH agent'
+            + '\n                  (a usable password always outranks a key)'
+          : '  precedence      encrypted file (DPAPI) > environment > key file'
+            + '\n                  > session password > SSH agent'
+            + '\n                  (plaintext passwords — settings form and credential file —'
+            + '\n                  are refused while allowPlaintextPassword is off)',
         '  encryption      ' + (cfg.allowPlaintextPassword === true
           ? 'plaintext ACCEPTED (allowPlaintextPassword is on)'
           : 'plaintext refused; passwords stored DPAPI encrypted'),
@@ -1579,7 +1588,14 @@ function assertKnownArgs(args, known, toolName) {
             : (st.configured
               ? (st.username || '?') + '@' + (st.host || '?') + ':' + st.port
               : 'INCOMPLETE (needs host and user)')),
-          '    password   ' + where(st.passwordSource),
+          // A source that is present but ignored must not be reported as the
+          // source: the line said 'config' and only the next line admitted it was
+          // never used.
+          '    password   ' + (st.passwordSource === 'config' && cfg.allowPlaintextPassword !== true
+            ? 'config (IGNORED: plaintext)' + (st.envPassword ? ' — this connection uses env' : '')
+            : st.passwordSource === 'file-plaintext' && cfg.allowPlaintextPassword !== true
+              ? 'file (IGNORED: plaintext)' + (st.envPassword ? ' — this connection uses env' : '')
+              : where(st.passwordSource)),
           '    key        ' + where(st.keyPathSource) +
             (st.keyPath ? '  ' + String(st.keyPath).replace(/^.*[\\/]/, '…/') : ''),
           '    host key   ' + st.hostKeyPolicy +
