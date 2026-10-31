@@ -23,7 +23,15 @@ function printable(name) {
     .replace(/\n/g, '\\n')
     .replace(/\r/g, '\\r')
     .replace(/\t/g, '\\t')
-    .replace(/[\u0000-\u001f\u007f]/g, (c) => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+    // C0, DEL, the C1 range (NEL, U+0085, breaks a row in some renderers), the
+    // Unicode line/paragraph separators, and the bidi overrides — '‮txt.exe'
+    // displays as 'exe.txt', which is a filename that lies about itself.
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, (c) => {
+      const code = c.charCodeAt(0)
+      return code <= 0xff
+        ? '\\x' + code.toString(16).padStart(2, '0')
+        : '\\u' + code.toString(16).padStart(4, '0')
+    })
 }
 
 /**

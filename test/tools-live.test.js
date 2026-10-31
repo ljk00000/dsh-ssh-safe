@@ -336,6 +336,29 @@ test('filenames that could forge a listing row are escaped', async () => {
   assert.match(text, /bell\\x07\.txt/)
   assert.doesNotMatch(text, /\u0007/, 'no raw control character may reach the caller')
 })
+
+test('line separators and bidi overrides in a name are escaped too', async () => {
+  // C0 alone was escaped. A C1 control, a Unicode line separator or a
+  // right-to-left override still reached the caller: '\u202Etxt.exe' renders as
+  // 'exe.txt' and '\u2028' breaks the row the escaping exists to protect.
+  srv.vfs.putDir('/odd2')
+  srv.vfs.putFile('/odd2/nel\u0085break.txt', 'x')
+  srv.vfs.putFile('/odd2/line\u2028sep.txt', 'x')
+  srv.vfs.putFile('/odd2/para\u2029sep.txt', 'x')
+  srv.vfs.putFile('/odd2/rtl\u202etxt.exe', 'x')
+  srv.vfs.putFile('/odd2/iso\u2066late.txt', 'x')
+  const text = await run('ssh_list', { path: '/odd2' })
+  const rows = text.split('\n').filter((line) => /^[d-] /.test(line))
+  assert.equal(rows.length, 5, 'no separator may forge a row: ' + JSON.stringify(text))
+  assert.match(text, /nel\\x85break\.txt/)
+  assert.match(text, /line\\u2028sep\.txt/)
+  assert.match(text, /para\\u2029sep\.txt/)
+  assert.match(text, /rtl\\u202etxt\.exe/)
+  assert.match(text, /iso\\u2066late\.txt/)
+  for (const raw of ['\u0085', '\u2028', '\u2029', '\u202e', '\u2066']) {
+    assert.ok(!text.includes(raw), 'raw U+' + raw.charCodeAt(0).toString(16) + ' reached the caller')
+  }
+})
 test('ssh_doctor does not sever a command that started while it was running', async () => {
   // The doctor connects, probes, and closes what it opened. If a command
   // started in the meantime, force-closing took that command's channel with it

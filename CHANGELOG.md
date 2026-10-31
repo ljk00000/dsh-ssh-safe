@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.99 — 2026-10-31
+
+### Fixed
+- **A filename could still break or disguise a listing row.** Only C0 controls and
+  DEL were escaped, so these reached the caller raw:
+  ```
+  U+0085 NEL      → row break in some renderers
+  U+2028 / U+2029 → line and paragraph separators: the same row-forging bug
+  U+202E RTL      → "\u202Etxt.exe" displays as "exe.txt", a name that lies
+  U+2066/2069     → bidi isolates, same family
+  ```
+  All of them are escaped now (`\x85`, `\u2028`, `\u202e`, …), so a directory with
+  5 hostile names still renders 5 rows.
+
+### Verified, no change needed
+- A 120-character name is passed through whole (no truncation that would hide the
+  real extension).
+- ESC (`\x1b`) was already escaped, so a name cannot inject terminal colour into
+  the transcript.
+
 ## 0.7.98 — 2026-10-31
 
 ### Added
