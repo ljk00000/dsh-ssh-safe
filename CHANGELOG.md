@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.121 — 2026-10-31
+
+### Fixed
+- **`ssh_audit` clamped a large `limit` without saying so.** Asking for 500 records
+  and asking for exactly 200 produced the same answer, so a capped view looked like
+  a complete one:
+  ```
+  Showing the newest 200 records: limit 500 is above what this tool displays.
+  Read audit.ndjson directly for more.
+  ```
+  `limit: 200` and below are unchanged, and `limit: 0`, negative and fractional
+  values were already refused with their own messages.
+
+### Verified, no change needed
+- Rotation keeps the newest generations and reads them in order: 60 records with a
+  600-byte cap left 5 files, 30 records retained, oldest `cmd-30`, newest `cmd-59`,
+  strictly increasing, and `recent(3)` returned `cmd-57 → cmd-58 → cmd-59`.
+  Records beyond the 4-generation cap are gone by design; the count lost (30) is
+  exactly what the cap implies.
+
 ## 0.7.120 — 2026-10-31
 
 ### Fixed

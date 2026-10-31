@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 // ssh2 -- and assert on the shape of their output.
 
 import { apply, keyModeWarning } from '../src/index.js'
+import { AuditLog } from '../src/audit.js'
 
 function capture(config = {}, env = {}) {
   const saved = { ...process.env }
@@ -737,4 +738,31 @@ test('ssh_machines does not present an ignored password as the auth source', asy
     const text = String((await allowed.tools['ssh_machines'].execute({}, {})).text)
     assert.match(text, /auth: password \(config\)/)
   } finally { allowed.restore() }
+})
+
+test('asking for more records than the cap says the view is capped', async () => {
+  // 500 records and 200 records produced the same answer.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-capfit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const log = new AuditLog(path.join(home, 'dsh-ssh-safe'))
+    for (let i = 0; i < 250; i++) {
+      log.write({ kind: 'exec', machine: 'm', command: 'c' + i, outcome: 'ok', exitCode: 0 })
+    }
+    const own = {}
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'm', hostKeyPolicy: 'tofu', auditLog: true, machines: { m: { host: 'h', user: 'u' } },
+    })
+    const capped = String((await own.ssh_audit.execute({ limit: 500 }, {})).text)
+    assert.match(capped, /Showing the newest 200 records/)
+    assert.equal(capped.split('\n').filter((line) => / exec /.test(line)).length, 200)
+
+    const exact = String((await own.ssh_audit.execute({ limit: 200 }, {})).text)
+    assert.doesNotMatch(exact, /Showing the newest 200 records/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
 })

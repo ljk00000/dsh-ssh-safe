@@ -1638,6 +1638,12 @@ function assertKnownArgs(args, known, toolName) {
         throw new Error('limit must be 0 or more (received ' + requested + ')')
       }
       const limit = Math.min(Math.floor(requested), 200)
+      // Asking for more than the cap used to look exactly like a log that holds
+      // the cap: 500 records and 200 records gave the same answer.
+      const capNote = requested > 200
+        ? 'Showing the newest 200 records: limit ' + Math.floor(requested) +
+          ' is above what this tool displays. Read audit.ndjson directly for more.\n\n'
+        : ''
       if (limit === 0) {
         return { text:
           'limit is 0: no records were requested. Pass a positive limit, or omit it to see the ' +
@@ -1698,7 +1704,7 @@ function assertKnownArgs(args, known, toolName) {
         if (r.error) detail.push('error: ' + r.error)
         return detail.length > 0 ? head + '\n    ' + detail.join('  ') : head
       })
-      return { text: prefix + rows.join('\n') }
+      return { text: capNote + prefix + rows.join('\n') }
     },
   })
 
