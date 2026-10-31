@@ -240,6 +240,18 @@ function parseAlias(value) {
   return { alias }
 }
 
+/**
+ * How long the page stays open, in words.
+ *
+ * Math.round(idleMs / 60000) printed '0 分钟' for anything under thirty seconds,
+ * so --idle-ms 1500 said the page would exit after '0 minutes' and then did.
+ */
+function idleWords(ms) {
+  const minutes = Math.round(ms / 60000)
+  if (minutes >= 1) return minutes + ' 分钟'
+  return (Math.round(ms / 100) / 10) + ' 秒'
+}
+
 /** The alias a request refers to, normalised the same way. */
 const aliasOf = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '')
 
@@ -619,7 +631,7 @@ function touch() {
   clearTimeout(idleTimer)
   idleTimer = setTimeout(() => {
     console.log('')
-    console.log('闲置 ' + Math.round(idleMs / 60000) + ' 分钟，已退出。')
+    console.log('闲置 ' + idleWords(idleMs) + '，已退出。')
     process.exit(0)
   }, idleMs)
   idleTimer.unref()
@@ -667,7 +679,7 @@ const server = createServer(async (req, res) => {
       }
       const html = readFileSync(path.join(here, 'gui.html'), 'utf8')
         .replace('__TOKEN__', token)
-        .replace(/__IDLE__/g, String(Math.round(idleMs / 60000)))
+        .replace(/__IDLE__/g, idleWords(idleMs))
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
       return res.end(html)
     }
@@ -819,7 +831,7 @@ server.listen(port, '127.0.0.1', () => {
   console.log('')
   console.log('  凭据文件: ' + credFile)
   console.log('  DPAPI 加密: ' + (dpapiAvailable() ? '可用' : '不可用（请改用环境变量）'))
-  console.log('  关闭页面即退出；闲置 ' + Math.round(idleMs / 60000) + ' 分钟也会退出。')
+  console.log('  关闭页面即退出；闲置 ' + idleWords(idleMs) + '也会退出。')
   console.log('')
   if (!args['no-open']) {
     const opener = process.platform === 'win32'

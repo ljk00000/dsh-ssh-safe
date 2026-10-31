@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.200 — 2026-10-31
+
+### Fixed
+- **`--idle-ms` under a minute was reported as "0 分钟".** The banner and the exit line used
+  `Math.round(idleMs / 60000)`, so `--idle-ms 1500` promised "闲置 0 分钟也会退出" and then
+  exited — a number that reads as "immediately" or "never":
+  ```
+  before: 关闭页面即退出；闲置 0 分钟也会退出。      闲置 0 分钟，已退出。
+  after : 关闭页面即退出；闲置 1.5 秒也会退出。      闲置 1.5 秒，已退出。
+  ```
+  One `idleWords()` now feeds the console, the page sentence and the exit line; a minute or
+  more still reads in minutes (30 s → "1 分钟", 10 min → "10 分钟").
+
+### Verified, no change needed
+- Two `/api/shutdown` calls at once both answer 200 and the process exits 0; further requests
+  fail with a closed connection, not a hang.
+- A save racing a shutdown: the save answers 200, the file is written and parses, the process
+  exits 0. No torn credential file.
+- An idle exit with a request in flight lets that request finish (200) before exiting 0.
+
+### My mistake
+- The first patch called `fs.writeFileSync(t = t, 'utf8')` — content passed as the path. It
+  failed with ENOENT (so nothing was damaged), but the error message dumped the whole file into
+  the transcript. The second attempt wrote `(p, t)` and checked `node --check`.
+- That same patch also produced "闲置 10 分钟 分钟" at the first attempt: `idleWords()` returns the
+  unit, and the call sites were still appending " 分钟". Caught by reading the replaced lines
+  before running.
+
 ## 0.7.199 — 2026-10-31
 
 ### Fixed
