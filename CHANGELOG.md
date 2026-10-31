@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.138 — 2026-10-31
+
+### Fixed
+- **Three more reports printed config-supplied text raw.** The machine inventory was
+  fixed last round; `ssh_credentials`, `ssh_doctor` and `ssh_audit` still passed hosts,
+  users and commands straight through, so an escape sequence or a bidi override in a
+  config file (or in a command the operator is reviewing) repainted the output:
+  ```
+  before: • hostile  u<ESC>v@h<ESC>[31mevil<RLO>x.example:22
+          [ok] configuration: u<ESC>v@h<ESC>[31mevil<RLO>x.example:22
+          2026-10-31 07:39:18 t exec ok exit=0 echo hi<ESC>[31mred
+  after : • hostile  u\x1bv@h\x1b[31mevil\u202ex.example:22
+          [ok] configuration: u\x1bv@h\x1b[31mevil\u202ex.example:22
+          2026-10-31 07:39:18 t exec ok exit=0 echo hi\x1b[31mred
+  ```
+  The audit trail escapes the machine, command/path, error text, link target and
+  unreadable lines; the endpoint formatter used by `ssh_doctor` and the connect reply
+  escapes user, host and port. Refusal messages already carried no command text.
+
 ## 0.7.137 — 2026-10-31
 
 ### Fixed

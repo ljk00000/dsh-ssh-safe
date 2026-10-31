@@ -695,7 +695,9 @@ function assertKnownArgs(args, known, toolName) {
   const endpointOf = (m) => cfg.machineInventory === 'alias'
     ? '<host hidden>'
     // Same IPv6 convention as the pool: user@[::1]:22, never user@::1:22.
-    : (m.username || '?') + '@' + formatHost(m.host || '?') + ':' + (m.port || 22)
+    // Escaped, because the alias, host and user come from a config file: a raw
+    // escape sequence here repaints the line the user is reading.
+    : printable(m.username || '?') + '@' + printable(formatHost(m.host || '?')) + ':' + printable(m.port || 22)
 
   const machineFor = (args) => {
     const alias = normalizeAlias(args?.machine || cfg.defaultMachine || '')
@@ -1731,17 +1733,19 @@ function assertKnownArgs(args, known, toolName) {
         // The audit module already filters non-objects, but a renderer must not
         // be the place a bad file becomes a crash.
         if (!r || typeof r !== 'object' || r.malformed) {
-          return '[unreadable record] ' + String(r && r.line ? r.line : '')
+          return '[unreadable record] ' + printable(r && r.line ? r.line : '')
         }
-        const when = String(r.at || '').replace('T', ' ').slice(0, 19)
-        const machine = r.machine ? ' ' + r.machine : ''
-        const parts = [when, machine.trim(), r.kind || '?', r.outcome || '']
+        const when = printable(String(r.at || '').replace('T', ' ').slice(0, 19))
+        // A command or path in the log is remote text: an escape sequence there
+        // repainted the terminal of whoever was reading the audit trail.
+        const machine = r.machine ? ' ' + printable(r.machine) : ''
+        const parts = [when, machine.trim(), printable(r.kind || '?'), printable(r.outcome || '')]
         if (r.exitCode !== null && r.exitCode !== undefined) parts.push('exit=' + r.exitCode)
         // A signal death has no exit status: without this the row said only
         // "exit=" with nothing after it.
         if (r.signal) parts.push('signal=' + r.signal)
         // Show the subject: a command for exec, a path for transfers.
-        const subject = r.command || r.path || r.pattern || ''
+        const subject = printable(r.command || r.path || r.pattern || '')
         if (subject) parts.push(subject)
         const head = parts.filter(Boolean).join(' ')
 
@@ -1751,7 +1755,7 @@ function assertKnownArgs(args, known, toolName) {
         if (r.bytes !== undefined) detail.push(r.bytes + 'B')
         // Where a write actually landed, and who can read it afterwards.
         if (r.mode) detail.push('mode ' + String(r.mode))
-        if (r.linkTarget) detail.push('via link ' + String(r.linkTarget))
+        if (r.linkTarget) detail.push('via link ' + printable(r.linkTarget))
         if (r.entries !== undefined) detail.push(r.entries + (r.entries === 1 ? ' entry' : ' entries'))
         if (r.truncated) detail.push('truncated')
         if (r.redacted === true) detail.push('redacted')
@@ -1761,7 +1765,7 @@ function assertKnownArgs(args, known, toolName) {
         // what tells an operator whether the refusal was right.
         if (r.pattern) detail.push('rule: ' + describeRule(String(r.pattern)))
         if (r.direction) detail.push(String(r.direction))
-        if (r.error) detail.push('error: ' + r.error)
+        if (r.error) detail.push('error: ' + printable(r.error))
         return detail.length > 0 ? head + '\n    ' + detail.join('  ') : head
       })
       return { text: capNote + prefix + rows.join('\n') }
@@ -1837,10 +1841,11 @@ function assertKnownArgs(args, known, toolName) {
         const lean = cfg.machineInventory === 'alias'
         head.push(
           '',
-          '• ' + alias + '  ' + (lean
+          // Escaped like the inventory: these values come from a config file.
+          '• ' + printable(alias) + '  ' + (lean
             ? (st.configured ? '<host hidden>' : 'INCOMPLETE (needs host and user)')
             : (st.configured
-              ? (st.username || '?') + '@' + (st.host || '?') + ':' + st.port
+              ? printable(st.username || '?') + '@' + printable(st.host || '?') + ':' + printable(st.port)
               : 'INCOMPLETE (needs host and user)')),
           // A source that is present but ignored must not be reported as the
           // source: the line said 'config' and only the next line admitted it was
@@ -1851,8 +1856,8 @@ function assertKnownArgs(args, known, toolName) {
               ? 'file (IGNORED: plaintext)' + (st.envPassword ? ' — this connection uses env' : '')
               : where(st.passwordSource)),
           '    key        ' + where(st.keyPathSource) +
-            (st.keyPath ? '  ' + String(st.keyPath).replace(/^.*[\\/]/, '…/') : ''),
-          '    host key   ' + st.hostKeyPolicy +
+            (st.keyPath ? '  ' + printable(String(st.keyPath).replace(/^.*[\\/]/, '…/')) : ''),
+          '    host key   ' + printable(st.hostKeyPolicy) +
           (st.passwordSource === 'file-plaintext'
             ? '\n    WARNING    plaintext password in the credential file is ignored;' +
               ' re-run scripts/set-password.mjs to store it encrypted'

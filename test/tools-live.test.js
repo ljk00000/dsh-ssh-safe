@@ -1226,3 +1226,46 @@ test('the truncation advice names the ceiling that actually applied', async () =
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('credentials, doctor and the audit trail escape what the config supplies', async () => {
+  // The inventory was fixed first; these three still printed a host, user or
+  // command verbatim, so an escape sequence or bidi override in a config file
+  // repainted whatever the operator was reading.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-esc3-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const srv2 = await startServer()
+  const own = {}
+  const ESC = '\u001b'
+  const RLO = '\u202e'
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, auditLog: true,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: {
+        t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' },
+        hostile: { host: 'h' + ESC + '[31mevil' + RLO + 'x.example', port: 22, user: 'u' + ESC + 'v' },
+      },
+    })
+
+    const creds = String((await own.ssh_credentials.execute({}, {})).text)
+    assert.ok(creds.includes('h\\x1b[31mevil\\u202ex.example'), creds.slice(0, 200))
+    assert.doesNotMatch(creds, /\u001b/)
+    assert.doesNotMatch(creds, /\u202e/)
+
+    const doc = String((await own.ssh_doctor.execute({ machine: 'hostile' }, {})).text)
+    assert.match(doc, /\[ok\] configuration: u\\x1bv@h\\x1b\[31mevil\\u202ex\.example:22/)
+    assert.doesNotMatch(doc, /\u001b/)
+
+    await own.ssh_exec.execute({ machine: 't', command: 'echo hi' + ESC + '[31mred' }, {})
+    const audit = String((await own.ssh_audit.execute({ limit: 5 }, {})).text)
+    assert.ok(audit.includes('echo hi\\x1b[31mred'), audit.slice(0, 200))
+    assert.doesNotMatch(audit, /\u001b/)
+  } finally {
+    await own.ssh_close.execute({}, {}).catch(() => {})
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
