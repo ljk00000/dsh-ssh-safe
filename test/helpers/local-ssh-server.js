@@ -40,6 +40,17 @@ function hostKeyOnce() {
  * cached key per process a "replacement" server presents the same key and the
  * test proves nothing (it then fails, which is how this was noticed).
  */
+/**
+ * A host key for a test that builds its own ssh2.Server.
+ *
+ * Returns the cached RSA key: generating ed25519 per test reintroduced the
+ * 'Malformed OpenSSH private key' flake documented above, in five tests written
+ * after that note.
+ */
+export function testHostKey() {
+  return hostKeyOnce()
+}
+
 export function alternateHostKey() {
   if (!cachedAltKey) cachedAltKey = utils.generateKeyPairSync('rsa', { bits: 2048 }).private
   return cachedAltKey

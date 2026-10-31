@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.252 — 2026-11-01
+
+### Fixed — every remaining flag spelling a generated matrix could leak
+A script generated 207 real command shapes (21 flags × separators × bare/quoted values) with a unique
+marker per shape and counted what `redact()` let through: **31 leaks (15%)**, every one from a flag
+name the explicit list did not know.
+```
+before  tool --api-key hunter2         after  tool --api-key <redacted>
+before  tool --apikey hunter2          after  tool --apikey <redacted>
+before  tool --private-key hunter2     after  tool --private-key <redacted>
+before  tool --access-token hunter2    after  tool --access-token <redacted>
+before  tool -p="two words"            after  tool -p<redacted>
+before  tool -pass "two words"         after  tool -pass <redacted>
+```
+A flag whose *name* contains `pass`, `pwd`, `secret`, `token`, `credential`, `bearer` or `key` now
+takes a secret, whatever spelling it has. Flags ending in `file`, `path`, `type`, `name`, `dir`,
+`id`, `stdin`, `agent` or `store` are left alone — `--password-file /tmp/pw` names a file, not the
+secret. The two quoted-value misses (`-p="…"` and `-pass "…"`) are fixed in their own rules.
+
+What the matrix still shows (deliberate or impossible forms): `--passw0rd` (not a flag), a double
+dash glued to its value (`--passwordV4`, no parser accepts it), a colon after a long flag, and
+`--auth VALUE` — `--auth` is a method far more often than a secret, so it stays readable.
+
+### Fixed — a flaky test I introduced
+The 0.7.245 case built its ssh2.Server from a freshly generated ed25519 key, which under load
+sometimes came back as `Cannot parse privateKey: Malformed OpenSSH private key` (seen once in a full
+run, 0.87 ms failure). `test/helpers/local-ssh-server.js` already documents that exact flake and
+caches an RSA key; the five newer tests now share it through `testHostKey()`. Two consecutive full
+runs are clean.
+
+### Tests
+- Two new cases for the flag rule (six masked, five paths/types untouched) and the quoted-value
+  rules. Suite 837 / 832 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.251 — 2026-11-01
 
 ### Fixed — three more ways a secret survived the redaction

@@ -283,3 +283,30 @@ test('quoted flag values, --pw and single-dash -password are masked without mang
   assert.equal(redact('mysql -p 2222'), 'mysql -p 2222')
   assert.equal(redact('ssh -p2222 host'), 'ssh -p2222 host')
 })
+
+test('a flag whose name names a secret is masked, and a path or type is not', () => {
+  // A generated matrix of flag spellings found --api-key, --apikey, --api_key, --key,
+  // --private-key, --secret-key and --access-token leaking with a space separator:
+  // the = form was caught by the KEY=value rule, the space form by nothing.
+  assert.equal(redact('tool --api-key hunter2'), 'tool --api-key <redacted>')
+  assert.equal(redact('tool --apikey hunter2'), 'tool --apikey <redacted>')
+  assert.equal(redact('tool --api_key hunter2'), 'tool --api_key <redacted>')
+  assert.equal(redact('tool --private-key hunter2'), 'tool --private-key <redacted>')
+  assert.equal(redact('tool --secret-key hunter2'), 'tool --secret-key <redacted>')
+  assert.equal(redact('tool --access-token hunter2'), 'tool --access-token <redacted>')
+  // A value that names a file, a type or a store is not the secret itself.
+  for (const text of ['tool --password-file /tmp/pw', 'tool --token-type rsa', 'tool --key-type ed25519',
+    'tool --secret-store vault', 'tool --token-name ci']) {
+    assert.equal(redact(text), text, text + ' must not be rewritten')
+  }
+  // Quoted values are one value here too.
+  assert.equal(redact('tool --api-key "two words"'), 'tool --api-key <redacted>')
+})
+
+test('a quoted value after -p= or -pass is masked whole', () => {
+  assert.equal(redact('tool -p="two words"'), 'tool -p<redacted>')
+  assert.equal(redact('tool -pass "two words"'), 'tool -pass <redacted>')
+  // A port stays a port.
+  assert.equal(redact('ssh -p 2222 host'), 'ssh -p 2222 host')
+  assert.equal(redact('ssh -p2222 host'), 'ssh -p2222 host')
+})

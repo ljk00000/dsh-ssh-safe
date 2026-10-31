@@ -195,7 +195,7 @@ export function redact(text) {
   // 'openssl enc -pass pass:SECRET' names its own flag, and the glued '-p' rule
   // below read '-pass' as one: the flag became '-p<redacted>' and 'pass:hunter2'
   // survived. Consumed first, so the glued rule never sees it.
-  s = s.replace(/(^|\s)(-pass)(\s+)(?:pass:|file:|env:|fd:|stdin:)?(\S+)/g, '$1$2$3<redacted>')
+  s = s.replace(/(^|\s)(-pass)(\s+)(?:pass:|file:|env:|fd:|stdin:)?("[^"\n]*"|'[^'\n]*'|\S+)/g, '$1$2$3<redacted>')
   // One dash with the long name: '-password SECRET' is accepted by several tools,
   // and the glued '-p' rule below read it as '-p assword' — the flag name was
   // mangled and the secret survived untouched.
@@ -208,7 +208,9 @@ export function redact(text) {
   // (?!ass) rather than (?!ass\b): '-password' is '-p' + 'assword' to this pattern,
   // and that left the flag name masked into '-p<redacted>' — the command read as
   // something the user never typed, even though the secret itself was gone.
-  s = s.replace(/(^|\s)(-p)(?!ass)([^\s-]\S*)/g, (match, lead, flag, value) =>
+  // The value may be quoted, with or without an equals sign: '-p="two words"'
+  // was read as '-p="two' and the rest of the password stayed in the log.
+  s = s.replace(/(^|\s)(-p)(?!ass)(="[^"\n]*"|='[^'\n]*'|"[^"\n]*"|'[^'\n]*'|[^\s-]\S*)/g, (match, lead, flag, value) =>
     /^\d+$/.test(value) ? match : lead + flag + '<redacted>')
   // 'sshpass -p SECRET pw ssh …': the value is a separate argument, so the glued
   // rule above missed it and the password was recorded in the audit command.
@@ -222,6 +224,24 @@ export function redact(text) {
   // Longer alternatives come first so '--passphrase=x' is not read as '--pass'.
   s = s.replace(/(^|[\s"'])(--?(?:password|passphrase|passwd|passw|pass|pw|token|secret))(\s+|=)("[^"\n]*"|'[^'\n]*'|\S+)/gi,
     '$1$2$3<redacted>')
+  // Name-shape fallback for every flag spelling the list above does not know:
+  // measured with a generated matrix, --api-key, --apikey, --api_key, --key,
+  // --private-key, --secret-key, --access-token and --bearer leaked with a space
+  // separator (the = form was caught by the KEY=value rule). A flag whose name
+  // contains one of these words almost always takes a secret, and masking a
+  // --token-file path by mistake is the safer error.
+  s = s.replace(
+    /(^|[\s"'])(--?[A-Za-z0-9_-]{0,40}?(?:pass|pwd|secret|token|credential|bearer|key))(\s*[=:]\s*|\s+)("[^"\n]*"|'[^'\n]*'|\S+)/gi,
+    (match, lead, flag, separator) => {
+      // A path, a type or a name is not the secret itself.
+      if (/(file|path|type|name|dir|id|stdin|agent|store)$/i.test(flag)) return match
+      return lead + flag + separator + '<redacted>'
+    },
+  )
+  // '-p="two words"' glued the value to the flag through an equals sign, which the
+  // space rule and the glued rule both missed: the tail of the password stayed.
+  s = s.replace(/(^|[\s"'])(-p)(=)("[^"\n]*"|'[^'\n]*')/g, '$1$2$3<redacted>')
+
   // 'echo pass | sudo -S cmd' feeds a password through a pipe. The secret is on
   // the LEFT of the pipe, so none of the flag rules above can see it: measured
   // 'echo hunter2 | sudo -S id' reaching audit.ndjson verbatim while the log

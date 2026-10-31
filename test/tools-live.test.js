@@ -8,7 +8,7 @@ import { apply } from '../src/index.js'
 import { looksBinary } from '../src/sftp.js'
 import { SshPool } from '../src/pool.js'
 import ssh2 from 'ssh2'
-import { startServer, machineFor, alternateHostKey } from './helpers/local-ssh-server.js'
+import { startServer, machineFor, alternateHostKey, testHostKey } from './helpers/local-ssh-server.js'
 
 // The twelve tool bodies are the largest untested part of src/index.js: they
 // only run with a working connection, and the unit suite has none. These drive
@@ -2519,7 +2519,7 @@ test('a server without SFTP is named by the file tools and by the doctor', async
   // ssh2 answers 'Unable to start subsystem: sftp', which names neither the cause nor
   // the fix; the doctor passed such a machine because it never tried the subsystem.
   const ssh2 = (await import('ssh2')).default
-  const hostKey = ssh2.utils.generateKeyPairSync('ed25519').private
+  const hostKey = testHostKey()
   const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
     client.on('authentication', (ctx) => ctx.accept())
     client.on('ready', () => {
@@ -2574,7 +2574,7 @@ test('a server that refuses exec is named by ssh_exec and by the doctor', async 
   // ssh2 answers 'Unable to exec' with nothing about the machine, and the doctor
   // reported it as [FAIL] connect, pointing at the connection instead of the shell.
   const ssh2 = (await import('ssh2')).default
-  const hostKey = ssh2.utils.generateKeyPairSync('ed25519').private
+  const hostKey = testHostKey()
   const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
     client.on('authentication', (ctx) => ctx.accept())
     client.on('ready', () => {
@@ -2627,7 +2627,7 @@ test('a server that only offers keyboard-interactive accepts the password', asyn
   // keyboard-interactive. ssh2 does not try that method unless asked, so a correct
   // password failed with 'All configured authentication methods failed'.
   const ssh2 = (await import('ssh2')).default
-  const hostKey = ssh2.utils.generateKeyPairSync('ed25519').private
+  const hostKey = testHostKey()
   const answers = []
   const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
     client.on('authentication', (ctx) => {
@@ -2687,7 +2687,7 @@ test('an auth refusal says which credential was offered', async () => {
   // 'check the user, the key or password' reads the same whether the password was
   // wrong or the server only accepts keys; the message now names the attempt.
   const ssh2 = (await import('ssh2')).default
-  const hostKey = ssh2.utils.generateKeyPairSync('ed25519').private
+  const hostKey = testHostKey()
   const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
     client.on('authentication', (ctx) => {
       if (ctx.method !== 'publickey') { ctx.reject(['publickey']); return }
@@ -2730,7 +2730,7 @@ test('a refused channel is reported as a session limit, not a dead connection', 
   // 'The connection ... is gone', which sent the reader to reconnect instead of
   // looking at the limit.
   const ssh2 = (await import('ssh2')).default
-  const hostKey = ssh2.utils.generateKeyPairSync('ed25519').private
+  const hostKey = testHostKey()
   const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
     let used = 0
     client.on('authentication', (ctx) => ctx.accept())
