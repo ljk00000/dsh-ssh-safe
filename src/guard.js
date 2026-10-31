@@ -248,11 +248,14 @@ export const DEFAULT_DENY_RULES = [
   {
     // Only a device is a disk. 'mkfs.ext4 ./disk.img' builds a filesystem in a
     // file, which is ordinary work for loopback mounts and swap images.
-    pattern: '\\bmkfs(?:\\.\\w+)?\\b[^\n]*\\s/dev/',
+    // mke2fs IS mkfs for ext2/3/4: the same operation under its own name.
+    pattern: '(?:\\bmkfs(?:\\.\\w+)?\\b|\\bmke2fs\\b)[^\n]*\\s/dev/',
     why: 'it builds a filesystem on a device (mkfs on /dev/...)',
   },
   {
-    pattern: '\\bdd\\s+if=.*\\bof=/dev/[sn]',
+    // Argument order is free: 'dd of=/dev/sda if=/dev/zero' destroys the disk the
+    // same way, and the older rule required if= first.
+    pattern: '\\bdd\\b[^\n]*\\bof=/dev/[sn]',
     why: 'it overwrites a device with dd (of=/dev/sd... or /dev/nv...)',
   },
   {
@@ -265,6 +268,13 @@ export const DEFAULT_DENY_RULES = [
     why: 'it deletes every file it can reach through find -exec rm',
   },
   { pattern: ':\\(\\)\\s*\\{\\s*:\\|:\\s*&\\s*\\};:', why: 'it is the fork bomb :(){ :|:& };:' },
+  {
+    // The same bomb with a name: 'bomb(){ bomb|bomb& };bomb'. A trailing pipe or
+    // '&' inside a self-recursive function is what forks without end; a plain
+    // recursive helper that exits does not match.
+    pattern: '(\\w+)\\s*\\(\\s*\\)\\s*\\{[^}]*\\b\\1\\s*[|&][^}]*\\}',
+    why: 'it is a named fork bomb (f(){ f|f& };f)',
+  },
   {
     // Only at a command position. The bare word anywhere refused ordinary work:
     // 'grep -c shutdown /etc/hostname' and 'echo reboot' were both blocked.

@@ -149,3 +149,44 @@ test('every flag spelling of rm on / is caught, and ordinary paths are not', () 
     assert.equal(checkCommand(command, patterns).blocked, false, command)
   }
 })
+
+test('dd argument order and mke2fs are the same commands', () => {
+  // Both were measured slipping through: 'dd of=/dev/sda if=/dev/zero' needed
+  // if= first to match, and mke2fs is mkfs for ext2/3/4 under its own name.
+  const patterns = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
+  for (const command of [
+    'dd if=/dev/zero of=/dev/sda bs=1M',
+    'dd of=/dev/sda if=/dev/zero bs=1M',
+    'dd if=/dev/urandom of=/dev/nvme0n1',
+    'mkfs.ext4 /dev/sda1',
+    'mkfs -t ext4 /dev/sda1',
+    'mke2fs /dev/sda1',
+    'mke2fs -F /dev/sda1',
+  ]) {
+    assert.equal(checkCommand(command, patterns).blocked, true, command)
+  }
+
+  // A file is not a device: building a filesystem in an image is ordinary work.
+  for (const command of [
+    'dd if=/dev/zero of=./disk.img bs=1M count=10',
+    'dd if=/dev/sda of=backup.img',
+    'mkfs.ext4 ./disk.img',
+    'mke2fs -F ./disk.img',
+  ]) {
+    assert.equal(checkCommand(command, patterns).blocked, false, command)
+  }
+})
+
+test('a named fork bomb is caught and an ordinary function is not', () => {
+  const patterns = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
+  for (const command of ['bomb(){ bomb|bomb& };bomb', 'f() { f & }; f', 'x(){ x | x; }']) {
+    assert.equal(checkCommand(command, patterns).blocked, true, command)
+  }
+  for (const command of [
+    'retry() { retry_once || true; }',
+    'log(){ echo "$*" | tee -a log; }',
+    'greet() { echo hi; }',
+  ]) {
+    assert.equal(checkCommand(command, patterns).blocked, false, command)
+  }
+})

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.83 — 2026-10-31
+
+### Fixed
+- **`dd of=/dev/sda if=/dev/zero` was not caught.** The rule required `if=` to
+  come first; dd takes its arguments in any order and the disk is gone either
+  way. The rule keys on the whole command line now.
+- **`mke2fs /dev/sda1` was not caught.** It is `mkfs` for ext2/3/4 under another
+  name, and the rule only knew `mkfs`. Both names are matched; a filesystem in an
+  *image* (`mkfs.ext4 ./disk.img`, `dd of=./disk.img`) is still allowed, which is
+  ordinary work for loopback mounts.
+- **A named fork bomb got through.** `:(){ :|:& };:` was caught, `bomb(){ bomb|bomb&
+  };bomb` was not. A self-recursive function whose body pipes or backgrounds
+  itself is matched now; `retry() { retry_once || true; }`, `log(){ echo "$*" |
+  tee -a log; }` and `greet() { echo hi; }` are not.
+
+### Known limit (unchanged, documented)
+- `init 0` / `init 6` are not matched. A bare-word rule for `init` fired on
+  ordinary text the last time it was tried (`echo init 0`), and the deny list is a
+  seatbelt, not a boundary.
+
+### Added — tests
+- Seven destructive spellings that must be blocked and four file-image cases that
+  must not; three fork-bomb shapes and three ordinary functions.
+
 ## 0.7.82 — 2026-10-31
 
 ### Fixed
