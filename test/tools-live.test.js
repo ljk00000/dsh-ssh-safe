@@ -3509,3 +3509,42 @@ test('a command cannot forge an audit row with a carriage return', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('an unwritable DSH home is reported by every surface that writes there', async () => {
+  // A file where dsh-ssh-safe belongs makes every write fail with ENOTDIR. The
+  // audit is not the point: the point is that each tool says so instead of
+  // pretending the key was recorded or the workspace was created.
+  const own = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-rohome-'))
+  writeFileSync(path.join(home, 'dsh-ssh-safe'), 'not a directory')
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  try {
+    await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000, auditLog: true,
+      machines: { t: machineFor('t', own.port) },
+    })
+    // A key that cannot be recorded is not silently accepted.
+    const connect = await tools.ssh_connect.execute({ machine: 't' }, {}).then(
+      (r) => String(r.text), (err) => 'ERR: ' + err.message)
+    assert.match(connect, /could not be recorded, so the connection was refused/)
+    assert.match(connect, /not the connection/)
+    // The audit tool says its own records are missing rather than showing an empty log.
+    const audit = String((await tools.ssh_audit.execute({ limit: 5 }, {})).text)
+    assert.match(audit, /audit write[s]? failed since the plugin started/)
+    assert.match(audit, /these records are incomplete/)
+    // The workspace refuses, and names the file that blocks the directory.
+    const workspace = await tools.ssh_workspace.execute({ action: 'create', machine: 't' }, {}).then(
+      (r) => String(r.text), (err) => 'ERR: ' + err.message)
+    assert.match(workspace, /dsh-ssh-safe/)
+    assert.match(workspace, /删掉或改名|Cannot|not a directory|already a file/)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await own.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

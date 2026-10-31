@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.299 — 2026-11-01
+
+### Hardened — an unwritable DSH home is reported by every surface that writes there
+A file where the `dsh-ssh-safe` directory belongs makes every write fail with `ENOTDIR`. The plugin already
+refused to fake success; this round pins the four surfaces so a future refactor cannot reintroduce the
+quiet version:
+```
+ssh_connect   The key could not be recorded, so the connection was refused; fix that path …
+              — this is a filesystem problem on this machine, not the connection.
+ssh_audit     Warning: 1 audit write failed since the plugin started (EEXIST …), so these records
+              are incomplete.
+workspace     … dsh-ssh-safe 已经是一个文件，占位目录建不出来。把 … 删掉或改名，再重试。
+```
+
+### Verified this round (no defect found)
+- `ssh_read` masking is stable and honest: two identical reads give byte-identical output, `raw: true`
+  returns the file verbatim, and the audit distinguishes them (`44B redacted` vs `44B`).
+- `raw: true` still respects `maxFileBytes` and says so, and the audit records `truncated` — raw means
+  unredacted, not unlimited.
+- `ssh_audit` takes only `limit` (no filters to get wrong); its edges were checked in 0.7.297.
+
+### My own mistake
+- The new test asserted the plural `audit writes failed` and the plugin printed `1 audit write failed` —
+  the product was right, the test was wrong, and the fix is `write[s]?`.
+
+### Tests
+- One new live case covering the three refusal messages above.
+  Suite 885 / 880 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.298 — 2026-11-01
 
 ### Hardened — the credential lock was verified on a network share
