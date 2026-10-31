@@ -595,3 +595,40 @@ test('an audit limit of 0 asks for nothing and says so', async () => {
   assert.match(some, /echo hi/)
   rmSync(home, { recursive: true, force: true })
 })
+
+test('ssh_config describes the credential file that is actually there', async () => {
+  // '(mode 0600)' was printed unconditionally: a fresh profile looked like it
+  // already had an encrypted store on disk, and on Windows stat() reports 0666
+  // whatever the ACL says.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-cfgfit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const own = {}
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'a', hostKeyPolicy: 'tofu', machines: { a: { host: '10.1.1.1', user: 'root' } },
+    })
+    const lineOf = async () => {
+      const text = String((await own.ssh_config.execute({}, {})).text)
+      return text.split('\n').find((l) => l.startsWith('Credential file:')) || ''
+    }
+    const absent = await lineOf()
+    assert.match(absent, /not created yet/, 'a missing file must not claim a mode')
+    assert.doesNotMatch(absent, /mode 0600/)
+
+    const file = path.join(home, 'dsh-ssh-safe', 'credentials.json')
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, '{}')
+    const present = await lineOf()
+    assert.doesNotMatch(present, /not created yet/)
+    if (process.platform === 'win32') {
+      assert.match(present, /Windows ACLs/)
+    } else {
+      assert.match(present, /mode 0\d{3}/)
+    }
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

@@ -20,7 +20,7 @@
 
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, statSync } from 'node:fs'
 import net from 'node:net'
 import { homedir } from 'node:os'
 import { join as joinPath } from 'node:path'
@@ -1652,7 +1652,23 @@ function assertKnownArgs(args, known, toolName) {
       }
 
       if (cfg.useCredentialFile === true) {
-        lines.push('', 'Credential file: ' + credentialsPath(dshHome) + '  (mode 0600)')
+        // "mode 0600" was printed unconditionally: a report about a file that
+        // does not exist yet claimed a permission nobody had set.
+        const credFile = credentialsPath(dshHome)
+        let state
+        if (!existsSync(credFile)) {
+          state = '(not created yet — the settings page writes it on first save)'
+        } else if (process.platform === 'win32') {
+          // Windows ignores POSIX permission bits: stat() reports 0666 for a file
+          // guarded by an ACL, so printing the mode there invented a warning on
+          // every machine.
+          state = '(exists; access is governed by Windows ACLs, not by a POSIX mode)'
+        } else {
+          const mode = statSync(credFile).mode & 0o777
+          const shown = mode.toString(8).padStart(4, '0')
+          state = '(mode ' + shown + (mode & 0o077 ? ' — readable by group/others, which the plugin never does' : '') + ')'
+        }
+        lines.push('', 'Credential file: ' + credFile + '  ' + state)
       }
       const defined = Object.keys(cfg.machines || {})
       if (defined.length > 0) lines.push('Machines in the settings form: ' + defined.join(', '))

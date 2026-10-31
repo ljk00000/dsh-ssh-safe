@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.100 — 2026-10-31
+
+### Fixed
+- **`ssh_config` claimed `(mode 0600)` for a credential file that did not exist.**
+  A fresh profile therefore looked like it already had an encrypted store on disk,
+  and the line said nothing about the one thing the reader needs to know. It now
+  states which of the three cases applies:
+  ```
+  Credential file: …\credentials.json  (not created yet — the settings page writes it on first save)
+  Credential file: …\credentials.json  (exists; access is governed by Windows ACLs, not by a POSIX mode)
+  Credential file: …\credentials.json  (mode 0644 — readable by group/others, which the plugin never does)
+  ```
+  The Windows wording exists because `stat()` there reports 0666 whatever the ACL
+  says: my first version warned "readable by group/others" on every Windows
+  machine, including a file only the user could open.
+
+### Verified, no change needed
+- `ssh_config` never prints a password, a passphrase or a key passphrase, whether it
+  comes from the settings form or from `DSH_SSH_*_PASSWORD` (checked with three
+  distinct secrets in one config).
+- A listing does not stat entries one by one: it uses the attributes readdir
+  returns, so an entry the account cannot stat still appears (with the server's
+  attributes) instead of being dropped.
+
 ## 0.7.99 — 2026-10-31
 
 ### Fixed
