@@ -266,3 +266,20 @@ test('PASS=, openssl -k and mysqladmin -w are masked, and their look-alikes are 
     assert.equal(redact(text), text, text + ' must not be rewritten')
   }
 })
+
+test('quoted flag values, --pw and single-dash -password are masked without mangling', () => {
+  // '--password "two words"' masked the first word and left the second, which is
+  // the half that matters. '--pw'/'--passw' were not recognised, and '--password'
+  // written with one dash was read by the glued -p rule as '-p assword': the flag
+  // name was masked and the secret survived.
+  assert.equal(redact('tool --password "alpha beta"'), 'tool --password <redacted>')
+  assert.equal(redact('tool --token "alpha beta"'), 'tool --token <redacted>')
+  assert.equal(redact('tool --pw hunter2'), 'tool --pw <redacted>')
+  assert.equal(redact('tool --passw hunter2'), 'tool --passw <redacted>')
+  assert.equal(redact('tool -password hunter2'), 'tool -password <redacted>')
+  assert.equal(redact('tool -passphrase=hunter2'), 'tool -passphrase=<redacted>')
+  // A flag that only ends its argument there is untouched.
+  assert.equal(redact('docker login --password-stdin'), 'docker login --password-stdin')
+  assert.equal(redact('mysql -p 2222'), 'mysql -p 2222')
+  assert.equal(redact('ssh -p2222 host'), 'ssh -p2222 host')
+})

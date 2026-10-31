@@ -196,11 +196,19 @@ export function redact(text) {
   // below read '-pass' as one: the flag became '-p<redacted>' and 'pass:hunter2'
   // survived. Consumed first, so the glued rule never sees it.
   s = s.replace(/(^|\s)(-pass)(\s+)(?:pass:|file:|env:|fd:|stdin:)?(\S+)/g, '$1$2$3<redacted>')
+  // One dash with the long name: '-password SECRET' is accepted by several tools,
+  // and the glued '-p' rule below read it as '-p assword' — the flag name was
+  // mangled and the secret survived untouched.
+  s = s.replace(/(^|\s)(-pass(?:word|phrase|wd))(?=\s|=)(\s*=\s*|\s+)("[^"\n]*"|'[^'\n]*'|\S+)/g,
+    '$1$2$3<redacted>')
   // 'mysql -uroot -pSECRET' / 'mysqldump -pSECRET db': the password is glued to
   // the flag, so no '=' or ':' appears and every rule above misses it. Only the
   // glued form is handled: 'ssh -p 2222 host' and '-p22' keep the flag as a
   // port, because masking a port would make the log say the wrong thing.
-  s = s.replace(/(^|\s)(-p)(?!ass\b)([^\s-]\S*)/g, (match, lead, flag, value) =>
+  // (?!ass) rather than (?!ass\b): '-password' is '-p' + 'assword' to this pattern,
+  // and that left the flag name masked into '-p<redacted>' — the command read as
+  // something the user never typed, even though the secret itself was gone.
+  s = s.replace(/(^|\s)(-p)(?!ass)([^\s-]\S*)/g, (match, lead, flag, value) =>
     /^\d+$/.test(value) ? match : lead + flag + '<redacted>')
   // 'sshpass -p SECRET pw ssh …': the value is a separate argument, so the glued
   // rule above missed it and the password was recorded in the audit command.
@@ -208,9 +216,12 @@ export function redact(text) {
   s = s.replace(/(^|\s)(-p)\s+("[^"]*"|'[^']*'|\S+)/g, (match, lead, flag, value) =>
     /^\d+$/.test(value) ? match : lead + flag + ' <redacted>')
   // '--password secret' and '--token=secret'.
+  // A quoted value is one value: '--password "two words"' kept the second word
+  // ('--password <redacted> words"'), which is the half that did not get masked.
   // '--pass' was the one abbreviation missing, and it is the one people type.
   // Longer alternatives come first so '--passphrase=x' is not read as '--pass'.
-  s = s.replace(/(^|[\s"'])(--?(?:password|passphrase|passwd|pass|token|secret))(\s+|=)(\S+)/gi, '$1$2$3<redacted>')
+  s = s.replace(/(^|[\s"'])(--?(?:password|passphrase|passwd|passw|pass|pw|token|secret))(\s+|=)("[^"\n]*"|'[^'\n]*'|\S+)/gi,
+    '$1$2$3<redacted>')
   // 'echo pass | sudo -S cmd' feeds a password through a pipe. The secret is on
   // the LEFT of the pipe, so none of the flag rules above can see it: measured
   // 'echo hunter2 | sudo -S id' reaching audit.ndjson verbatim while the log

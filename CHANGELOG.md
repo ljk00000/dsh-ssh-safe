@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.251 — 2026-11-01
+
+### Fixed — three more ways a secret survived the redaction
+```
+before  tool --password "alpha beta"   after  tool --password <redacted>
+        (the second word stayed: '--password <redacted> beta"')
+before  tool --pw hunter2              after  tool --pw <redacted>
+before  tool --passw hunter2           after  tool --passw <redacted>
+before  tool -password hunter2         after  tool -password <redacted>
+        (was '-p<redacted> hunter2': the flag name was masked and the secret kept)
+```
+The flag rule captured `(\S+)`, so a quoted value with spaces lost only its first word. `--pw` and
+`--passw` were not in the abbreviation list. And the glued `-p` rule read `-password` as
+`-p` + `assword` — its exclusion was `(?!ass\b)`, which only matches the word `ass` exactly; it is
+now `(?!ass)`, so any `-p…ass…` spelling is left to the rules that understand it.
+
+### Known boundary (unchanged)
+- A secret passed as a *positional* argument stays readable: `htpasswd -b file user hunter2`. It is
+  indistinguishable from a filename without understanding the client, and guessing wrong would hide
+  real arguments in the audit trail.
+
+### Tests
+- One new case: the four masked forms, plus `docker login --password-stdin`, `mysql -p 2222` and
+  `ssh -p2222 host` unchanged. Suite 835 / 830 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.250 — 2026-11-01
 
 ### Fixed — secrets that reached the audit log verbatim
