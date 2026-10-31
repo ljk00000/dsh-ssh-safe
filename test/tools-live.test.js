@@ -3630,3 +3630,33 @@ test('an alias with a newline cannot forge a listing line or split an audit row'
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('ssh_write refuses content with an unpaired surrogate instead of writing a replacement character', async () => {
+  // Buffer.from('a\\uD800b') silently becomes 'a\\uFFFDb': five bytes, none of them
+  // the ones the caller passed. The tool refuses instead, and the index is named.
+  srv.vfs.putDir('/tmp')
+  for (const [label, content] of [
+    ['high', 'a\uD800b'],
+    ['low', 'a\uDC00b'],
+  ]) {
+    const file = '/tmp/surrogate-' + label + '.txt'
+    await assert.rejects(
+      () => tools.ssh_write.execute({ machine: 't', path: file, content }, {}),
+      (err) => {
+        assert.match(err.message, /unpaired UTF-16 surrogate at index 1/)
+        assert.match(err.message, /stored as U\+FFFD instead/)
+        return true
+      },
+    )
+    await assert.rejects(
+      () => tools.ssh_read.execute({ machine: 't', path: file }, {}),
+      /no such file/,
+      'the refused write left a file behind',
+    )
+  }
+
+  // A valid pair is one character and must still be written as four bytes.
+  const ok = String((await tools.ssh_write.execute({ machine: 't', path: '/tmp/emoji.txt', content: 'a\uD83D\uDE00b' }, {})).text)
+  assert.match(ok, /Wrote 6 bytes/)
+  assert.equal(String((await tools.ssh_read.execute({ machine: 't', path: '/tmp/emoji.txt' }, {})).text), 'a\uD83D\uDE00b')
+})

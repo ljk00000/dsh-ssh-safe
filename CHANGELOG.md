@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.7.311 — 2026-11-01
+
+### Added — the unpaired-surrogate refusal is pinned
+`Buffer.from("a\uD800b")` silently produces five bytes of "a\uFFFDb": none of them what the caller passed.
+`ssh_write` refuses instead, and nothing pinned that. The new case covers both halves of a pair, the index
+and the code unit, and that a refused write leaves no file:
+```
+ssh_write  a\uD800b  →  content has an unpaired UTF-16 surrogate at index 1 (code unit 0xd800), which
+                        cannot be written as UTF-8: it would be stored as U+FFFD instead. Fix the string
+                        (it is often a truncated emoji or a cut-off surrogate pair) and try again.
+ssh_write  a😀b      →  Wrote 6 bytes … and reads back as the same string
+```
+
+### Verified this round (no defect found)
+- Malformed credential files all degrade with a precise sentence and a working connection: truncated JSON
+  ("Unterminated string in JSON at position 36"), empty file ("Unexpected end of JSON input"), an array, a
+  string, `null` ("is not an object of machines (it holds an array)"), and non-object entries ("IGNORED").
+- The page HTTP layer: `GET /api/save` → 404, empty body → 400 「别名不能为空」, broken JSON → 400
+  "invalid JSON", a 4 MB body → 413 "body too large", unknown API path → 404, missing or wrong token → 403,
+  and the page still loads afterwards. `/api/save` also refuses `__proto__`, `constructor`, `prototype`,
+  `a/b`, `../up` and a NUL-containing alias, normalises `UPPER` to `upper`, and writes nothing for a refused
+  alias.
+- Audit rotation at a 500-byte cap: 200 records split over the live log plus four generations, every line
+  parses, every file ends with a newline, and `recent(5)` returns the newest five.
+- Very long aliases (150 and 240 characters) work as workspace directory names on Windows.
+
+### My own mistakes
+1. My first page-API probe sent the token as `?t=`, which only authorises the page itself; every API call
+   answered 403 and I briefly suspected a broken endpoint. The header is `x-gui-token`.
+2. The surrogate test asserted `/replacement character/` — the message says `stored as U+FFFD instead`.
+3. Then it asserted `/stored as U+FFFD instead/`, where `U+` is a quantifier, so it could never match; the
+   plus needs escaping.
+
+### Tests
+- One new live case.
+  Suite 898 / 893 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.310 — 2026-11-01
 
 ### Fixed — a long link chain was reported as a cycle the server could see
