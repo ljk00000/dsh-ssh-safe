@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.72 — 2026-10-31
+
+### Fixed
+- **A corrupt credentials.json looked exactly like a machine with no password.**
+  The file was parsed in a try/catch that returned `{}`: a trailing comma after an
+  edit, a truncated write or an array instead of an object all produced "Machine
+  "x" has no credentials. Set DSH_SSH_X_PASSWORD ..." -- pointing at the
+  environment while the file the user had just changed was the cause. Three
+  surfaces name it now:
+  - `ssh_credentials` prints the reason under the credential file line;
+  - `ssh_doctor` shows it as a credentials warning;
+  - the "no credentials" failure itself ends with it.
+  The reason distinguishes unparsable JSON (with the parser message and position),
+  the wrong shape (`it holds an array`), and a file that exists but cannot be
+  read. A missing file stays silent, because that is the normal case.
+
+### Added — tests
+- The three file states through `readCredentialFile`, the warning reaching
+  `credentialFor`, and the connect failure naming the broken file.
+
 ## 0.7.71 — 2026-10-31
 
 ### Fixed

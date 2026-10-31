@@ -50,10 +50,25 @@ export function credentialsTemplate() {
  * @returns {Record<string, object>} alias -> entry
  */
 export function loadCredentialFile(dshHome) {
+  return readCredentialFile(dshHome).data
+}
+
+/**
+ * Read the credential file, and say why when it could not be understood.
+ *
+ * A corrupt file used to return {} and nothing else: every connection then failed
+ * with "no credentials", the one file that held them was the cause, and nothing
+ * said so -- a trailing comma in an edited file looked exactly like a machine
+ * with no password.
+ *
+ * @param {string} dshHome
+ * @returns {{data: Record<string, object>, problem: string}}
+ */
+export function readCredentialFile(dshHome) {
   // '' means the file is disabled (useCredentialFile: false). Joining it would
   // read 'dsh-ssh-safe/credentials.json' relative to the process working
   // directory -- a file the plugin was told to ignore, in a place nobody chose.
-  if (!dshHome) return {}
+  if (!dshHome) return { data: {}, problem: '' }
   const file = credentialsPath(dshHome)
   let text
   try {
@@ -62,8 +77,16 @@ export function loadCredentialFile(dshHome) {
     // password and retry" case this file exists for. The file is a few hundred
     // bytes; the read costs nothing next to the TCP handshake.
     text = readFileSync(file, 'utf8')
-  } catch {
-    return {}
+  } catch (err) {
+    // A missing file is the normal case (nothing stored yet); anything else is
+    // a file that exists and cannot be read, which the caller should know about.
+    const code = err && /** @type {{code?: string}} */ (err).code
+    if (code === 'ENOENT') return { data: {}, problem: '' }
+    return {
+      data: {},
+      problem: 'credentials.json could not be read (' + (code || (err && err.message) || 'unknown error') +
+        '); no credential was used from it',
+    }
   }
   try {
     const parsed = JSON.parse(text)
@@ -77,11 +100,22 @@ export function loadCredentialFile(dshHome) {
           data[String(alias).toLowerCase()] = entry
         }
       }
+      return { data, problem: '' }
     }
-    return data
-  } catch {
-    // A truncated file or a stray comma must not break every connection.
-    return {}
+    return {
+      data,
+      problem: 'credentials.json is not an object of machines (it holds ' +
+        (Array.isArray(parsed) ? 'an array' : JSON.stringify(parsed === null ? null : typeof parsed)) +
+        '); no credential was used from it',
+    }
+  } catch (err) {
+    // A truncated file or a stray comma must not break every connection -- but it
+    // must not look like "this machine has no password" either.
+    return {
+      data: {},
+      problem: 'credentials.json could not be parsed (' + String(err && err.message ? err.message : err).slice(0, 80) +
+        '); no credential was used from it',
+    }
   }
 }
 
@@ -255,9 +289,13 @@ export function credentialFor(alias, {
   const m = machineDefinition(alias, { machines, dshHome })
   const cfg = ownEntry(machines, alias)
   const env = machineFromEnv(alias)
-  const file = dshHome ? ownEntry(loadCredentialFile(dshHome), alias) : {}
+  const credentialFile = dshHome ? readCredentialFile(dshHome) : { data: {}, problem: '' }
+  const file = dshHome ? ownEntry(credentialFile.data, alias) : {}
   /** @type {string[]} */
   const warnings = []
+  // The file exists but says nothing usable: without this the caller sees only
+  // "no credentials", and the broken file it edited is never named.
+  if (credentialFile.problem) warnings.push(credentialFile.problem)
 
   // A session password is the LAST resort: the settings form, the credential
   // file and the environment all win. Supplying one while a stored credential

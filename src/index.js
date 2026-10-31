@@ -33,6 +33,7 @@ import {
   knownAliases,
   loadCredentialFile,
   machineDefinition,
+  readCredentialFile,
 } from './machines.js'
 import { storePath } from './hostkey.js'
 import { DEFAULT_DENY_RULES, checkCommand, describeRule, invalidPatterns } from './guard.js'
@@ -1420,6 +1421,11 @@ function assertKnownArgs(args, known, toolName) {
       ]
       if (cfg.useCredentialFile !== true) {
         head.push('  note            the credential file is disabled, so its entries are not used')
+      } else {
+        // A file that exists but cannot be understood reads exactly like "no
+        // machine has a password"; name it here, where the sources are listed.
+        const fileState = readCredentialFile(dshHome)
+        if (fileState.problem) head.push('  WARNING         ' + fileState.problem)
       }
       if (aliases.length === 0) {
         head.push('', 'No machines defined yet.')

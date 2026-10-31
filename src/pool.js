@@ -665,7 +665,11 @@ export class SshPool {
         ' which none was found at.' +
         (this.config.allowSessionPassword
           ? ' Or pass password (this profile allows it).'
-          : ' Passing a password in conversation is disabled for this profile.')
+          : ' Passing a password in conversation is disabled for this profile.') +
+        // A credential file that exists but cannot be read is the likeliest
+        // reason for "no credentials" right after editing it, and the message
+        // above pointed at the environment instead.
+        ((auth.warnings || []).length > 0 ? ' ' + auth.warnings.join(' ') : '')
       ))
     }
 
