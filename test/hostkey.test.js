@@ -238,3 +238,32 @@ test('a known_hosts file in no recognisable format says so, not a JSON error', (
   })
   assert.equal(empty.ok, true)
 })
+
+test('a broken trust record says what is wrong with it, in words', () => {
+  // The reason printed the JavaScript type: '(undefined)' and '(object)' describe
+  // nothing a user can act on, and a missing field is fixed differently from an
+  // empty one.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-fpstate-'))
+  const blob = Buffer.from('fingerprint-state-key-0123456789')
+  const fp = 'SHA256:' + createHash('sha256').update(blob).digest('base64').replace(/=+$/, '')
+  const dir = path.join(home, 'dsh-ssh-safe')
+  mkdirSync(dir, { recursive: true })
+  const store = path.join(dir, 'known_hosts.json')
+  const cases = [
+    [{ firstSeenAt: 'x' }, /the field is missing/],
+    [{ fingerprint: null }, /it is null/],
+    [{ fingerprint: '' }, /it is empty/],
+    [{ fingerprint: 42 }, /it is a number/],
+    [{ fingerprint: {} }, /it is a object/],
+  ]
+  for (const [entry, expected] of cases) {
+    writeFileSync(store, JSON.stringify({ version: 1, hosts: { 'h.example:22': entry } }), 'utf8')
+    const verdict = checkHostKey({
+      dshHome: home, host: 'h.example', port: 22, keyBlob: blob, policy: 'tofu', trustHostKey: false, fp,
+    })
+    assert.equal(verdict.ok, false)
+    assert.match(verdict.reason, expected, verdict.reason)
+    assert.match(verdict.reason, /no usable fingerprint/)
+  }
+  rmSync(home, { recursive: true, force: true })
+})

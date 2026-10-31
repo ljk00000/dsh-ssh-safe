@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.148 — 2026-10-31
+
+### Fixed
+- **The trust-store error printed the JavaScript type.** A record with no usable
+  fingerprint said `(undefined)` or `(object)`, which tells a user nothing — and a
+  missing field needs a different fix from an empty one:
+  ```
+  before: … has no usable fingerprint (undefined), so nothing can be verified …
+  after : … has no usable fingerprint (the field is missing), …
+          (it is null) / (it is empty) / (it is a number) / (it is a object)
+  ```
+
+### Verified, no change needed
+- `ssh_machines`, `ssh_doctor` and `ssh_connect` agree about a broken trust record:
+  `trusted: NO — …`, `[FAIL] host key: …` and the same refusal from connect.
+- `ssh_credentials` says nothing about trust (it is not its subject) and does not
+  claim any.
+
 ## 0.7.147 — 2026-10-31
 
 ### Fixed

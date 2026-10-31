@@ -362,6 +362,19 @@ export function fingerprintsEqual(a, b) {
   return timingSafeEqual(left, right)
 }
 
+/**
+ * Describe why a recorded fingerprint cannot be used.
+ *
+ * '(undefined)' and '(object)' are developer shorthand for a user whose trust store
+ * is broken; the field being missing and the field being empty are different fixes.
+ */
+function fingerprintState(value) {
+  if (value === undefined) return 'the field is missing'
+  if (value === null) return 'it is null'
+  if (typeof value === 'string') return value === '' ? 'it is empty' : 'it is not a fingerprint'
+  return 'it is a ' + typeof value
+}
+
 /** SHA256 fingerprint of the server's public key, ssh-style. */
 export function fingerprint(keyBlob) {
   const b = Buffer.isBuffer(keyBlob) ? keyBlob : Buffer.from(String(keyBlob))
@@ -460,7 +473,7 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
       // like a network problem.
       reason:
         'Host key verification failed: the recorded entry for ' + label + ' in ' + file +
-        ' has no usable fingerprint (' + typeof recorded.fingerprint + '), so nothing can be verified ' +
+        ' has no usable fingerprint (' + fingerprintState(recorded.fingerprint) + '), so nothing can be verified ' +
         'against it. Remove that entry and connect again to record the key you verify out of band.',
       fp,
       firstSeen: false,
