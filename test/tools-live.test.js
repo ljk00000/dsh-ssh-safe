@@ -1827,3 +1827,20 @@ test('a warning-only doctor run records warn, and the reason survives redaction'
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('closing every connection leaves a record for each one', async () => {
+  // ssh_close with no machine is what people call at the end of a session, and it
+  // wrote nothing: the per-machine form recorded what it did, this one did not.
+  const auditFile = path.join(home, 'dsh-ssh-safe', 'audit.ndjson')
+  const count = () => (existsSync(auditFile) ? readFileSync(auditFile, 'utf8').split('\n').filter(Boolean).length : 0)
+  await tools.ssh_exec.execute({ machine: 't', command: 'echo x' }, {})
+  const before = count()
+  await tools.ssh_close.execute({}, {})
+  await tools.ssh_close.execute({}, {})
+
+  const added = readFileSync(auditFile, 'utf8').split('\n').filter(Boolean).slice(before)
+    .map((line) => JSON.parse(line)).filter((record) => record.kind === 'close')
+  assert.equal(added.length, 2, 'both close-all calls are recorded')
+  assert.deepEqual({ machine: added[0].machine, outcome: added[0].outcome }, { machine: 't', outcome: 'ok' })
+  assert.deepEqual({ machine: added[1].machine, outcome: added[1].outcome }, { machine: undefined, outcome: 'none' })
+})

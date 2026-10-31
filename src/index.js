@@ -2314,6 +2314,18 @@ function assertKnownArgs(args, known, toolName) {
           : 'Requested close for ' + alias + ' but the peer did not confirm; the entry was reset so the next call reconnects.' }
       }
       const result = await pool.closeAll({ force })
+      // The per-machine form records what it did; this one recorded nothing, so the
+      // log could not show that a session ever ended -- and 'close everything' is
+      // the call people make at the end of a session.
+      for (const name of result.closed) {
+        audit.write({ kind: 'close', machine: name, outcome: 'ok', ...(force ? { forced: true } : {}) })
+      }
+      for (const name of result.busy) {
+        audit.write({ kind: 'close', machine: name, outcome: 'busy' })
+      }
+      if (result.closed.length === 0 && result.busy.length === 0) {
+        audit.write({ kind: 'close', outcome: 'none' })
+      }
       const parts = []
       if (result.closed.length) parts.push('Closed: ' + result.closed.join(', '))
       if (result.busy.length) {

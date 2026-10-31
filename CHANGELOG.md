@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.178 — 2026-10-31
+
+### Fixed
+- **`ssh_close` with no machine left no record.** The per-machine form recorded what it did;
+  the "close everything" form — the call people make at the end of a session — wrote nothing,
+  so the log could not show that a session ever ended:
+  ```
+  before: ssh_close {}          → Closed: t        (no record)
+          ssh_close {}          → No live connections (no record)
+  after : {"kind":"close","machine":"t","outcome":"ok"}
+          {"kind":"close","outcome":"none"}
+  ```
+  One record per machine closed, one per machine left open (`outcome: "busy"`), and a
+  single `none` record when there was nothing to close — the same vocabulary the
+  per-machine form already used.
+
+### Verified, no change needed
+- Recorded duration matches the wall clock: `sleep 2` took 2013 ms measured, 2012 ms
+  recorded.
+- `ssh_close` states through the tool: `none` (nothing open), `busy` (command running, no
+  force: "Left open (command running): t — pass force: true to cut them off"), `ok` with
+  `forced: true` (force close).
+
+### Note on the test
+- Written first as a second `apply()` inside the live suite, the assertion saw zero records;
+  the same code writes them in a two-instance standalone probe and in the shared instance.
+  Two instances inside one test file is not how the plugin runs (one apply per process), so
+  the test now uses the shared instance — and it passes in-file and alone.
+
 ## 0.7.177 — 2026-10-31
 
 ### Fixed (documentation)
