@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.62 — 2026-10-31
+
+### Fixed
+- **A command that reads stdin waited for input that can never arrive.** Nothing
+  in this plugin writes to a channel, so `sudo apt-get install nginx`,
+  `git commit` without `-m`, or a bare `cat` blocked until
+  `commandTimeoutMs` and the result blamed the deadline (`[timed out after
+  30000ms]`) rather than the input. The channel's stdin is closed at once now, so
+  those commands fail immediately with their own message (`sudo: a terminal is
+  required`, `Aborted`, cat printing what it buffered).
+- **`channel.end()` does nothing on the wire.** ssh2's Channel is a Duplex and its
+  writable side is local only: measured against a server that waits for stdin
+  EOF, the outgoing state stayed `open`; `channel.eof()` sets it to `eof` and
+  sends CHANNEL_EOF. The first cut of this fix used `end()`.
+
+### Note
+- The loopback test server does not surface stdin EOF to the executed command
+  (ssh2's own server sets the incoming state but the exec stream in the helper
+  never sees it), so the delivery is verified from the client side -- the
+  outgoing state moves to `eof` -- and the helper is unit-tested; the end-to-end
+  effect needs a real host, and none is available.
+
 ## 0.7.61 — 2026-10-31
 
 ### Fixed

@@ -140,6 +140,30 @@ export function connectFailure(err, m, { lean = false } = {}) {
 }
 
 /**
+ * Tell the remote command that nothing will ever arrive on its stdin.
+ *
+ * Nothing in this plugin writes to a channel, so leaving stdin open means every
+ * command that reads input waits for a line that never comes: 'sudo apt-get
+ * install' sat for the full command timeout with no output and the message
+ * blamed the deadline. With EOF the command fails at once and says why
+ * ('sudo: a terminal is required', 'Aborted', ...).
+ *
+ * eof(), not end(): ssh2's Channel is a Duplex and its writable side has no wire
+ * effect -- measured, end() left the channel open while eof() moved the outgoing
+ * state to 'eof' (CHANNEL_EOF). The plain end() is kept as a fallback for a
+ * channel object that has no eof().
+ *
+ * @param {any} channel
+ */
+export function sendStdinEof(channel) {
+  if (!channel) return
+  try {
+    if (typeof channel.eof === 'function') channel.eof()
+    else if (typeof channel.end === 'function') channel.end()
+  } catch { /* the channel may already be gone; the command fails on its own */ }
+}
+
+/**
  * Replace a host (and host:port) inside a message with a placeholder.
  *
  * Word-ish boundaries so a one-letter host cannot mangle the sentence around it.
@@ -849,6 +873,13 @@ export class SshPool {
       client.exec(command, (error, s) => {
         if (error) return settle(null, new Error(redact(error.message)))
         stream = s
+        // Close the stdin side at once. Nothing in this plugin ever writes to a
+        // channel, so leaving it open means every command that reads input waits
+        // for a line that will never arrive: 'sudo apt-get install' sat for the
+        // full command timeout with no output and the message blamed the
+        // deadline. With EOF the command fails immediately and says why
+        // ('sudo: a terminal is required', 'Aborted', ...).
+        sendStdinEof(s)
         s.on('data', (d) => {
           const text = Buffer.isBuffer(d) ? d.toString('utf8') : String(d)
           // The timeline is what the caller renders, so it has to draw from the

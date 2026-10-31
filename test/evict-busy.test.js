@@ -176,3 +176,20 @@ test('the idle probe runs before a connection is reused', async () => {
   assert.equal(returned, client, 'a healthy connection is reused')
   assert.equal(client.execs, 1, 'and it was actually probed first')
 })
+test('stdin is closed with eof(), which is the only form ssh2 sends', async () => {
+  // Nothing in this plugin writes to a channel, so a command that reads input
+  // would wait for a line that never comes -- 'sudo apt-get install' sat for the
+  // whole command timeout and the message blamed the deadline. Channel.end() is
+  // a Duplex no-op on the wire (measured: the outgoing state stayed 'open');
+  // eof() sends CHANNEL_EOF.
+  const { sendStdinEof } = await import('../src/pool.js')
+  const calls = []
+  sendStdinEof({ eof() { calls.push('eof') }, end() { calls.push('end') } })
+  assert.deepEqual(calls, ['eof'])
+
+  sendStdinEof({ end() { calls.push('end-fallback') } })
+  assert.ok(calls.includes('end-fallback'), 'a channel without eof() falls back to end()')
+
+  assert.doesNotThrow(() => sendStdinEof(null))
+  assert.doesNotThrow(() => sendStdinEof({ eof() { throw new Error('already closed') } }))
+})
