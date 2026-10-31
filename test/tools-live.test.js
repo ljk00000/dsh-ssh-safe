@@ -2103,3 +2103,25 @@ test('an operation on a dropped connection explains itself and the next one reco
   const next = await run('ssh_list', { path: '/gone' })
   assert.doesNotMatch(next, /^ERR:/, 'the next call must reconnect: ' + next)
 })
+
+test('a symlink loop on the way is not reported as a missing directory', async () => {
+  // stat on the loop fails, the old code called that 'missing', tried mkdir, and
+  // answered 'could not create remote directory /w/loop: already exists' — true,
+  // and useless: the directory never had to be created.
+  srv.vfs.putDir('/loopdir')
+  srv.vfs.putLink('/loopdir/self', '/loopdir/self')
+  srv.vfs.putLink('/loopdir/a', '/loopdir/b')
+  srv.vfs.putLink('/loopdir/b', '/loopdir/a')
+  // run() rejects on failure, so the messages are captured here.
+  const attempt = async (args) => {
+    try { return await run('ssh_write', args) } catch (err) { return 'ERR: ' + err.message }
+  }
+  const first = await attempt({ path: '/loopdir/self/x.txt', content: 'x', createDirs: true })
+  assert.match(first, /symbolic link loop/)
+  assert.match(first, /nothing can be created through it/)
+  assert.doesNotMatch(first, /already exists/)
+  const second = await attempt({ path: '/loopdir/a/x.txt', content: 'x', createDirs: true })
+  assert.match(second, /symbolic link loop/)
+  // Without createDirs the server says only 'No such file'; the loop surfaces when
+  // createDirs makes the plugin look at the components, which is covered above.
+})

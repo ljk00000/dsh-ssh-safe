@@ -373,7 +373,22 @@ async function ensureRemoteDir(sftp, dir) {
       continue
     } catch (err) {
       if (/already exists and is a file/.test(String(err && err.message))) throw err
-      /* missing: create it */
+      const why = String(err && err.message ? err.message : err)
+      // Only ENOENT means 'missing'. A component that exists but cannot be
+      // walked through was treated as missing too, so a symlink loop turned into
+      // 'could not create remote directory /w/loop: already exists' — true, and
+      // useless: the directory never had to be created.
+      if (/too many levels|ELOOP/i.test(why)) {
+        throw new Error(
+          'cannot create the parent directories of this path: ' + probe + ' is a symbolic link ' +
+          'loop (the links point at each other), so nothing can be created through it; replace ' +
+          'or remove one of the links'
+        )
+      }
+      // Everything else keeps the old path (try mkdir, then report what the server
+      // said): a denied directory is not a loop, and "could not create … Permission
+      // denied" is the message the permission test pins.
+      /* missing or unclear: try to create it */
     }
     try {
       await callSftp(sftp, 'mkdir', probe)

@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.221 — 2026-11-01
+
+### Fixed
+- **`createDirs: true` reported a symlink loop as a directory that already exists.** `stat` on the
+  loop fails, the old code called that "missing", tried `mkdir`, and answered:
+  ```
+  before: could not create remote directory /w/loop: already exists
+  after : cannot create the parent directories of this path: /w/loop is a symbolic link loop
+          (the links point at each other), so nothing can be created through it; replace or remove
+          one of the links
+  ```
+  True before, and useless: the directory never had to be created. Only ELOOP/too-many-levels is
+  specialised — every other stat failure keeps the old path, so a denied directory still says
+  "could not create remote directory … Permission denied" (the permission test pins that).
+
+### Verified, no change needed
+- `ssh_close` while a connection is still being established answers "A connection to black is still
+  being established. Pass force: true to have it closed on arrival." (the `pending` outcome).
+- `ssh_doctor` under `machineInventory: alias` against an unreachable host leaks neither the address
+  nor the port: `[FAIL] tcp: no answer on the configured port within the timeout`.
+- Two concurrent `ssh_workspace create` for one alias: one reports 已创建, the other 已刷新, AGENTS.md
+  and the marker stay intact.
+
+### My mistakes
+- I also rewrote the generic "the parent directory does not exist" hint to hedge about links. Two
+  existing tests pinned that sentence, and the hedge made the common case vaguer — reverted, since
+  the loop is now explained by `createDirs` itself.
+- Two attempts at this test called `run()` and expected a string; it rejects on failure. Third
+  version captures the message.
+
 ## 0.7.220 — 2026-11-01
 
 ### Fixed
