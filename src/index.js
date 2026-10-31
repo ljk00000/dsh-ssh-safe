@@ -1872,7 +1872,9 @@ function assertKnownArgs(args, known, toolName) {
         // 'at' is written with toISOString(), which is UTC, and the row showed the
         // digits with no zone: 11:46:20 read as the reader's local 11:46 when their
         // clock said 19:46. Mark a UTC stamp as UTC; leave anything else as it is.
-        const stamp = String(r.at || '')
+        // 0 is epoch 0, not "no timestamp": the falsy check dropped the column
+        // and the row started with the machine name.
+        const stamp = r.at === undefined || r.at === null ? '' : String(r.at)
         const when = printable(stamp.replace('T', ' ').slice(0, 19)) + (/Z$/.test(stamp) ? 'Z' : '')
         // A command or path in the log is remote text: an escape sequence there
         // repainted the terminal of whoever was reading the audit trail.
@@ -1895,17 +1897,28 @@ function assertKnownArgs(args, known, toolName) {
 
         // The detail fields are what make a record actionable; the earlier
         // renderer dropped every one of them.
+        // A hand-edited or older record can hold anything. Concatenation turned
+        // those into 'abcms', 'nullms' and '[object Object]B' in the transcript; a
+        // numeric field that is not a finite, non-negative number is left out instead.
+        // Negative counts and durations are the same kind of noise: a record
+        // cannot have written -5 bytes or taken -5 milliseconds.
+        const amount = (value, unit) => (Number.isFinite(value) && value >= 0 ? String(value) + unit : '')
         const detail = []
-        if (r.bytes !== undefined) detail.push(r.bytes + 'B')
+        const bytesText = amount(r.bytes, 'B')
+        if (bytesText) detail.push(bytesText)
         // Where a write actually landed, and who can read it afterwards.
         if (r.mode) detail.push('mode ' + String(r.mode))
         if (r.linkTarget) detail.push('via link ' + printable(r.linkTarget))
-        if (r.entries !== undefined) detail.push(r.entries + (r.entries === 1 ? ' entry' : ' entries'))
+        const entriesText = Number.isFinite(r.entries)
+          ? String(r.entries) + (r.entries === 1 ? ' entry' : ' entries')
+          : ''
+        if (entriesText) detail.push(entriesText)
         if (r.truncated) detail.push('truncated')
         if (r.redacted === true) detail.push('redacted')
         if (r.hostKey) detail.push('host key ' + printable(String(r.hostKey)))
         if (r.fingerprint) detail.push(printable(String(r.fingerprint)))
-        if (r.ms !== undefined) detail.push(r.ms + 'ms')
+        const msText = amount(r.ms, 'ms')
+        if (msText) detail.push(msText)
         if (r.reason) detail.push('reason=' + r.reason)
         // 'matches deny pattern' is the matcher talking. The rule it matched is
         // what tells an operator whether the refusal was right.

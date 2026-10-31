@@ -992,3 +992,32 @@ test('the machine inventory escapes control characters in names it did not write
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a record with wrongly typed numbers renders without gibberish', async () => {
+  // Concatenation turned a hand-edited record into 'abcms', 'nullms',
+  // '[object Object]B' and 'trueB' in the transcript.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-auditnums-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  const rows = [
+    { at: '2026-01-01T00:00:00Z', kind: 'exec', machine: 't', command: 'echo hi', ms: 'abc' },
+    { at: '2026-01-01T00:00:01Z', kind: 'read', machine: 't', path: '/x', bytes: {}, ms: null },
+    { at: '2026-01-01T00:00:02Z', kind: 'write', machine: 't', path: '/y', bytes: true, ms: -5 },
+    { at: '2026-01-01T00:00:03Z', kind: 'read', machine: 't', path: '/z', bytes: 12, ms: 7 },
+  ]
+  writeFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n')
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, { hostKeyPolicy: 'tofu', auditLog: true })
+    const view = String((await own.ssh_audit.execute({ limit: 20 }, {})).text)
+    assert.doesNotMatch(view, /abcms|nullms|\[object Object\]B|trueB/)
+    assert.doesNotMatch(view, /-5ms/)
+    // The valid row keeps both numbers.
+    assert.match(view, /12B\s+7ms/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

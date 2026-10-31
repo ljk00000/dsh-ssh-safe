@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.234 — 2026-11-01
+
+### Fixed
+- **A record with a wrongly typed number rendered as gibberish in `ssh_audit`.** The detail fields were
+  concatenated without checking the type, so a hand-edited (or older) line produced:
+  ```
+  "ms": "abc"      →  abcms          after: (field omitted)
+  "ms": null       →  nullms         after: (field omitted)
+  "ms": -5         →  -5ms           after: (field omitted)
+  "bytes": {}      →  [object Object]B   after: (field omitted)
+  "bytes": true    →  trueB          after: (field omitted)
+  "bytes": 12, "ms": 7              after: 12B  7ms   (unchanged)
+  ```
+  Only finite, non-negative numbers are rendered.
+
+- **`"at": 0` dropped the timestamp column entirely.** The check was `r.at || ''`, and 0 is falsy, so
+  the row started with the machine name. The column now shows the value that is in the file.
+
+### Tests
+- One new case: the four malformed numbers leave no trace, and a valid `12B  7ms` row still renders.
+  Suite 815 / 810 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.233 — 2026-11-01
 
 ### Fixed
