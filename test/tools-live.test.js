@@ -2457,3 +2457,60 @@ test('a boolean or array port in the file is a problem, not a silent port 1', as
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a field that cannot be text is refused, not stringified', async () => {
+  // keyPath: {} became "[object Object]" and the failure named a file with that
+  // name; host: ['a','b'] became 'a,b'; password: true was listed as a credential
+  // source while the connection refused it.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-fieldtype-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  writeFileSync(
+    path.join(home, 'dsh-ssh-safe', 'credentials.json'),
+    JSON.stringify({
+      objkey: { host: '127.0.0.1', port: 22, user: 'tester', keyPath: { a: 1 } },
+      arrhost: { host: ['127.0.0.1'], port: 22, user: 'tester' },
+      boolpwd: { host: '127.0.0.1', port: 22, user: 'tester', password: true },
+      numuser: { host: '127.0.0.1', port: 22, user: 123 },
+    }),
+    'utf8',
+  )
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 1000, commandTimeoutMs: 1000,
+      machines: {
+        t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' },
+        ok: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' },
+      },
+    })
+    const attempt = async (promise) => {
+      try { return String((await promise).text) } catch (err) { return 'ERR: ' + err.message }
+    }
+    const key = await attempt(own.ssh_exec.execute({ machine: 'objkey', command: 'echo hi' }, {}))
+    assert.match(key, /the keyPath from the file is not text \(it is object\)/)
+    assert.doesNotMatch(key, /\[object Object\]/, 'nothing may present it as a path')
+    const host = await attempt(own.ssh_exec.execute({ machine: 'arrhost', command: 'echo hi' }, {}))
+    assert.match(host, /the host from the file is not text \(it is an array\)/)
+    const password = await attempt(own.ssh_exec.execute({ machine: 'boolpwd', command: 'echo hi' }, {}))
+    assert.match(password, /the password from the file is not text \(it is boolean\)/)
+    // A numeric user is still a name.
+    const numeric = await attempt(own.ssh_machines.execute({}, {}))
+    assert.match(numeric, /• numuser.*123@127\.0\.0\.1:22/)
+    const doc = await attempt(own.ssh_doctor.execute({ machine: 'objkey' }, {}))
+    assert.match(doc, /\[FAIL\] configuration: the keyPath from the file is not text/)
+    assert.match(doc, /\[FAIL\] credentials: the keyPath from the file is not text/)
+    assert.doesNotMatch(doc, /\[ok\] credentials/)
+    const inventory = await attempt(own.ssh_machines.execute({}, {}))
+    assert.match(inventory, /BAD FIELD: the keyPath from the file is not text/)
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

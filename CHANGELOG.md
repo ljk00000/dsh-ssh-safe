@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.233 — 2026-11-01
+
+### Fixed
+- **A field that cannot be text was stringified into something that looked like one.**
+  ```
+  "keyPath": { "a": 1 }  →  key file not found: [object Object]
+                            (and a second doctor line naming the same non-file)
+  "host": ["a", "b"]     →  host "a,b"
+  "password": true       →  listed as file-plaintext, then refused for having no credential
+  ```
+  `machineDefinition()` now reports the first field whose value is neither text nor a number
+  (`the keyPath from the file is not text (it is object)`). The connection refuses with that
+  sentence before dialling, the doctor prints it under `configuration` and stops inventing a key-file
+  verdict, and `ssh_machines` adds `BAD FIELD:` beside `BAD PORT:`. Numbers are left alone —
+  `user: 123` is a plausible name and `String()` is exact — and a password that is not text no longer
+  counts as a credential source, which is what the connection already assumed.
+
+### Tests
+- One new live case: object keyPath, array host and boolean password are each refused with their own
+  sentence, `[object Object]` never appears, a numeric user still lists, and the doctor reports the
+  field once under `configuration` and once under `credentials` (not as `[ok]`).
+  Suite 814 / 809 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.232 — 2026-11-01
 
 ### Fixed

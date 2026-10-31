@@ -211,13 +211,16 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
 
   // A password is resolved by credentialFor(), because the value may need
   // decrypting and plaintext may be refused. Here we only record the source.
-  const passwordSource = filled(cfg.password)
+  // Only text counts: a hand-written `"password": true` was listed as
+  // file-plaintext while the connection refused it for having no credential.
+  const usableText = (value) => typeof value === 'string' && value.length > 0
+  const passwordSource = usableText(cfg.password)
     ? 'config'
     : filled(file.passwordDpapi)
       ? 'file-dpapi'
-      : filled(file.password)
+      : usableText(file.password)
         ? 'file-plaintext'
-        : filled(env.password)
+        : usableText(env.password)
           ? 'env'
           : 'none'
 
@@ -242,6 +245,25 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
   const portProblem = portValid ? '' :
     'port ' + JSON.stringify(port.value) + ' from the ' + port.source +
     ' is not an integer between 1 and 65535'
+  // A value that is not text cannot be a host, a user or a path, and String()
+  // turned it into something that looks like one: keyPath: {} became
+  // "[object Object]" and the failure named a file with that name. Numbers are
+  // left alone (user: 123 is a plausible name and String() is exact).
+  /** @type {Array<[string, {value: unknown, source: string}]>} */
+  const textFields = [
+    ['host', host], ['user', user], ['keyPath', keyPath],
+    ['keyPassphrase', keyPassphrase], ['knownHosts', knownHosts],
+    ['password', {
+      value: filled(cfg.password) ? cfg.password : filled(file.password) ? file.password : env.password,
+      source: filled(cfg.password) ? 'config' : filled(file.password) ? 'file' : 'env',
+    }],
+  ]
+  const badField = textFields.find(([, field]) => filled(field.value) &&
+    typeof field.value !== 'string' && typeof field.value !== 'number')
+  const fieldProblem = badField
+    ? 'the ' + badField[0] + ' from the ' + badField[1].source + ' is not text (it is ' +
+      (Array.isArray(badField[1].value) ? 'an array' : typeof badField[1].value) + ')'
+    : ''
 
   return {
     alias,
@@ -255,6 +277,8 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
     /** The value as configured, so a listing can show what is actually there. */
     portRaw: filled(port.value) ? port.value : '',
     portProblem,
+    /** The first field whose value cannot be text, or ''. */
+    fieldProblem,
     username: String(user.value || '').trim(),
     // Never carries plaintext: a DPAPI entry has to be decrypted on demand.
     password: '',

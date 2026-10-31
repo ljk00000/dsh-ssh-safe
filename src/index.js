@@ -978,7 +978,8 @@ function assertKnownArgs(args, known, toolName) {
           // whenever either was missing, so a machine with a host configured was
           // told its host variable was missing too.
           (missingFields.length ? '\n    MISSING: ' + missingFields.join(', ') : '') +
-          (m.portProblem ? '\n    BAD PORT: ' + m.portProblem : '')
+          (m.portProblem ? '\n    BAD PORT: ' + m.portProblem : '') +
+          (m.fieldProblem ? '\n    BAD FIELD: ' + m.fieldProblem : '')
         )
       }
       if (lean) {
@@ -2178,6 +2179,7 @@ function assertKnownArgs(args, known, toolName) {
       })
       if (missing.length) say('configuration', 'FAIL', 'missing ' + missing.join(', '))
       else if (m.portProblem) say('configuration', 'FAIL', m.portProblem)
+      else if (m.fieldProblem) say('configuration', 'FAIL', m.fieldProblem)
       else say('configuration', 'ok', endpointOf(m))
       // A misspelled field in the settings form is silently dropped by the
       // schema -- 'keypath' instead of 'keyPath' turned a key machine into
@@ -2199,7 +2201,10 @@ function assertKnownArgs(args, known, toolName) {
       let credentialProblem = ''
       // Any key-based kind: config, credential file or environment, not just the
       // environment: the other sources deserve the same scrutiny.
-      if (String(auth.kind).endsWith('-key')) {
+      // A keyPath that is not text is already a configuration failure: reading it
+      // as "[object Object]" only added a second line naming a file that cannot
+      // exist.
+      if (String(auth.kind).endsWith('-key') && !/keyPath/.test(m.fieldProblem || '')) {
         const keyPath = expandHome(auth.keyPath)
         if (!existsSync(keyPath)) {
           credentialProblem = 'key file not found: ' + keyPath
@@ -2262,7 +2267,11 @@ function assertKnownArgs(args, known, toolName) {
         }
       }
 
-      if (auth.kind === 'none') {
+      // A keyPath that is not text cannot be a key file, so 'ok: file-key' would
+      // be a false statement about the very field the configuration stage flags.
+      if (/keyPath/.test(m.fieldProblem || '')) {
+        say('credentials', 'FAIL', m.fieldProblem)
+      } else if (auth.kind === 'none') {
         say('credentials', 'FAIL', 'no password, key or agent available — set ' + need.auth[0])
       } else if (credentialProblem) {
         say('credentials', 'FAIL', credentialProblem)

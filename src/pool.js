@@ -876,6 +876,14 @@ export class SshPool {
         'Fix the port in that source, then retry.'
       ))
     }
+    // The same rule for a field that cannot be text at all: keyPath: {} was
+    // turned into "[object Object]" and the failure named a file with that name.
+    if (m.fieldProblem) {
+      throw noCooldown(new Error(
+        'Machine "' + alias + '" cannot be used: ' + m.fieldProblem + '. ' +
+        'Fix that value in its source (it must be plain text), then retry.'
+      ))
+    }
     // A host with a space and a user with a newline both fail much later with a
     // message about DNS or the handshake, so neither names the field that is
     // wrong. Refuse before dialling.
