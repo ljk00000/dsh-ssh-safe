@@ -38,6 +38,7 @@ import {
 } from './machines.js'
 import { storePath } from './hostkey.js'
 import { parsePrivateKey } from './connect.js'
+import { printable } from './format.js'
 import { DEFAULT_DENY_RULES, checkCommand, describeRule, invalidPatterns } from './guard.js'
 import { exitLine, formatListing, plural } from './format.js'
 import { AuditLog, summarize } from './audit.js'
@@ -880,7 +881,7 @@ function assertKnownArgs(args, known, toolName) {
           : m.keyPath
             ? (lean
                 ? 'private key (' + m.sources.keyPath + ', path hidden)'
-                : 'key ' + m.keyPath + ' (' + m.sources.keyPath + ')')
+                : 'key ' + printable(m.keyPath) + ' (' + m.sources.keyPath + ')')
             : plaintextIgnored
               ? 'NONE (a plaintext ' + (pwSource === 'config' ? 'settings-form' : 'credential-file') +
                 ' password is set but ignored; allowPlaintextPassword is off)'
@@ -890,11 +891,14 @@ function assertKnownArgs(args, known, toolName) {
         const shownPort = m.portProblem && m.portRaw !== '' ? m.portRaw : m.port
         const endpoint = lean
           ? '<host hidden>'
-          : (m.username || '<no user>') + '@' + (m.host ? formatHost(m.host) : '<no host>') + ':' + shownPort
+          : printable(m.username || '<no user>') + '@' + (m.host ? printable(formatHost(m.host)) : '<no host>') + ':' + printable(shownPort)
+        // Aliases, hosts and users come from a config file or an agent's edit, so
+        // they are as untrusted as a filename: an escape sequence or a bidi
+        // override here scrambles the very report a user checks their config with.
         out.push(
-          '• ' + alias + '  ' + endpoint +
+          '• ' + printable(alias) + '  ' + endpoint +
           '\n    auth: ' + authKind +
-          '\n    hostKeyPolicy: ' + (m.hostKeyPolicy || cfg.hostKeyPolicy) +
+          '\n    hostKeyPolicy: ' + printable(m.hostKeyPolicy || cfg.hostKeyPolicy) +
           '\n    ' + trustedLine(m) +
           (lean
             ? ''

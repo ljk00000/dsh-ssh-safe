@@ -796,3 +796,31 @@ test('a setting the plugin does not recognise is named, not silently ignored', a
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the machine inventory escapes control characters in names it did not write', async () => {
+  // Host and user come from a config file or an agent's edit. Raw ESC or U+202E
+  // there scrambles the report a user checks their configuration with.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-escmach-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const own = {}
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'odd', hostKeyPolicy: 'tofu',
+      machines: {
+        odd: { host: 'a\u202eb.example', port: 22, user: 'u\u0001x' },
+        esc: { host: 'e\u001b[31mred.example', port: 22, user: 'u' },
+      },
+    })
+    const text = String((await own.ssh_machines.execute({}, {})).text)
+    assert.match(text, /u\\x01x@a\\u202eb\.example:22/, text.slice(0, 300))
+    assert.match(text, /u@e\\x1b\[31mred\.example:22/)
+    assert.doesNotMatch(text, /\u202e/, 'the bidi override must not reach the transcript raw')
+    assert.doesNotMatch(text, /\u001b/, 'the escape must not reach the transcript raw')
+    assert.doesNotMatch(text, /\u0001/, 'the C0 character must not reach the transcript raw')
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

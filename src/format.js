@@ -17,7 +17,7 @@
  * @param {unknown} name
  * @returns {string}
  */
-function printable(name) {
+export function printable(name) {
   return String(name ?? '')
     .replace(/\\/g, '\\\\')
     .replace(/\n/g, '\\n')

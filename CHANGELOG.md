@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.137 — 2026-10-31
+
+### Fixed
+- **The machine inventory printed control characters raw.** Filenames were escaped in
+  listings, but host, user and alias came straight from the config file or an agent's
+  edit, so an escape sequence or a bidi override scrambled the very report a user
+  checks their configuration with:
+  ```
+  before: • esc  u@e<ESC>[31mred.example:22          (the ESC reaches the transcript)
+          • odd  u<C0>x@a<RLO>b.example:22          (the name displays reversed)
+  after : • esc  u@e\x1b[31mred.example:22
+          • odd  u\x01x@a\u202eb.example:22
+  ```
+  The escaping helper the listings already used is exported and applied to the alias,
+  host, user, port, host-key policy and key path in `ssh_machines`.
+
+### Verified, no change needed
+- `ssh_doctor` catches a corrupt `knownHosts` before dialling: `[FAIL] host key: … is
+  not in a format this plugin can verify …` and `[skip] authentication: host key was
+  rejected first`.
+
 ## 0.7.136 — 2026-10-31
 
 ### Fixed
