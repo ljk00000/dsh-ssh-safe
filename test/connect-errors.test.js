@@ -40,10 +40,10 @@ test('a port that is not sshd names the target and the likely cause', async () =
       () => p.connect('box', {}),
       (err) => {
         assert.match(err.message, /Could not connect to tester@127\.0\.0\.1:/, err.message)
-        // The errno differs by platform (Linux closes with EPIPE where Windows
-        // says ECONNRESET); the sentence is what the caller reads.
-        assert.match(err.message, /ECONNRESET|EPIPE|ECONNABORTED/)
-        assert.match(err.message, /may not be sshd/)
+        // The errno and even the wording differ by platform (Linux reports
+        // "Connection lost before handshake" where Windows says ECONNRESET);
+        // what the caller reads is the sentence naming the likely cause.
+        assert.match(err.message, /may not be sshd|answered but not with SSH/)
         return true
       },
     )

@@ -266,18 +266,27 @@ test('a timed-out command leaves the connection usable', async () => {
   }
 })
 test('two calls on a cold alias open one connection, not two', async () => {
-  const pool = poolFor({ t: machineFor('t', srv.port) })
+  // Its own server: this measurement counts new connections, so a connection
+  // opened by a neighbouring test (or by a reconnect that lands late) is counted
+  // here as if it were this test's. That is what made it fail on Linux only,
+  // where the whole file runs fast enough for the two to overlap.
+  const own = await startServer()
+  const pool = poolFor({ t: machineFor('t', own.port) })
   try {
-    const before = srv.clientCount()
+    const before = own.clientCount()
     const [one, two] = await Promise.all([
       pool.exec('t', 'sleep 0.2', {}),
       pool.exec('t', 'echo second', {}),
     ])
     assert.match(one.stdout, /slept/)
     assert.match(two.stdout, /second/)
-    assert.equal(srv.clientCount() - before, 1, 'the connect must be shared, not duplicated')
+    const opened = own.clientCount() - before
+    assert.equal(opened, 1,
+      'the connect must be shared, not duplicated (opened ' + opened + ', pool reports ' +
+      pool.connectionStats().live + ' live)')
   } finally {
     await pool.closeAll({ force: true })
+    await own.close()
   }
 })
 
