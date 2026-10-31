@@ -3097,6 +3097,8 @@ test('writing through a symlink chain names where the bytes actually landed', as
   srv2.vfs.putFile('/d/target.txt', Buffer.from('original\n'))
   srv2.vfs.putLink('/d/link-file', '/d/target.txt')
   srv2.vfs.putLink('/d/hop1', '/d/link-file')
+  // A relative target names 'next to the link', not a file in some other directory.
+  srv2.vfs.putLink('/d/rel-link', 'target.txt')
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-linkchain-'))
   const previous = process.env.DSH_HOME
   process.env.DSH_HOME = home
@@ -3118,6 +3120,13 @@ test('writing through a symlink chain names where the bytes actually landed', as
     assert.match(single, /symbolic link to \/d\/target\.txt/)
     assert.doesNotMatch(single, /chain ending at/)
     assert.equal(String((await own.ssh_read.execute({ machine: 't', path: '/d/target.txt', raw: true }, {})).text), 'ONE')
+    // A single relative hop used to report a chain: the raw target "target.txt" and
+    // the resolved "/d/target.txt" were compared as strings, so one hop looked like
+    // two and the note named a path relative to nothing in particular.
+    const rel = String((await own.ssh_write.execute({ machine: 't', path: '/d/rel-link', content: 'REL' }, {})).text)
+    assert.match(rel, /symbolic link to \/d\/target\.txt/)
+    assert.doesNotMatch(rel, /chain ending at/)
+    assert.equal(String((await own.ssh_read.execute({ machine: 't', path: '/d/target.txt', raw: true }, {})).text), 'REL')
   } finally {
     try { await own.ssh_close.execute({ force: true }, {}) } catch {}
     await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1500))])

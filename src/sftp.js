@@ -715,7 +715,13 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
           let attrs = await callSftp(sftp, 'lstat', target)
           if (attrs && typeof attrs.isSymbolicLink === 'function' && attrs.isSymbolicLink() &&
             typeof sftp.readlink === 'function') {
-            linkTarget = String(await callSftp(sftp, 'readlink', target))
+            const linkRaw = String(await callSftp(sftp, 'readlink', target))
+            // A relative target ("real.txt") means "next to the link", so report the
+            // path it actually names: the note said "a symbolic link to real.txt",
+            // which reads as a file somewhere else entirely.
+            linkTarget = posix.normalize(linkRaw.startsWith('/')
+              ? linkRaw
+              : posix.join(posix.dirname(target), linkRaw))
             // The bytes travel the whole chain, but readlink names only the first
             // hop: writing to /d/hop1 (→ /d/link-file → /d/target.txt) reported
             // "the content was written there" about a path that is itself a link.

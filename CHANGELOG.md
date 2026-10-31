@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.264 — 2026-11-01
+
+### Fixed — a single relative symlink was reported as a chain, and named the wrong place
+```
+/e/rel-file -> "real.txt"          (readlink answers a relative target)
+
+before  [note] that path is a symbolic link chain ending at /e/real.txt; … (the first hop was real.txt)
+after   [note] that path is a symbolic link to /e/real.txt; the content was written there
+```
+Two mistakes in one message. The raw target `real.txt` was compared with the resolved `/e/real.txt`, so
+one hop looked like two and the note claimed a chain; and the audit field recorded `real.txt`, a path
+relative to nothing the caller can see. Relative targets are now resolved against the link’s own
+directory (exactly how the server resolves them), so a single hop keeps the short sentence and names an
+absolute path.
+
+### Also verified (no change needed)
+- Write through a link to a **directory**: `not a file: /e/link-to-dir (it is a directory; use ssh_list)`.
+- Loops: `loop-a → loop-b → loop-a` and `selfie → selfie` both answer `symbolic link loop at … — the links
+  point at each other, so there is no file behind them; replace or remove one of the links`, for reads
+  and for writes.
+- Relative directory link: `ssh_list /e/rel-dir` lists the target directory.
+
+### Tests
+- The chain case gained a relative link: the note names `/d/target.txt`, does **not** say
+  `chain ending at`, and the bytes are verified in the target.
+  Suite 851 / 846 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.263 — 2026-11-01
 
 ### Fixed — a symlink chain was reported as a single hop
