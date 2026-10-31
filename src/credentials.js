@@ -200,6 +200,21 @@ export function redact(text) {
       return lead + quote + key + quote + ': <redacted>'
     },
   )
+  // Two credential files put the secret where no key or flag reaches it.
+  // ~/.netrc: a line that begins with "password".
+  // The value must not be the copula of a sentence: "PASSWORD is hunter2" is prose,
+  // and masking "is" left the secret standing right after it.
+  s = s.replace(/^(\s*)(password|passwd|passphrase)\s+(?!is\b|was\b|are\b|required\b|prompt\b|authentication\b|for\b|of\b|not\b)(\S+)/gim,
+    '$1$2 <redacted>')
+  // ~/.pgpass: host:port:database:user:password, five fields, no key name at all.
+  // The guard keeps log lines like "10:30:45:abc:def" alone: the first field has to
+  // look like a host (a dot, a star, localhost, or a bracketed IPv6) and the second
+  // has to be a port or a star.
+  s = s.replace(
+    /^((?:\*|\[[0-9a-f:]+\]|localhost|[\w-]+(?:\.[\w-]+)+)):(\d{1,5}|\*):([^:\s]*):([^:\s]+):(\S+)\s*$/gim,
+    '$1:$2:$3:$4:<redacted>',
+  )
+
   // Dockerfile ENV has no separator at all: ENV TOKEN abc123.
   s = s.replace(
     /(^|\n)(\s*ENV\s+)([A-Za-z0-9_]*(?:PASSWORD|PASSWD|PASS|SECRET|TOKEN|KEY|PWD|CREDENTIAL))((?:\s+)[^\n]+)/gi,

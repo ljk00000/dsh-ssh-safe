@@ -2825,3 +2825,39 @@ test('a dropped connection stops in-flight transfers instead of waiting for the 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a read .netrc or .pgpass is masked on the way out', async () => {
+  // The rules existed for flags and KEY=value text; a credential file with neither
+  // shape reached the transcript verbatim.
+  const srv2 = await startServer()
+  srv2.vfs.putFile('/home/u/.netrc', Buffer.from('machine db.example.com\n  login admin\n  password AAA1\n'))
+  srv2.vfs.putFile('/home/u/.pgpass', Buffer.from('db.example.com:5432:mydb:user:AAA2\n'))
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-read-redact-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    const read = async (p) => String((await own.ssh_read.execute({ machine: 't', path: p }, {})).text)
+    const netrc = await read('/home/u/.netrc')
+    assert.match(netrc, /password <redacted>/)
+    assert.doesNotMatch(netrc, /AAA1/)
+    assert.match(netrc, /pass raw: true/)
+    const pgpass = await read('/home/u/.pgpass')
+    assert.match(pgpass, /db\.example\.com:5432:mydb:user:<redacted>/)
+    assert.doesNotMatch(pgpass, /AAA2/)
+    // raw: true is the escape hatch and still returns the file verbatim.
+    const raw = String((await own.ssh_read.execute({ machine: 't', path: '/home/u/.netrc', raw: true }, {})).text)
+    assert.match(raw, /AAA1/)
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1500))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

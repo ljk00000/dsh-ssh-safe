@@ -337,3 +337,19 @@ test('the extra env names are masked and their look-alikes are not', () => {
     assert.equal(redact(text), text, text + ' must not be rewritten')
   }
 })
+
+test('~/.netrc and ~/.pgpass secrets are masked', () => {
+  // These two files put the secret where no key or flag reaches it: netrc uses a
+  // bare 'password <value>' line and pgpass has no key name at all.
+  assert.equal(redact('machine db.example.com\n  login admin\n  password hunter2\n'),
+    'machine db.example.com\n  login admin\n  password <redacted>\n')
+  assert.equal(redact('default\n  login u\n  password hunter2'), 'default\n  login u\n  password <redacted>')
+  assert.equal(redact('db.example.com:5432:mydb:user:hunter2'), 'db.example.com:5432:mydb:user:<redacted>')
+  assert.equal(redact('*:*:*:postgres:hunter2'), '*:*:*:postgres:<redacted>')
+  assert.equal(redact('[::1]:5432:db:u:hunter2'), '[::1]:5432:db:u:<redacted>')
+  // Log lines, a boolean sshd setting and a five-field sentence stay readable.
+  for (const text of ['10:30:45:abc:def', 'a:b:c:d:e:f:g', 'PasswordAuthentication yes',
+    'host:port:db:user:pass answer?']) {
+    assert.equal(redact(text), text, text + ' must not be rewritten')
+  }
+})

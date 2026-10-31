@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.254 — 2026-11-01
+
+### Fixed — the two credential files whose secrets have no key name
+```
+before  ~/.netrc   "  password hunter2"                          after  "  password <redacted>"
+before  ~/.pgpass  "db.example.com:5432:mydb:user:hunter2"        after  "…:user:<redacted>"
+before  ~/.pgpass  "*:*:*:postgres:hunter2"                       after  "*:*:*:postgres:<redacted>"
+```
+Both files put the secret where no flag and no `KEY=`/`KEY:` shape reaches it. `.netrc` is a line
+that begins with `password`; `.pgpass` is `host:port:database:user:password` with no key name at
+all. The pgpass rule only fires when the first field looks like a host (a dot, `*`, `localhost` or a
+bracketed IPv6) and the second is a port or `*`, so `10:30:45:abc:def` and
+`host:port:db:user:pass answer?` stay readable, as does sshd’s `PasswordAuthentication yes`.
+
+Verified end to end: `ssh_read` of a `.netrc` and a `.pgpass` now answers
+`password <redacted>` / `…:user:<redacted>` plus `[secrets masked; pass raw: true to see the file
+verbatim]`, and `raw: true` still returns the file verbatim.
+
+### A regression I introduced and caught in the same round
+The first `.netrc` rule masked `PASSWORD is hunter2` into `PASSWORD <redacted> hunter2` — it ate the
+copula and left the secret standing. The existing prose test (`a passphrase written as prose is
+masked too`) failed on the next run and the rule now excludes `is/was/are/required/prompt/…` after
+the keyword.
+
+### Tests
+- One `redact()` case (netrc, pgpass, `*`/IPv6 forms, four look-alikes) and one live case that reads
+  both files through `ssh_read`, checks the note, and confirms `raw: true` is still verbatim.
+  Suite 841 / 836 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.253 — 2026-11-01
 
 ### Fixed — the env-name matrix, second pass
