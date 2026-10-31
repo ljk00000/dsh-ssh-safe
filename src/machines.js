@@ -157,6 +157,49 @@ function ownEntry(object, key) {
   return value && typeof value === 'object' ? value : {}
 }
 
+/**
+ * The stored key passphrase, decrypted when it is DPAPI encrypted.
+ *
+ * A blob that cannot be decrypted (another Windows account, another machine)
+ * must not crash the listing: it reads as absent, and set-password’s own output
+ * is where the operator sees what was written.
+ *
+ * @param {Record<string, any>} file one entry of the credential file
+ * @returns {string}
+ */
+/**
+ * Why a stored key passphrase cannot be used, or "".
+ *
+ * @param {Record<string, any>} file one entry of the credential file
+ * @returns {string}
+ */
+function fileKeyPassphraseProblem(file) {
+  const blob = file && typeof file === 'object' ? file.keyPassphraseDpapi : undefined
+  if (typeof blob !== 'string' || blob.length === 0) return ''
+  if (!looksLikeDpapi(blob)) {
+    return 'the stored key passphrase is not a DPAPI blob; re-run scripts/set-password.mjs on this account'
+  }
+  try {
+    const plain = decryptDpapi(blob)
+    return typeof plain === 'string' && plain.length > 0
+      ? ''
+      : 'the stored key passphrase decrypted to nothing; re-run scripts/set-password.mjs'
+  } catch {
+    return 'the stored key passphrase cannot be decrypted on this account or machine; ' +
+      're-run scripts/set-password.mjs here'
+  }
+}
+function fileKeyPassphrase(file) {
+  if (!file || typeof file !== 'object') return ''
+  if (typeof file.keyPassphraseDpapi === 'string' && file.keyPassphraseDpapi.length > 0) {
+    try {
+      const plain = decryptDpapi(file.keyPassphraseDpapi)
+      if (typeof plain === 'string' && plain.length > 0) return plain
+    } catch { /* not for this account: fall through to the plaintext field */ }
+  }
+  return ''
+}
+
 /** True when a value counts as present. 0 and false do. */
 function filled(value) {
   return value !== undefined && value !== null && value !== ''
@@ -194,8 +237,11 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
     ['config', cfg.user], ['env', env.username], ['file', file.user], ['file', file.username],
   ])
   const keyPath = firstSet([['config', cfg.keyPath], ['env', env.keyPath], ['file', file.keyPath]])
+  // A passphrase is a secret of the same kind as a password, and it used to be
+  // stored only as plaintext while the password right next to it was DPAPI
+  // encrypted. The encrypted field wins, like passwordDpapi does for passwords.
   const keyPassphrase = firstSet([
-    ['config', cfg.keyPassphrase], ['env', env.keyPassphrase], ['file', file.keyPassphrase],
+    ['config', cfg.keyPassphrase], ['env', env.keyPassphrase], ['file-dpapi', fileKeyPassphrase(file)], ['file', file.keyPassphrase],
   ])
   const policy = firstSet([
     ['config', cfg.hostKeyPolicy], ['env', env.hostKeyPolicy], ['file', file.hostKeyPolicy],
@@ -208,6 +254,11 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
   const blobProblem = filled(file.passwordDpapi) && !looksLikeDpapi(file.passwordDpapi)
     ? 'the stored password is not a DPAPI blob; re-run scripts/set-password.mjs on this account'
     : ''
+  // Same question for the key passphrase: a blob from another Windows account or
+  // machine cannot be decrypted here, and the failure then surfaced as "the key is
+  // passphrase-protected and no keyPassphrase is configured" — the opposite of the
+  // truth.
+  const passphraseProblem = fileKeyPassphraseProblem(file)
 
   // A password is resolved by credentialFor(), because the value may need
   // decrypting and plaintext may be refused. Here we only record the source.
@@ -292,6 +343,7 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
     present: env.present,
     /** A problem with the stored secret itself, or '' when it looks usable. */
     passwordBlobProblem: blobProblem,
+  keyPassphraseProblem: passphraseProblem,
     /** Which source supplied each field. Never contains a value. */
     sources: {
       host: host.source,

@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.7.269 — 2026-11-01
+
+### Fixed — a key passphrase was written to disk in plaintext while the password beside it was encrypted
+```
+before  node scripts/set-password.mjs --alias k --key-path ~/.ssh/id_ed25519 --key-passphrase
+        Stored for "k":
+          keyPassphrase <set, NOT encrypted -- avoid>
+        credentials.json: { "keyPath": "...", "keyPassphrase": "hunter2" }
+
+after   Stored for "k":
+          keyPath            ~/.ssh/id_ed25519
+          keyPassphraseDpapi <encrypted with DPAPI, 460 chars>
+```
+The file printed a warning and stored the secret anyway, in the one format the plugin tells users never
+to use. A passphrase protects a key exactly the way a password protects an account, so it now goes
+through DPAPI like the password does; `--plaintext` stays the explicit opt-in, and on a platform
+without DPAPI the plaintext field is still used (that path already printed its warning).
+
+`machineDefinition()` decrypts `keyPassphraseDpapi` and prefers it over `keyPassphrase`, so existing
+files keep working. A blob that cannot be decrypted — another Windows account, another machine — used
+to read as "no passphrase stored", which made `ssh_doctor` say *no keyPassphrase is configured* about a
+passphrase that had been configured. `keyPassphraseProblem` now says which of the two happened, and the
+doctor prints it.
+
+### My own mistakes
+- The first doctor patch used LF anchors in a CRLF block and threw `passphrase problem anchor missing`;
+  the same class of slip as round 54, despite the note. Reading the exact bytes before anchoring is the
+  fix, and re-reading it after the failure is what I should have done first.
+- The new report line glued the key to its value (`keyPassphraseDpapi<encrypted…`) because the padding
+  was 14 characters and the key is 19; it is 20 now.
+
+### Tests
+- One new case: the CLI writes `keyPassphraseDpapi` and no plaintext, the file does not contain the
+  secret, `machineDefinition()` decrypts it, `--plaintext` still stores the plaintext field, and a
+  bogus blob reports `keyPassphraseProblem`.
+  Suite 855 / 850 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.268 — 2026-11-01
 
 ### Fixed — the page called every credential problem a "private key read failure"

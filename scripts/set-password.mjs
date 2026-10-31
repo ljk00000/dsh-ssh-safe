@@ -197,10 +197,22 @@ if (args.user && String(args.user).trim()) entry.user = String(args.user).trim()
 if (args['key-path'] && String(args['key-path']).trim()) entry.keyPath = String(args['key-path']).trim()
 
 // --key-passphrase with no value means "prompt for it".
-if (typeof args['key-passphrase'] === 'string') {
-  entry.keyPassphrase = args['key-passphrase']
-} else if (args['key-passphrase'] === true) {
-  entry.keyPassphrase = await readSecret('Key passphrase for "' + alias + '" (input hidden): ')
+const passphraseInput = typeof args['key-passphrase'] === 'string'
+  ? args['key-passphrase']
+  : args['key-passphrase'] === true
+    ? await readSecret('Key passphrase for "' + alias + '" (input hidden): ')
+    : undefined
+if (passphraseInput !== undefined) {
+  // A passphrase protects a key the same way a password protects an account, and it
+  // used to be written in plaintext while the password beside it was DPAPI
+  // encrypted -- the file said "<set, NOT encrypted -- avoid>" and stored it anyway.
+  if (args.plaintext === true || !dpapiAvailable()) {
+    entry.keyPassphrase = passphraseInput
+    delete entry.keyPassphraseDpapi
+  } else {
+    entry.keyPassphraseDpapi = encryptDpapi(passphraseInput)
+    delete entry.keyPassphrase
+  }
 }
 
 // Removing a stored password had no path at all: the page ignores an empty
@@ -316,14 +328,15 @@ if (process.platform === 'win32') {
 
 console.log('')
 console.log('Stored for "' + alias + '":')
-for (const key of ['host', 'port', 'user', 'keyPath', 'keyPassphrase', 'passwordDpapi', 'password']) {
+for (const key of ['host', 'port', 'user', 'keyPath', 'keyPassphrase', 'keyPassphraseDpapi', 'passwordDpapi', 'password']) {
   if (entry[key] === undefined) continue
   const shown = key === 'password' || key === 'keyPassphrase'
     ? '<set, NOT encrypted -- avoid>'
-    : key === 'passwordDpapi'
+    : key === 'passwordDpapi' || key === 'keyPassphraseDpapi'
       ? '<encrypted with DPAPI, ' + String(entry[key]).length + ' chars>'
       : entry[key]
-  console.log('  ' + key.padEnd(14) + shown)
+  // keyPassphraseDpapi is 19 characters; padEnd(14) glued it to its value.
+  console.log('  ' + key.padEnd(20) + shown)
 }
 console.log('')
 console.log('File: ' + file)

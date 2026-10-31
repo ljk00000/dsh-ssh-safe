@@ -293,3 +293,43 @@ test('the usage line names every option the script accepts', () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a key passphrase is stored DPAPI encrypted, and an unusable blob says so', async () => {
+  // It used to be written in plaintext while the password beside it was encrypted,
+  // and a blob that could not be decrypted read as 'no keyPassphrase configured'.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-keypass-'))
+  const run = (args) => spawnSync(process.execPath, [script, ...args], {
+    encoding: 'utf8', env: { ...process.env, DSH_HOME: home },
+  })
+  try {
+    const stored = run(['--alias', 'k', '--key-path', '~/.ssh/id_ed25519', '--key-passphrase', 'PASSMARKER'])
+    if (stored.status !== 0) {
+      // No DPAPI on this platform: the CLI must say so rather than store plaintext.
+      assert.match((stored.stdout || '') + (stored.stderr || ''), /DPAPI|plaintext/i)
+      return
+    }
+    const file = path.join(home, 'dsh-ssh-safe', 'credentials.json')
+    const entry = JSON.parse(readFileSync(file, 'utf8')).k
+    assert.equal(entry.keyPassphrase, undefined, 'no plaintext passphrase on disk')
+    assert.equal(typeof entry.keyPassphraseDpapi, 'string')
+    assert.doesNotMatch(readFileSync(file, 'utf8'), /PASSMARKER/)
+    // The resolver decrypts it, so the value reaches the key parser.
+    const machine = machineDefinition('k', { machines: {}, dshHome: home })
+    assert.equal(machine.keyPassphrase, 'PASSMARKER')
+    assert.equal(machine.keyPassphraseProblem, '')
+    // --plaintext is the explicit opt-in and still works.
+    const plain = run(['--alias', 'p', '--key-path', '~/.ssh/id_ed25519', '--key-passphrase', 'PLAINMARKER', '--plaintext'])
+    assert.equal(plain.status, 0)
+    const plainEntry = JSON.parse(readFileSync(file, 'utf8')).p
+    assert.equal(plainEntry.keyPassphrase, 'PLAINMARKER')
+    assert.equal(plainEntry.keyPassphraseDpapi, undefined)
+    // A blob from somewhere else cannot be decrypted: that is not 'not configured'.
+    const broken = { k: { keyPath: '~/.ssh/id_ed25519', keyPassphraseDpapi: 'DPAPIBLOB:notreally' } }
+    writeFileSync(file, JSON.stringify(broken, null, 2))
+    const bad = machineDefinition('k', { machines: {}, dshHome: home })
+    assert.equal(bad.keyPassphrase, '')
+    assert.match(bad.keyPassphraseProblem, /DPAPI blob|cannot be decrypted/)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})

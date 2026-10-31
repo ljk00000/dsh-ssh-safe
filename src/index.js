@@ -553,7 +553,7 @@ function denyPatternsSummary(configured) {
 const MACHINE_FIELDS = ['host', 'port', 'user', 'password', 'keyPath', 'keyPassphrase', 'hostKeyPolicy', 'knownHosts']
 
 /** The credential file additionally takes an encrypted password and 'username'. */
-const CREDENTIAL_FIELDS = [...MACHINE_FIELDS, 'passwordDpapi', 'username']
+const CREDENTIAL_FIELDS = [...MACHINE_FIELDS, 'passwordDpapi', 'keyPassphraseDpapi', 'username']
 
 /**
  * Spell-check the machine entries in the settings form.
@@ -2348,9 +2348,12 @@ function credentialFileAge(file) {
               try {
                 const parsed = parsePrivateKey(String(body), auth.passphrase)
                 if (parsed instanceof Error) {
+                  // A stored blob that cannot be decrypted here is NOT 'not configured':
+                  // saying so sent the reader to add a passphrase they had already added.
+                  const passphraseProblem = /passphrase/i.test(parsed.message) ? (m.keyPassphraseProblem || '') : ''
                   credentialProblem = /passphrase/i.test(parsed.message) && !auth.passphrase
-                    ? 'the private key ' + keyPath + ' is passphrase-protected and no keyPassphrase is ' +
-                      'configured — set keyPassphrase for this machine (or DSH_SSH_<ALIAS>_KEY_PASSPHRASE)'
+                    ? 'the private key ' + keyPath + ' is passphrase-protected and ' +
+                      (passphraseProblem || 'no keyPassphrase is configured — set keyPassphrase for this machine (or DSH_SSH_<ALIAS>_KEY_PASSPHRASE)')
                     : 'the private key ' + keyPath + ' could not be parsed: ' + parsed.message
                 }
               } catch { /* leave the earlier checks to speak */ }
