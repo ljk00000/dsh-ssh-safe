@@ -172,7 +172,7 @@ export function sendStdinEof(channel) {
  * @param {{host?: string, port?: number}} [m]
  * @returns {string}
  */
-function hideAddress(text, m) {
+export function hideAddress(text, m) {
   const host = String((m && m.host) || '')
   if (!host) return text
   const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

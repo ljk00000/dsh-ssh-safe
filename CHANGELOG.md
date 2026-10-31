@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.69 — 2026-10-31
+
+### Fixed
+- **ssh_doctor logged in without leaving a record.** It authenticates and runs a
+  command to prove the channel works, and the audit log -- the record of when the
+  account was used against a host -- stayed silent. Both outcomes are recorded now:
+  `doctor ok <alias>` and `doctor error <alias>  reason=...`.
+- **machineInventory: alias still leaked the host through the audit log.** A
+  failure was stored verbatim -- `Could not connect to tester@1.2.3.4:2222` -- and
+  ssh_audit prints it back, so the one place that promises to hide the address
+  showed it. Audit text is masked when the setting is `alias`:
+  `Could not connect to machine "bad" (address hidden): ...`.
+
+### Added — tests
+- A doctor run is recorded as ok and as error, and neither the audit file nor
+  ssh_audit output carries the host or port under alias mode.
+
 ## 0.7.68 — 2026-10-31
 
 ### Fixed

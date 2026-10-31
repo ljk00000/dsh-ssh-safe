@@ -545,3 +545,38 @@ test('ssh_write reports the mode and refuses a mode that is not octal digits', a
     },
   )
 })
+test('ssh_doctor records its login, and alias mode keeps the host out of the log', async () => {
+  const own = await startServer()
+  const home2 = mkdtempSync(path.join(tmpdir(), 'dsh-doctor-audit-'))
+  process.env.DSH_HOME = home2
+  const doctorTools = {}
+  await apply({ tools: { register: (d) => { doctorTools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    defaultMachine: 'good',
+    hostKeyPolicy: 'tofu',
+    allowPlaintextPassword: true,
+    auditLog: true,
+    machineInventory: 'alias',
+    machines: {
+      good: machineFor('good', own.port),
+      bad: { ...machineFor('bad', own.port), password: 'wrong' },
+    },
+  })
+  try {
+    await doctorTools.ssh_doctor.execute({ machine: 'good' }, {})
+    await doctorTools.ssh_doctor.execute({ machine: 'bad' }, {})
+    const lines = readFileSync(path.join(home2, 'dsh-ssh-safe', 'audit.ndjson'), 'utf8').trim().split('\n')
+    const records = lines.map((line) => JSON.parse(line))
+    const doctor = records.filter((r) => r.kind === 'doctor')
+    assert.equal(doctor.length, 2, 'every doctor run is recorded: ' + JSON.stringify(records))
+    assert.deepEqual(doctor.map((r) => r.outcome).sort(), ['error', 'ok'])
+    const whole = lines.join('\n')
+    assert.ok(!whole.includes(String(own.port)), 'the audit log holds the port under alias mode')
+    assert.ok(!whole.includes('127.0.0.1'), 'the audit log holds the host under alias mode')
+    const shown = String((await doctorTools.ssh_audit.execute({}, {})).text)
+    assert.ok(!shown.includes(String(own.port)), 'ssh_audit shows the port under alias mode')
+  } finally {
+    await doctorTools.ssh_close.execute({ force: true }, {})
+    await own.close()
+    rmSync(home2, { recursive: true, force: true })
+  }
+})

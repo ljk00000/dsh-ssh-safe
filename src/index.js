@@ -23,7 +23,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { readFileSync, existsSync } from 'node:fs'
 import net from 'node:net'
 import { homedir } from 'node:os'
-import { SshPool, expandHome, formatHost, pick } from './pool.js'
+import { SshPool, expandHome, formatHost, hideAddress, pick } from './pool.js'
 import { expectedEnv, redact } from './credentials.js'
 import {
   credentialFor,
@@ -305,6 +305,29 @@ export async function apply(ctx, config) {
     const trimmed = value.trim()
     if (trimmed.length === 0) throw new Error(field + ' is required')
     return trimmed
+  }
+
+  /**
+   * Text for the audit log.
+   *
+   * machineInventory: 'alias' promises that the host and port stay out of
+   * everything this plugin says; the audit log is read back through ssh_audit, so
+   * a failure recorded there ('Could not connect to tester@1.2.3.4:2222') leaked
+   * exactly what the setting hides.
+   *
+   * @param {string} alias
+   * @param {unknown} text
+   * @returns {string}
+   */
+  const auditText = (alias, text) => {
+    const masked = redact(text)
+    if (cfg.machineInventory !== 'alias') return masked
+    try {
+      const m = machineDefinition(alias, { machines: cfg.machines, dshHome: credentialHome })
+      return hideAddress(masked, m)
+    } catch {
+      return masked
+    }
   }
 
   /**
@@ -787,7 +810,7 @@ function assertKnownArgs(args, known, toolName) {
           kind: 'connect',
           machine: alias,
           outcome: 'error',
-          error: redact(err && err.message ? err.message : String(err)).slice(0, 200),
+          error: auditText(alias, err && err.message ? err.message : String(err)).slice(0, 200),
           ms: Date.now() - startedAt,
         })
         throw err
@@ -852,7 +875,7 @@ function assertKnownArgs(args, known, toolName) {
           machine: alias,
           command: summarize(command),
           outcome: 'error',
-          error: redact(err && err.message ? err.message : String(err)).slice(0, 200),
+          error: auditText(alias, err && err.message ? err.message : String(err)).slice(0, 200),
           ms: Date.now() - startedAt,
         })
         throw err
@@ -967,7 +990,7 @@ function assertKnownArgs(args, known, toolName) {
       } catch (err) {
         audit.write({
           kind: 'read', machine: alias, path: remotePath, outcome: 'error',
-          error: redact(err && err.message ? err.message : String(err)).slice(0, 200),
+          error: auditText(alias, err && err.message ? err.message : String(err)).slice(0, 200),
           ms: Date.now() - startedAt,
         })
         throw err
@@ -1065,7 +1088,7 @@ function assertKnownArgs(args, known, toolName) {
         }
         audit.write({
           kind: 'write', machine: alias, path: remotePath, outcome: 'error',
-          error: redact(err && err.message ? err.message : String(err)).slice(0, 200),
+          error: auditText(alias, err && err.message ? err.message : String(err)).slice(0, 200),
           ms: Date.now() - startedAt,
         })
         throw err
@@ -1130,7 +1153,7 @@ function assertKnownArgs(args, known, toolName) {
       } catch (err) {
         audit.write({
           kind: 'list', machine: alias, path: remotePath, outcome: 'error',
-          error: redact(err && err.message ? err.message : String(err)).slice(0, 200),
+          error: auditText(alias, err && err.message ? err.message : String(err)).slice(0, 200),
           ms: Date.now() - startedAt,
         })
         throw err
@@ -1628,16 +1651,28 @@ function assertKnownArgs(args, known, toolName) {
       // connection, it closes it again afterwards and restores the failure state,
       // so calling ssh_doctor never leaves a socket behind or clears a cooldown.
       const wasConnected = Boolean(pool.entries.get(alias)?.client)
+      // Doctor authenticates and runs a command, so it has to leave the same trail
+      // as any other use of the account; it used to log in silently.
+      const doctorStartedAt = Date.now()
+      const doctorRecord = (outcome, detail) => audit.write({
+        kind: 'doctor', machine: alias, outcome,
+        ...(detail ? { reason: auditText(alias, detail).slice(0, 120) } : {}),
+        ms: Date.now() - doctorStartedAt,
+      })
       try {
         await pool.connect(alias, { force: true })
         const e = pool.entry(alias)
         say('host key', 'ok', e.fingerprint || 'verified')
         const probe = await pool.exec(alias, 'echo doctor-ok', { timeoutMs: 8000 })
         const replied = String(probe.stdout || '').includes('doctor-ok')
+        doctorRecord(replied ? 'ok' : 'error', replied ? '' : 'the session opened but produced no stdout')
         say('authentication', replied ? 'ok' : 'FAIL', replied ? 'command channel works' : 'connected but no output')
         if (!replied) say('shell', 'warn', 'the session opened but produced no stdout; the remote shell may be restricted')
       } catch (err) {
         const message = redact(err && err.message ? err.message : String(err))
+        // Authentication was attempted (or at least the connection was), so the
+        // attempt belongs in the log whether or not it worked.
+        doctorRecord('error', message)
         if (/host key|fingerprint|HOST KEY CHANGED|Unknown host/i.test(message)) {
           say('host key', 'FAIL', message)
           say('authentication', 'skip', 'host key was rejected first')
