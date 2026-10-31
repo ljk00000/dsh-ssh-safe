@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.149 — 2026-10-31
+
+### Fixed
+- **`1 more character were dropped`.** The truncation note pluralised the noun but
+  not the verb:
+  ```
+  before: … 1 more character were dropped from the end — what is shown is the
+          beginning of the output. …
+  after : … 1 more character was dropped from the end — …
+          … 2 more characters were dropped from the end — …
+  ```
+  The boundary itself was already exact and stays that way: a body of exactly
+  `maxOutputChars` is not truncated (1024 → 1024 bytes, no note), one more byte is
+  (1025 → 1024 kept, 1 dropped).
+
+### Verified, no change needed
+- `~` is expanded only at the start of a path: `C:\Users\~\x`, `C:~\x` and
+  `\\server\share\~\x` are left alone.
+- Writing through a symlink to a file follows the link (the target is rewritten), the
+  link survives as a link, and the note says where the bytes went.
+- Closing one alias does not disturb a command running on another.
+- `keepaliveIntervalMs: 300` with a 2-second command returns `slept 2 [exit 0]` in
+  2030ms, and the next 5KB output arrives complete.
+
 ## 0.7.148 — 2026-10-31
 
 ### Fixed

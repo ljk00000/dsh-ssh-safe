@@ -1123,7 +1123,9 @@ function assertKnownArgs(args, known, toolName) {
         // leaves them reading the beginning as if it were the whole command's
         // verdict.
         parts.push('[output truncated at maxOutputChars' +
-          (lost > 0 ? ': ' + lost + ' more character' + (lost === 1 ? '' : 's') + ' were dropped from the end' : '') +
+          // '1 more character were dropped' agreed with nothing: singular subject,
+          // plural verb. The number and the verb have to match together.
+          (lost > 0 ? ': ' + lost + ' more character' + (lost === 1 ? ' was' : 's were') + ' dropped from the end' : '') +
           ' — what is shown is the beginning of the output. Raise maxOutputChars, or send the ' +
           'output to a file and read it with ssh_read]')
       }

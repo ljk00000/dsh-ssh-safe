@@ -1531,3 +1531,38 @@ test('a trust record without a fingerprint is reported as not trusted', async ()
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the truncation note agrees with its own number', async () => {
+  // '1 more character were dropped' — singular subject, plural verb. The number and
+  // the verb now change together, and the boundary stays exact: a body of exactly
+  // maxOutputChars is not truncated.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-plural-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      connectTimeoutMs: 3000, commandTimeoutMs: 5000, maxOutputChars: 1024,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    const atCap = String((await own.ssh_exec.execute({ machine: 't', command: 'big 1024' }, {})).text)
+    assert.doesNotMatch(atCap, /truncated/,
+      'exactly maxOutputChars must not be reported as truncated')
+    assert.equal(atCap.split('\n')[0].length, 1024)
+
+    const one = String((await own.ssh_exec.execute({ machine: 't', command: 'big 1025' }, {})).text)
+    assert.match(one, /1 more character was dropped from the end/)
+    assert.doesNotMatch(one, /1 more character were/)
+
+    const two = String((await own.ssh_exec.execute({ machine: 't', command: 'big 1026' }, {})).text)
+    assert.match(two, /2 more characters were dropped from the end/)
+  } finally {
+    await own.ssh_close.execute({}, {}).catch(() => {})
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
