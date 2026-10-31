@@ -403,6 +403,8 @@ export class SshPool {
      * so shutdown now refuses to close a busy connection until it drains.
      */
     this.inflight = new Map()
+    /** Coalesces the ceiling check that runs when work finishes. */
+    this.evictPending = false
     /** @type {Map<string, PoolEntry>} */
     this.entries = new Map()
     /** Writes in flight per remote target, so two never interleave. */
@@ -446,6 +448,29 @@ export class SshPool {
     const n = (this.inflight.get(alias) || 0) - 1
     if (n > 0) this.inflight.set(alias, n)
     else this.inflight.delete(alias)
+    // The ceiling was only enforced when something asked for a connection, so a
+    // burst left the excess open until the next call -- possibly for hours.
+    // Measured with maxConnections: 1 and three concurrent commands:
+    // 'Live connections: 3 / 1 max' after every command had returned.
+    if (n <= 0) this.#evictSoon()
+  }
+
+  /**
+   * Enforce the ceiling once the current work has finished.
+   *
+   * Deferred a tick so the operation that just ended can return its result
+   * before a socket is closed, and coalesced so a burst of completions evicts
+   * once.
+   */
+  #evictSoon() {
+    if (this.evictPending) return
+    this.evictPending = true
+    setImmediate(() => {
+      this.evictPending = false
+      const limit = Number(this.config.maxConnections)
+      if (!Number.isFinite(limit) || limit <= 0) return
+      this.evictIdle(limit).catch(() => {})
+    })
   }
 
   /** Is anything running on this alias? */

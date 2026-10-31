@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.182 — 2026-10-31
+
+### Fixed
+- **The connection ceiling was only enforced when something asked for a connection.** After a
+  burst, the excess sockets stayed open until the next operation — minutes or hours:
+  ```
+  maxConnections: 1, three commands run concurrently, then 400 ms of silence
+  before: Live connections: 3 / 1 max  [a, b, c]   (server clients: 3, indefinitely)
+  after : Live connections: 1 / 1 max  [c]         (server clients: 1)
+  ```
+  The ceiling is now checked when an operation finishes (`endOp`), deferred one tick so the
+  operation can return its result first and coalesced so a burst evicts once. Busy
+  connections are still never cut: only idle ones are closed.
+  Measured against the deployed 0.7.181 and the working tree side by side; the test asserts
+  both the report line and the server-side client count.
+
+### Verified, no change needed
+- A corrupted `known_hosts.json` is refused, not overwritten: `ssh_connect trustHostKey`
+  names the file and the parse error, the file is byte-identical afterwards, `ssh_machines`
+  says "known-hosts store unreadable (parse error)" and the doctor fails at the host-key
+  stage with that reason.
+- `ssh_close force` during a running command: the close succeeds, the command reports
+  "[connection closed before the command reported an exit status …]" and the record is
+  `exec/incomplete`.
+- `ssh_write` and `ssh_read` racing on one path behave like the filesystem they describe: the
+  reader saw the file at its truncated moment and said "(empty file: … 0 bytes)".
+
 ## 0.7.181 — 2026-10-31
 
 ### Fixed

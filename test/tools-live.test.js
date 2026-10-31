@@ -1843,6 +1843,39 @@ test('an exit code is shown once, not twice', async () => {
   assert.match(shown, /exec ok exit=\d/)
 })
 
+
+test('the connection ceiling is enforced when work finishes, not only on the next call', async () => {
+  // maxConnections: 1 with three concurrent commands left three sockets open
+  // until something asked for a connection again: the report said '3 / 1 max'
+  // and the server still had three clients 400 ms later.
+  const srv2 = await startServer()
+  const own = {}
+  await apply(
+    { tools: { register: (def) => { own[def.name] = def } }, effect: () => {}, get: () => undefined },
+    {
+      defaultMachine: 'a', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 5000, commandTimeoutMs: 8000, maxConnections: 1,
+      machines: {
+        a: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' },
+        b: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' },
+        c: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' },
+      },
+    },
+  )
+  try {
+    await Promise.all(['a', 'b', 'c'].map((m) => own.ssh_exec.execute({ machine: m, command: 'echo x-' + m }, {})))
+    // The close is asynchronous, so give the sockets a moment to go.
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    const line = String((await own.ssh_config.execute({}, {})).text).split('\n').find((l) => /Live connections/.test(l)) || ''
+    assert.match(line, /Live connections: 1 \/ 1 max/)
+    assert.equal(srv2.clientCount(), 1)
+  } finally {
+    await own.ssh_close.execute({ force: true }, {}).catch(() => {})
+    srv2.killClients()
+    await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1500))])
+  }
+})
+
 test('closing every connection leaves a record for each one', async () => {
   // ssh_close with no machine is what people call at the end of a session, and it
   // wrote nothing: the per-machine form recorded what it did, this one did not.
