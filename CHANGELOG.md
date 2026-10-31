@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.235 — 2026-11-01
+
+### Fixed
+- **One unusable modification time failed the whole listing.** `toISOString()` throws `RangeError`
+  for a date outside what a Date can represent, and the row was built without a guard:
+  ```
+  attrs.mtime: 1e20   → RangeError: Invalid time value   (the entire ssh_list failed)
+  attrs.mtime: -1e20  → RangeError
+  attrs.mtime: "abc"  → RangeError
+  ```
+  Each of those now yields a row with no timestamp column, like a server that reports none. A
+  plausible value still renders: `1700000000` and `"1700000000"` both give `2023-11-14T22:13:20Z`.
+
+### Verified, no change needed
+- `mode` is validated on every path: `"0644"`/`"640"` are accepted (and echoed as `mode 0644`),
+  while `"abc"`, `"999"`, `"-1"`, `"rw-r--r--"`, `true` and numbers are refused with
+  `mode must be octal digits like "600" or "0644"`.
+- A hand-edited workspace marker with `alias: {nested}`, `host: ["a","b"]`, `port: "abc"` and
+  `username: 12345` cannot reach the output: `ssh_workspace` rebuilds AGENTS.md from the live
+  machine definition and reports the missing file instead of printing the junk.
+
+### Tests
+- One new case: 1e20, -1e20, "abc", {} and [] all keep the row and drop the stamp; numeric and
+  numeric-string epochs still render. Suite 816 / 811 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.234 — 2026-11-01
 
 ### Fixed

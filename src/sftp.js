@@ -746,11 +746,28 @@ export function listingEntries(items) {
       // shows all three as '-' invites reading a FIFO, which blocks.
       type: typeChar(it.attrs.mode),
       // SFTP reports whole seconds, so the milliseconds are always .000 and only
-      // make the column wider.
-      mtime: it.attrs.mtime
-        ? new Date(it.attrs.mtime * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
-        : null,
+      // make the column wider. A server can report a time no Date can represent
+      // (or something that is not a number): toISOString() then throws "Invalid
+      // time value" and the whole listing fails with no path and no filename.
+      mtime: isoSeconds(it.attrs.mtime),
     }))
+}
+
+/**
+ * The ISO stamp for a whole-second epoch, or null when it cannot be one.
+ *
+ * new Date(1e20 * 1000).toISOString() throws RangeError, so one unusable
+ * timestamp took down the entire listing.
+ *
+ * @param {unknown} seconds
+ * @returns {string|null}
+ */
+function isoSeconds(seconds) {
+  const n = Number(seconds)
+  if (!Number.isFinite(n) || n <= 0) return null
+  const at = new Date(n * 1000)
+  if (Number.isNaN(at.getTime())) return null
+  return at.toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
 export async function listRemoteDir(client, remotePath, { timeoutMs, signal }) {

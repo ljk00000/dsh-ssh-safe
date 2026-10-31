@@ -301,3 +301,23 @@ test('a listing hides the . and .. rows a real server sends', () => {
   assert.equal(rows[2].dir, false, 'a socket sets the directory bit but is not a directory')
   assert.equal(rows[2].type, 's')
 })
+
+test('a timestamp no Date can represent does not fail the listing', () => {
+  // new Date(1e20 * 1000).toISOString() throws RangeError, so one unusable mtime
+  // took down the whole ssh_list with 'Invalid time value' and no filename.
+  const base = { size: 1, mode: 0o100644 }
+  for (const mtime of [1e20, -1e20, 'abc', {}, []]) {
+    const rows = listingEntries([{ filename: 'f', attrs: { ...base, mtime } }])
+    assert.equal(rows.length, 1, 'the row must survive mtime ' + String(mtime))
+    assert.equal(rows[0].mtime, null, 'no stamp for ' + String(mtime))
+  }
+  assert.equal(listingEntries([{ filename: 'z', attrs: { ...base, mtime: 0 } }])[0].mtime, null)
+  assert.equal(
+    listingEntries([{ filename: 's', attrs: { ...base, mtime: '1700000000' } }])[0].mtime,
+    '2023-11-14T22:13:20Z',
+  )
+  assert.equal(
+    listingEntries([{ filename: 'n', attrs: { ...base, mtime: 1700000000 } }])[0].mtime,
+    '2023-11-14T22:13:20Z',
+  )
+})
