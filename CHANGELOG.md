@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.257 — 2026-11-01
+
+### Fixed — `ssh_connect` promised a `uname` it never ran
+The tool description and both README tables said the call reports **the remote uname**. It does not,
+and the code says why in a comment: running a command as a side effect of connecting put an extra
+command in the audit trail and an extra entry in the in-flight counter for something the caller never
+asked for (verifying the channel is `ssh_doctor`’s job). Measured against a server that answers exec
+normally, one that exits 127 and one that never answers — all three returned the same text in 2–3 ms:
+```
+Connected: tester@127.0.0.1:8704
+Host key: SHA256:xKIp51Z0jIolIwpWwyw52huyNjBO8kZwhd3nE5trQxs
+Pool: 1 live / 8 max
+```
+Three surfaces promised it: the tool description, the Chinese README table and the English one. All
+three now say "the fingerprint and the pool state, no remote command — `ssh_doctor` verifies the
+channel", which is what the tool has actually done since the change that removed the probe.
+
+### Tests
+- No new test: the behaviour is unchanged and the fix is the three sentences describing it. Suite
+  843 / 838 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.256 — 2026-11-01
 
 ### Fixed — the settings page told the wrong story about a failed TCP probe

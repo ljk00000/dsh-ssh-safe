@@ -260,7 +260,7 @@ DSH_SSH_PROD_KNOWN_HOSTS=~/.ssh/known_hosts.json
 | 工具 | 作用 |
 | --- | --- |
 | `ssh_machines` | 列出已配置的机器、认证方式、指纹信任状态（**不显示任何密钥**） |
-| `ssh_connect` | 建立或复用连接，返回主机指纹与远端 `uname` |
+| `ssh_connect` | 建立或复用连接，返回主机指纹与连接池状态（不跑远端命令；要验证命令通道用 `ssh_doctor`） |
 | `ssh_exec` | 在远端执行命令，返回 stdout / stderr / 退出码（输出里的密钥样式文本默认打码，`raw: true` 关闭；见下文「脱敏」） |
 | `ssh_read` | 读远端文件（UTF-8，按字节上限截断；默认对疑似密钥打码，`raw: true` 关闭） |
 | `ssh_write` | 写远端文件（覆盖）；父目录不存在时报错，`createDirs: true` 自动创建；新建文件的权限用 `mode: "600"` 指定（写私钥、`.env` 时务必指定），回执里会报出实际权限 |
@@ -601,7 +601,7 @@ Restart DeepSeek Harness — environment variables are read at process start.
 | Tool | Purpose |
 | --- | --- |
 | `ssh_machines` | Configured machines, auth kind, fingerprint trust (never shows key material) |
-| `ssh_connect` | Open/reuse a connection; reports fingerprint and remote `uname` |
+| `ssh_connect` | Open/reuse a connection; reports the fingerprint and pool state (runs no remote command — `ssh_doctor` verifies the channel) |
 | `ssh_exec` | Run a command; returns stdout, stderr, exit code (secret-shaped text in the output is masked unless `raw: true`; see below) |
 | `ssh_read` | Read a remote file (UTF-8, byte-capped; secret-shaped text masked unless `raw: true`) |
 | `ssh_write` | Write a remote file (overwrite); `createDirs: true` creates missing parents; `mode: "600"` sets the permissions of a new file (always do this for keys and `.env`), and the reply reports the mode that resulted |

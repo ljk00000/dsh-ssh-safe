@@ -999,7 +999,9 @@ function assertKnownArgs(args, known, toolName) {
     name: 'ssh_connect',
     description:
       'Open or reuse the SSH connection for a machine, then report the host-key fingerprint and ' +
-      'the remote uname. Refuses an unknown host unless trustHostKey: true is passed once, and ' +
+      // No remote command: an earlier version promised the remote uname and never ran it,
+      // which read as a broken tool. Verifying the channel is what ssh_doctor is for.
+      'the pool state. Refuses an unknown host unless trustHostKey: true is passed once, and ' +
       'always refuses a host whose key changed. Never returns credentials.',
     parameters: {
       machine: { type: 'string', description: 'Machine alias, e.g. "prod". Defaults to defaultMachine.' },
