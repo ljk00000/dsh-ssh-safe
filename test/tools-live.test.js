@@ -1099,6 +1099,54 @@ test('the audit log records the end of a connection too', async () => {
   }
 })
 
+
+test('the connect record says whether the host key was verified', async () => {
+  // 'connect ok' could not answer the question the audit trail exists for: was
+  // this session protected against a man-in-the-middle?
+  const home2 = mkdtempSync(path.join(tmpdir(), 'dsh-audithostkey-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home2
+  try {
+    const srv2 = await startServer()
+    const make = (policy) => {
+      const own = {}
+      return apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+        defaultMachine: 't', hostKeyPolicy: policy, allowPlaintextPassword: true, auditLog: true, reconnectCooldownMs: 0,
+        connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+        machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+      }).then(() => own)
+    }
+    const records = () => readFileSync(path.join(home2, 'dsh-ssh-safe', 'audit.ndjson'), 'utf8')
+      .split('\n').filter(Boolean).map((line) => JSON.parse(line))
+    try {
+      const tofu = await make('tofu')
+      await tofu.ssh_connect.execute({ machine: 't' }, {})
+      await tofu.ssh_close.execute({ force: true }, {})
+      await tofu.ssh_connect.execute({ machine: 't' }, {})
+      await tofu.ssh_close.execute({ force: true }, {})
+      const states = records().filter((r) => r.kind === 'connect').map((r) => r.hostKey)
+      assert.deepEqual(states, ['first-seen', 'verified'])
+      assert.match(records().find((r) => r.hostKey === 'verified').fingerprint, /^SHA256:/)
+
+      const off = await make('off')
+      await off.ssh_connect.execute({ machine: 't' }, {})
+      const unverified = records().filter((r) => r.kind === 'connect').pop()
+      assert.equal(unverified.hostKey, 'unverified', 'policy off is recorded as unverified')
+      const shown = String((await off.ssh_audit.execute({}, {})).text)
+      assert.match(shown, /host key first-seen/)
+      assert.match(shown, /host key verified/)
+      assert.match(shown, /host key unverified/)
+      await off.ssh_close.execute({ force: true }, {})
+    } finally {
+      await srv2.close()
+    }
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home2, { recursive: true, force: true })
+  }
+})
+
 test('a ceiling exceeded while a command ran is enforced once it is idle again', async () => {
   // Only a NEW connection evicted, so reusing an alias left maxConnections-1
   // sockets open indefinitely (measured: maxConnections 1 kept 2 after both idle).

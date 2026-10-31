@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.197 — 2026-10-31
+
+### Changed
+- **The audit log now records whether the host key was verified.** A `connect ok` record carried
+  only the alias, the outcome and a duration, so after the fact nothing in the log could tell a
+  man-in-the-middle-proof session from one made under `hostKeyPolicy: off`:
+  ```
+  2026-10-31 11:46:20 t connect ok
+      host key first-seen  SHA256:LcrvBy/vkWgDUq0RMUFSN2PVsUI+xVga6jlbjxMblyE  17ms
+  …connect ok
+      host key verified    SHA256:LcrvBy/…  4ms
+  …connect ok
+      host key unverified  SHA256:LcrvBy/…  4ms      ← policy off, said so
+  ```
+  Three states: `first-seen` (tofu recorded it on this connect), `verified` (matched a recorded
+  key) and `unverified` (policy off). The fingerprint goes in the record too, so a later log can
+  be cross-checked against `ssh-keyscan`. No host, user or port is added — `machineInventory:
+  alias` exists to keep those out of the model's sight.
+
+### Verified, no change needed
+- An unreadable host-key store (a directory where `known_hosts.json` should be) fails the same way
+  in `ssh_doctor`, `ssh_connect` and every other tool: "could not be read (EISDIR). Nothing can be
+  verified against it, and recording a new key would overwrite the hosts already trusted there."
+  `ssh_doctor` then skips authentication rather than claiming the host is fine.
+- `timeoutMs` overrides `commandTimeoutMs` per call (`3000` config → `1000` call times out at
+  1015 ms, `10000` lets a 5 s command finish); `0` falls back to the config value and a negative
+  one is refused with "timeoutMs must be a positive number (received -1)".
+- A tofu record tampered with on disk is refused in both tofu and strict: "HOST KEY CHANGED …
+  recorded SHA256:AAAA…, presented SHA256:ejCFY… This can mean the server was reinstalled — or
+  that traffic is being intercepted."
+
 ## 0.7.196 — 2026-10-31
 
 ### Fixed

@@ -1011,10 +1011,23 @@ function assertKnownArgs(args, known, toolName) {
         })
         throw err
       }
-      audit.write({ kind: 'connect', machine: alias, outcome: 'ok', ms: Date.now() - startedAt })
+      // 'connect ok' alone could not answer what an audit trail is for: was this
+      // session protected against a man-in-the-middle? The pool knows -- policy
+      // off, first seen under tofu, or checked against a recorded key.
+      const entry = pool.entry(alias)
+      const hostKeyState = entry.hostKeyVerified === false
+        ? 'unverified'
+        : (entry.hostKeyFirstSeen === true ? 'first-seen' : 'verified')
+      audit.write({
+        kind: 'connect',
+        machine: alias,
+        outcome: 'ok',
+        hostKey: hostKeyState,
+        fingerprint: entry.fingerprint ? clipText(String(entry.fingerprint), 80) : undefined,
+        ms: Date.now() - startedAt,
+      })
 
       const m = machineDefinition(alias, { machines: cfg.machines, dshHome: credentialHome })
-      const entry = pool.entry(alias)
       const stats = pool.connectionStats()
       // Deliberately no remote command here. Verifying the channel is what
       // ssh_doctor is for; running 'uname' as a side effect of connecting put an
@@ -1844,6 +1857,8 @@ function assertKnownArgs(args, known, toolName) {
         if (r.entries !== undefined) detail.push(r.entries + (r.entries === 1 ? ' entry' : ' entries'))
         if (r.truncated) detail.push('truncated')
         if (r.redacted === true) detail.push('redacted')
+        if (r.hostKey) detail.push('host key ' + printable(String(r.hostKey)))
+        if (r.fingerprint) detail.push(printable(String(r.fingerprint)))
         if (r.ms !== undefined) detail.push(r.ms + 'ms')
         if (r.reason) detail.push('reason=' + r.reason)
         // 'matches deny pattern' is the matcher talking. The rule it matched is
