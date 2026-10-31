@@ -111,6 +111,26 @@ function settingsHostKeyPolicy() {
   return 'strict'
 }
 
+/**
+ * The plugin's connectTimeoutMs, so the test button gives up when the plugin
+ * would. The hardcoded 15s disagreed with a raised setting: a 60s link was
+ * reported FAIL while ssh_connect was still dialling, and a lowered one made
+ * the page wait four times longer than the tool.
+ */
+function settingsConnectTimeoutMs() {
+  const block = pluginBlock()
+  if (!block) return 15000
+  for (const line of block) {
+    const match = line.match(/^\s*connectTimeoutMs:\s*(\d+)\s*(?:#.*)?$/)
+    if (match) {
+      // The HTTP request waits on this, so keep it finite: ten minutes.
+      const value = Number(match[1])
+      if (Number.isFinite(value) && value >= 1000) return Math.min(value, 600000)
+    }
+  }
+  return 15000
+}
+
 function settingsUseCredentialFile() {
   const block = pluginBlock()
   if (!block) return true
@@ -397,7 +417,8 @@ async function testConnection(alias) {
   }
   say('配置', 'ok', m.username + '@' + m.host + ':' + m.port)
 
-  const tcp = await tcpProbe(m.host, m.port, 8000)
+  const connectTimeoutMs = settingsConnectTimeoutMs()
+  const tcp = await tcpProbe(m.host, m.port, connectTimeoutMs)
   say('TCP', tcp.ok ? 'ok' : 'FAIL', tcp.detail)
   if (!tcp.ok) {
     lines.push('', '已停止：主机不可达，无法测试认证。')
@@ -430,9 +451,11 @@ async function testConnection(alias) {
       resolve(finish(ok && !mismatched))
     }
     const timer = setTimeout(() => {
-      say('认证', 'FAIL', '在 20 秒内没有完成握手')
+      // A little past the dial timeout, so a handshake that is merely slow is
+      // reported by ssh2 (which knows why) rather than by this watchdog.
+      say('认证', 'FAIL', '在 ' + Math.round(connectTimeoutMs / 1000) + ' 秒内没有完成握手')
       done(false)
-    }, 20000)
+    }, connectTimeoutMs + 5000)
 
     client.on('ready', () => {
       const source = String(auth.kind || 'none').replace(/-password$|-key$/, '')
@@ -472,7 +495,7 @@ async function testConnection(alias) {
     // the pool sent nothing at all.)
     let config
     try {
-      config = connectOptions(m, auth, { readyTimeout: 15000, keepaliveInterval: 0 })
+      config = connectOptions(m, auth, { readyTimeout: connectTimeoutMs, keepaliveInterval: 0 })
     } catch (err) {
       clearTimeout(timer)
       say('凭据', 'FAIL', '私钥读取失败：' + String(err.message).slice(0, 100))

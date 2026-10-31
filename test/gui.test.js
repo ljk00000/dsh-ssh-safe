@@ -549,6 +549,43 @@ test('a settings file with no plugin entry is simply ignored', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the test button gives up when connectTimeoutMs says so', async () => {
+  // The page dialled with a hardcoded 15s readyTimeout, so a profile that sets
+  // connectTimeoutMs: 3000 still made the caller wait 15 197 ms -- five times
+  // longer than ssh_exec would. Measured before/after on the same black-hole port.
+  const net = await import('node:net')
+  const sockets = []
+  const blackhole = net.createServer((socket) => { sockets.push(socket) })
+  await new Promise((resolve) => blackhole.listen(0, '127.0.0.1', resolve))
+  const port = /** @type {any} */ (blackhole.address()).port
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    connectTimeoutMs: 1200',
+    '    allowPlaintextPassword: true',
+  ].join('\n'))
+  const { child, base, token } = await start(home)
+  try {
+    await call(base, token, '/api/save', { alias: 'quiet', host: '127.0.0.1', port, user: 'tester', password: 'pw' })
+    const startedAt = Date.now()
+    const tested = await call(base, token, '/api/test', { alias: 'quiet' })
+    const took = Date.now() - startedAt
+    const text = tested.body.lines.join('\n')
+    assert.match(text, /handshake/i, text)
+    assert.equal(tested.body.ok, false)
+    assert.ok(took < 6000, 'the test button waited ' + took + ' ms with connectTimeoutMs: 1200')
+  } finally {
+    child.kill()
+    for (const socket of sockets) { try { socket.destroy() } catch {} }
+    await new Promise((resolve) => blackhole.close(resolve))
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('the test button honours useCredentialFile: false', async () => {
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
   const profile = path.join(home, 'profiles', 'desktop')

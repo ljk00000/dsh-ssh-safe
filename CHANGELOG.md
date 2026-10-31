@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.186 — 2026-10-31
+
+### Fixed
+- **The test button ignored `connectTimeoutMs`.** It dialled with a hardcoded
+  `readyTimeout: 15000`, an 8s TCP probe and a 20s watchdog, so the page disagreed with the
+  tools about how long a connection takes. Same black-hole port, `connectTimeoutMs: 3000`:
+  ```
+  before (0.7.185): the test returned after 15197 ms
+  after           : the test returned after  3176 ms
+  ```
+  A raised setting was worse: `connectTimeoutMs: 60000` for a slow link was reported FAIL at
+  15s while `ssh_connect` was still dialling. The page now reads the setting (clamped to
+  1000…600000) and uses it for the TCP probe, `readyTimeout`, and the watchdog; the
+  timeout message names the configured number of seconds.
+
+### Verified, no change needed
+- `ssh_workspace`: creating twice says "已刷新远程工作区" and keeps one registration; five
+  concurrent creates for one alias leave exactly one registry entry (three rounds); removing
+  an alias with no record says "没有注册记录" and keeps the placeholder.
+
 ## 0.7.185 — 2026-10-31
 
 ### Fixed
