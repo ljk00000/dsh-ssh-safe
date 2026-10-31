@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.177 — 2026-10-31
+
+### Fixed (documentation)
+- **The outcome table claimed to be complete and was missing two values.** The text says
+  every record's `outcome` is one of the listed values; `ssh_exec` also writes `exit`
+  (command finished, non-zero status) and `signal` (command killed):
+  ```
+  {"outcome":"exit","exitCode":3,"command":"exit 3"}
+  {"outcome":"signal","exitCode":null,"signal":"SIGKILL","command":"kill"}
+  {"outcome":"ok","exitCode":0,"command":"echo one [+1 more lines]"}
+  ```
+  Anyone filtering the log by outcome would have missed every failing command.
+
+### Verified, no change needed
+- Outcome classification for the rest of the vocabulary: a command that exceeds
+  `commandTimeoutMs` is `timeout`, an aborted call is `cancel`, a refused connection and a
+  missing file are `error` — measured through the tool, read back from `audit.ndjson`.
+- A dangerous command in a *file* is written and read normally: `ssh_write` of a script
+  containing `:(){ :|:& };:` and `rm -rf /` succeeds, `ssh_read` returns it, and
+  `ssh_exec "bash danger.sh"` runs it — the deny list reads the command line, not file
+  contents, which is what the README describes.
+- An invalid `denyPatterns` entry refuses to start and names the index:
+  `denyPatterns[1] is not a valid regular expression (…numbers out of order…)`.
+- A refused command never dials: server client count stays 0, and only the `refused`
+  record is written.
+- Control characters in the command: CR, CRLF and vertical tab are handled; a NUL byte is
+  not a separator, and it does not need to be — the kernel truncates argv at the first NUL,
+  so the tail never runs.
+
 ## 0.7.176 — 2026-10-31
 
 ### Fixed

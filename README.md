@@ -268,6 +268,8 @@ DSH_SSH_PROD_KNOWN_HOSTS=~/.ssh/known_hosts.json
 | `outcome` | 含义 |
 | --- | --- |
 | `ok` | 完成 |
+| `exit` | 命令跑完但退出码非 0（仅 `ssh_exec`，`exitCode` 一并记录） |
+| `signal` | 命令被信号终止（仅 `ssh_exec`，`signal` 一并记录） |
 | `error` | 失败（远端报错、路径不存在、认证被拒等） |
 | `timeout` | 超过 `commandTimeoutMs` / `sftpTimeoutMs` / 握手超时 |
 | `cancel` | 调用方通过 `signal` 取消 |
