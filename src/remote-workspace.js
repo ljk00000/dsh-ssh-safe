@@ -22,6 +22,7 @@
 // from those two files, so a local tool pointed at it finds nothing to confuse
 // with the remote tree.
 
+import { printable } from './format.js'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { envNames } from './credentials.js'
@@ -89,19 +90,31 @@ export function remoteTitle(alias) {
  * @param {string} [policy] the host-key policy in effect ('strict', 'tofu' or 'off')
  * @returns {string}
  */
+/**
+ * Text safe to place inside the instructions file.
+ *
+ * AGENTS.md is instructions the agent trusts. A host or alias containing a newline
+ * put '## NEW INSTRUCTIONS' at the top level of that file in the probe, which is
+ * text injected into the agent's instructions by a machine definition.
+ */
+function safeField(value) {
+  return printable(String(value ?? ''))
+}
+
 export function remoteInstructions(alias, machine = {}, policy = 'strict') {
-  const host = machine.host || '<未配置主机>'
+  const host = machine.host ? safeField(machine.host) : '<未配置主机>'
   const port = machine.port || 22
-  const user = machine.username || '<未配置用户>'
+  const user = machine.username ? safeField(machine.username) : '<未配置用户>'
+  const name = safeField(alias)
   const lines = [
-    '# 远程工作区：' + alias,
+    '# 远程工作区：' + name,
     '',
-    '这个目录**不是项目目录**，它只是远程主机 ' + alias + '（' + user + '@' + host + ':' + port + '）的占位。',
+    '这个目录**不是项目目录**，它只是远程主机 ' + name + '（' + user + '@' + host + ':' + port + '）的占位。',
     '目录里除了本文件和 .dsh-remote-workspace.json 之外没有别的内容，远端文件也不在这里。',
     '',
     '## 规则',
     '',
-    '1. 一切远端操作都用 dsh-ssh-safe 的工具，并显式带上 machine: "' + alias + '"：',
+    '1. 一切远端操作都用 dsh-ssh-safe 的工具，并显式带上 machine: "' + name + '"：',
     '   - ssh_exec 执行命令',
     '   - ssh_read / ssh_write 读写远端文件（路径必须是**远端**绝对路径）',
     '   - ssh_list 列远端目录',
@@ -113,13 +126,13 @@ export function remoteInstructions(alias, machine = {}, policy = 'strict') {
     // tofu was told a first-contact key would be refused, which it is not.
     '4. 主机密钥策略（' + (POLICY_SENTENCE[policy] ? policy : 'strict') + '）：' + POLICY_SENTENCE[POLICY_SENTENCE[policy] ? policy : 'strict'],
     '5. 密码、口令、私钥内容**不要写进对话**，也不要写进远端文件开头。',
-    '   凭据来自凭据文件（DPAPI 加密）或环境变量 ' + envNames(alias).password + '。',
+    '   凭据来自凭据文件（DPAPI 加密）或环境变量 ' + safeField(envNames(alias).password) + '。',
     '',
     '## 快速开始',
     '',
     FENCE,
-    'ssh_exec { machine: "' + alias + '", command: "uname -a" }',
-    'ssh_list { machine: "' + alias + '", path: "/root" }',
+    'ssh_exec { machine: "' + name + '", command: "uname -a" }',
+    'ssh_list { machine: "' + name + '", path: "/root" }',
     FENCE,
     '',
   ]
