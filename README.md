@@ -253,10 +253,25 @@ DSH_SSH_PROD_KNOWN_HOSTS=~/.ssh/known_hosts.json
 | `ssh_list` | 列远端目录（超过 `maxListEntries` 截断并说明略过多少条） |
 | `ssh_close` | 关闭连接（有命令在跑会拒绝，除非 `force: true`） |
 | `ssh_doctor` | 分级诊断：配置 / 凭据 / TCP / 主机密钥 / 认证 |
-| `ssh_audit` | 查看操作记录（需 `auditLog: true`） |
+| `ssh_audit` | 查看操作记录（需 `auditLog: true`；`outcome` 取值见下表） |
 | `ssh_config` | 查看运行时实际生效的配置 |
 | `ssh_credentials` | 查看凭据来源与优先级（只报来源，永不打印值） |
 | `ssh_workspace` | 创建 / 列出 / 移除**远程工作区**：侧栏里一个绑定到某台 SSH 主机的工作区 |
+
+### 审计记录里的 `outcome` 取值
+
+`ssh_audit` 与 `audit.ndjson` 里每条的 `outcome` 只取下列值之一。`ssh_exec` 早就能区分
+「超时 / 被取消 / 连接中断」，传输类工具此前一律记成 `error`，同一件事在日志里读法不同；
+现在四类工具用同一套词：
+
+| `outcome` | 含义 |
+| --- | --- |
+| `ok` | 完成 |
+| `error` | 失败（远端报错、路径不存在、认证被拒等） |
+| `timeout` | 超过 `commandTimeoutMs` / `sftpTimeoutMs` / 握手超时 |
+| `cancel` | 调用方通过 `signal` 取消 |
+| `incomplete` | 连接在退出码返回前断开，输出不完整（仅 `ssh_exec`） |
+| `pending` / `busy` / `unconfirmed` | 仅 `ssh_close`：仍在建立、有命令在跑、关闭未能确认 |
 
 ### 远程工作区（侧栏）
 

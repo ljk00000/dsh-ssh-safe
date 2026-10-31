@@ -801,6 +801,17 @@ function assertKnownArgs(args, known, toolName) {
     }
   }
 
+  // exec recorded 'timeout' and 'cancel' while read, write, list and connect
+  // recorded the same situations as 'error', so filtering the audit trail by
+  // outcome found some timeouts and not others. The wording tested here is the
+  // plugin's own, produced by sftp.js and the pool.
+  const outcomeOf = (err) => {
+    const message = err && err.message ? String(err.message) : String(err)
+    if (/was cancelled/.test(message)) return 'cancel'
+    if (/did not complete within \d+ms|Timed out while waiting for handshake/.test(message)) return 'timeout'
+    return 'error'
+  }
+
   const trustedLine = (m) => {
     // A per-machine knownHosts override goes through the same ~ expansion the
     // pool uses; without it a "~/.ssh/x.json" value is read as a literal path.
@@ -976,7 +987,7 @@ function assertKnownArgs(args, known, toolName) {
         audit.write({
           kind: 'connect',
           machine: alias,
-          outcome: 'error',
+          outcome: outcomeOf(err),
           error: clipText(auditText(alias, err && err.message ? err.message : String(err)), 200),
           ms: Date.now() - startedAt,
         })
@@ -1197,7 +1208,7 @@ function assertKnownArgs(args, known, toolName) {
         })
       } catch (err) {
         audit.write({
-          kind: 'read', machine: alias, path: remotePath, outcome: 'error',
+          kind: 'read', machine: alias, path: remotePath, outcome: outcomeOf(err),
           error: clipText(auditText(alias, err && err.message ? err.message : String(err)), 200),
           ms: Date.now() - startedAt,
         })
@@ -1328,7 +1339,7 @@ function assertKnownArgs(args, known, toolName) {
             : ' — the parent directory does not exist. Pass createDirs: true to create it.')
         }
         audit.write({
-          kind: 'write', machine: alias, path: remotePath, outcome: 'error',
+          kind: 'write', machine: alias, path: remotePath, outcome: outcomeOf(err),
           error: clipText(auditText(alias, err && err.message ? err.message : String(err)), 200),
           ms: Date.now() - startedAt,
         })
@@ -1411,7 +1422,7 @@ function assertKnownArgs(args, known, toolName) {
         })
       } catch (err) {
         audit.write({
-          kind: 'list', machine: alias, path: remotePath, outcome: 'error',
+          kind: 'list', machine: alias, path: remotePath, outcome: outcomeOf(err),
           error: clipText(auditText(alias, err && err.message ? err.message : String(err)), 200),
           ms: Date.now() - startedAt,
         })

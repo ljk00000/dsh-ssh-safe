@@ -1647,3 +1647,40 @@ test('a refused session password names the setting that allows it', async () => 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a timed-out or cancelled transfer records the same outcome as exec', async () => {
+  // exec said 'timeout'/'cancel' while read, write and list said 'error' for the same
+  // situations, so filtering the log by outcome found some of them and not others.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-outcomefit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const srv2 = await startServer()
+  srv2.vfs.putDir('/tmp')
+  srv2.vfs.putFile('/tmp/f.txt', 'x'.repeat(30))
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, auditLog: true,
+      sftpTimeoutMs: 1000, connectTimeoutMs: 3000, commandTimeoutMs: 1000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    await own.ssh_read.execute({ machine: 't', path: '/tmp/f.txt' }, {})
+    srv2.vfs.control.stallReads = true
+    await own.ssh_read.execute({ machine: 't', path: '/tmp/f.txt' }, {}).catch(() => {})
+    srv2.vfs.control.stallReads = false
+    await own.ssh_list.execute({ machine: 't', path: '/nope' }, {}).catch(() => {})
+    const records = readFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'), 'utf8')
+      .trim().split('\n').map((line) => JSON.parse(line))
+    const reads = records.filter((r) => r.kind === 'read')
+    assert.equal(reads[0].outcome, 'ok')
+    assert.equal(reads[1].outcome, 'timeout', JSON.stringify(reads[1]))
+    assert.equal(records.find((r) => r.kind === 'list').outcome, 'error',
+      'a missing path is a plain error, not a timeout')
+  } finally {
+    await own.ssh_close.execute({ force: true }, {}).catch(() => {})
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

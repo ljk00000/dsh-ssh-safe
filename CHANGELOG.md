@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.157 — 2026-10-31
+
+### Fixed
+- **The audit `outcome` meant different things for different tools.** `ssh_exec` already
+  distinguished a deadline from a cancelled call and from a dropped connection;
+  `ssh_read`, `ssh_write`, `ssh_list` and `ssh_connect` recorded all of them as `error`,
+  so filtering the trail by outcome found some timeouts and not the others:
+  ```
+  exec, sleep 3 with a 1.5s deadline → timeout      (unchanged)
+  read, stalled, 1s deadline        → error        (now: timeout)
+  read, aborted via signal          → error        (now: cancel)
+  write, stalled, 1s deadline       → error        (now: timeout)
+  list, missing path                → error        (unchanged: it is an error)
+  ```
+  Classification uses the plugin's own wording, so it cannot mistake a remote error
+  for a timeout.
+
+### Added
+- The README now documents the `outcome` vocabulary (`ok`, `error`, `timeout`, `cancel`,
+  `incomplete`, and the `ssh_close` trio `pending`/`busy`/`unconfirmed`). It had never
+  been written down, and `incomplete` or `unconfirmed` were guesswork for a reader.
+
 ## 0.7.156 — 2026-10-31
 
 ### Fixed
