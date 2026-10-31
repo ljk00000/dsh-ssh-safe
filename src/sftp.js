@@ -84,15 +84,31 @@ function clearAbort(signal, listener) {
  * makes it diagnosable. The errno code is preserved so callers can still tell
  * ENOENT from EACCES.
  */
-function remoteError(err, target) {
+function remoteError(err, target, operation) {
   const message = redact(err && err.message ? err.message : String(err))
   // A relative path is resolved by sshd against the login user's home
   // directory, not against anything the caller passed earlier. Saying so turns
   // a bare "No such file: tmp/x" into something the caller can act on.
   const relative = typeof target === 'string' && target.length > 0 && !target.startsWith('/')
-  const hint = relative && /no such file|not found|does not exist/i.test(message)
-    ? " (relative to the login user's home directory — pass an absolute path to be exact)"
-    : ''
+  const denied = /permission denied|EACCES/i.test(message)
+  const hints = []
+  if (relative && /no such file|not found|does not exist/i.test(message)) {
+    hints.push("relative to the login user's home directory — pass an absolute path to be exact")
+  }
+  // 'Permission denied: /root/x' says what failed but not what to look at: the
+  // answer is always a mode or an owner, and which one depends on the operation.
+  if (denied) {
+    if (operation === 'write') {
+      hints.push('the account may not write there — check the owner and mode of the parent directory (ls -ld <dir>), or choose a path it owns')
+    } else if (operation === 'read') {
+      hints.push('the account may not read this file — check its owner and mode (ls -l <path>)')
+    } else if (operation === 'list') {
+      hints.push('the account may not list this directory — check its owner and mode (ls -ld <path>)')
+    } else {
+      hints.push('the account may not touch this path — check its owner and mode (ls -ld <parent>)')
+    }
+  }
+  const hint = hints.length > 0 ? ' (' + hints.join('; ') + ')' : ''
   const wrapped = /** @type {Error & {code?: unknown}} */ (new Error(message + ': ' + target + hint))
   const code = /** @type {{code?: unknown}} */ (err || {}).code
   if (code !== undefined) wrapped.code = code
@@ -214,9 +230,21 @@ async function ensureRemoteDir(sftp, dir) {
     // directory, and an accidental leading slash would target the root instead.
     const probe = absolute ? current : current.slice(1)
     try {
-      await callSftp(sftp, 'stat', probe)
+      const attrs = await callSftp(sftp, 'stat', probe)
+      // A path that exists as a FILE is not a directory to walk through. The
+      // mkdir below would fail with the server's bare "Failure", which says
+      // nothing about the real problem: one component of the path is a file.
+      if (attrs && typeof attrs.isDirectory === 'function' && !attrs.isDirectory()) {
+        throw new Error(
+          'cannot create the parent directories of this path: ' + probe +
+          ' already exists and is a file, not a directory'
+        )
+      }
       continue
-    } catch { /* missing: create it */ }
+    } catch (err) {
+      if (/already exists and is a file/.test(String(err && err.message))) throw err
+      /* missing: create it */
+    }
     try {
       await callSftp(sftp, 'mkdir', probe)
     } catch (err) {
@@ -282,8 +310,8 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, 
       stream = sftp.createReadStream(target)
     } catch (err) {
       return kindMismatch(sftp, target, 'file').then(
-        (better) => settle(null, better || remoteError(err, target)),
-        () => settle(null, remoteError(err, target)),
+        (better) => settle(null, better || remoteError(err, target, 'read')),
+        () => settle(null, remoteError(err, target, 'read')),
       )
     }
 
@@ -309,8 +337,8 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, 
     const fail = (e) => {
       if (explain) return
       explain = kindMismatch(sftp, target, 'file').then(
-        (better) => settle(null, better || remoteError(e, target)),
-        () => settle(null, remoteError(e, target)),
+        (better) => settle(null, better || remoteError(e, target, 'read')),
+        () => settle(null, remoteError(e, target, 'read')),
       )
     }
     stream.on('error', fail)
@@ -390,8 +418,8 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
       stream = sftp.createWriteStream(target, mode === undefined ? undefined : { mode })
     } catch (err) {
       return kindMismatch(sftp, target, 'file').then(
-        (better) => settle(null, better || remoteError(err, target)),
-        () => settle(null, remoteError(err, target)),
+        (better) => settle(null, better || remoteError(err, target, 'write')),
+        () => settle(null, remoteError(err, target, 'write')),
       )
     }
 
@@ -440,14 +468,14 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
         return err
       }
       explain = kindMismatch(sftp, target, 'file').then(
-        (better) => settle(null, better || note(remoteError(e, target))),
-        () => settle(null, note(remoteError(e, target))),
+        (better) => settle(null, better || note(remoteError(e, target, 'write'))),
+        () => settle(null, note(remoteError(e, target, 'write'))),
       )
     })
     stream.on('close', done)
     stream.on('finish', done)
     try { stream.end(payload) } catch (err) {
-      settle(null, remoteError(err, target))
+      settle(null, remoteError(err, target, 'write'))
     }
   })
 }
@@ -492,8 +520,8 @@ export async function listRemoteDir(client, remotePath, { timeoutMs, signal }) {
           // readdir on a regular file fails with the server's ENOENT text,
           // which reads as "the path does not exist" for a path that does.
           return kindMismatch(sftp, target, 'dir').then(
-            (better) => settle(null, better || remoteError(err, target)),
-            () => settle(null, remoteError(err, target)),
+            (better) => settle(null, better || remoteError(err, target, 'list')),
+            () => settle(null, remoteError(err, target, 'list')),
           )
         }
         settle({

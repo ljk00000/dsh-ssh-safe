@@ -111,7 +111,13 @@ export function createVfs() {
   const mkdirp = (p) => {
     const parts = normalize(p).split('/').filter(Boolean)
     let current = ''
-    for (const part of parts) { current += '/' + part; dirs.add(current) }
+    for (const part of parts) {
+      current += '/' + part
+      // A file in the way stops the tree: a real server answers ENOTDIR.
+      if (files.has(current)) return false
+      dirs.add(current)
+    }
+    return true
   }
 
   /**
@@ -127,6 +133,17 @@ export function createVfs() {
       p = normalize(target.startsWith('/') ? target : path.posix.join(path.posix.dirname(p), target))
     }
     return { path: p, cycle: true }
+  }
+
+  /** True when the path, or any directory above it, is denied. */
+  const deniedBy = (target) => {
+    const parts = normalize(target).split('/').filter(Boolean)
+    let current = ''
+    for (const part of parts) {
+      current += '/' + part
+      if (control.denied.has(current)) return current
+    }
+    return null
   }
 
   const control = {
@@ -150,7 +167,7 @@ export function createVfs() {
       if (typeof mode === 'number') modes.set(target, mode)
     },
     modeOf(p) { return modes.get(follow(p).path) },
-    putDir(p) { mkdirp(p) },
+    putDir(p) { return mkdirp(p) },
     putLink(p, target) {
       const link = normalize(p)
       mkdirp(path.posix.dirname(link))
@@ -158,6 +175,7 @@ export function createVfs() {
     },
     readLink(p) { return links.get(normalize(p)) },
     resolve(p) { return follow(p) },
+    deniedBy,
     getFile(p) { return files.get(follow(p).path) },
     list(p) {
       const followed = follow(p)
@@ -252,7 +270,7 @@ export function attachSftp(stream, vfs) {
 
     if (type === FXP.OPEN) {
       const target = vfs.normalize(reader.path())
-      if (vfs.control.denied.has(target)) return status(id, STATUS.PERMISSION_DENIED, 'Permission denied')
+      if (vfs.deniedBy(target)) return status(id, STATUS.PERMISSION_DENIED, 'Permission denied')
       const pflags = reader.u32()
       // The attrs carry the requested permissions; a real server masks with the
       // umask, this one records them as given.
@@ -307,6 +325,9 @@ export function attachSftp(stream, vfs) {
 
     if (type === FXP.STAT || type === FXP.LSTAT) {
       const target = vfs.normalize(reader.path())
+      // Without execute on an ancestor, a real server answers EACCES rather than
+      // pretending the path does not exist.
+      if (vfs.deniedBy(target)) return status(id, STATUS.PERMISSION_DENIED, 'Permission denied')
       // STAT follows a link, LSTAT answers about the link itself.
       const stat = type === FXP.STAT ? vfs.stat(target) : vfs.lstat(target)
       if (stat && stat.cycle) return status(id, STATUS.FAILURE, 'Too many levels of symbolic links')
@@ -347,7 +368,7 @@ export function attachSftp(stream, vfs) {
 
     if (type === FXP.OPENDIR) {
       const target = vfs.normalize(reader.path())
-      if (vfs.control.denied.has(target)) return status(id, STATUS.PERMISSION_DENIED, 'Permission denied')
+      if (vfs.deniedBy(target)) return status(id, STATUS.PERMISSION_DENIED, 'Permission denied')
       if (vfs.control.stallDirs) return // a readdir that never answers
       const stat = vfs.stat(target)
       if (!stat) return status(id, STATUS.NO_SUCH_FILE, 'no such file')
@@ -380,8 +401,12 @@ export function attachSftp(stream, vfs) {
 
     if (type === FXP.MKDIR) {
       const target = vfs.normalize(reader.path())
+      // A directory cannot be created inside one the account may not write.
+      if (vfs.deniedBy(target)) return status(id, STATUS.PERMISSION_DENIED, 'Permission denied')
       if (vfs.stat(target)) return status(id, STATUS.FAILURE, 'already exists')
-      vfs.putDir(target)
+      const parent = vfs.stat(path.posix.dirname(target))
+      if (!parent || !parent.dir) return status(id, STATUS.FAILURE, 'not a directory')
+      if (!vfs.putDir(target)) return status(id, STATUS.FAILURE, 'not a directory')
       return status(id, STATUS.OK)
     }
 

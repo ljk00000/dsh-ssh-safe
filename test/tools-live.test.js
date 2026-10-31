@@ -360,7 +360,7 @@ test('a write that never opened does not claim the file was damaged', async () =
   await assert.rejects(
     () => run('ssh_write', { path: '/var/file.txt/child.txt', content: 'y', createDirs: true }),
     (err) => {
-      assert.match(err.message, /createDirs could not create the parent path/)
+      assert.match(err.message, /\/var\/file\.txt already exists and is a file, not a directory/)
       assert.doesNotMatch(err.message, /partially written/)
       return true
     },

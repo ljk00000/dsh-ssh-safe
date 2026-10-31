@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.66 — 2026-10-31
+
+### Fixed
+- **`Permission denied` named the path but not what to look at.** The answer is
+  always a mode or an owner, and which one depends on the operation:
+  - read: `the account may not read this file — check its owner and mode (ls -l <path>)`
+  - write: `the account may not write there — check the owner and mode of the parent
+    directory (ls -ld <dir>), or choose a path it owns`
+  - list: `the account may not list this directory — check its owner and mode`
+- **`createDirs: true` walked straight through a path component that is a file.**
+  With `/var/file.txt` in place, writing `/var/file.txt/child.txt` created nothing
+  and then failed with the server's bare words plus a guess ("is part of it a
+  file?"). The check is explicit now:
+  `cannot create the parent directories of this path: /var/file.txt already exists
+  and is a file, not a directory`, and nothing is created behind it.
+
+### Test infrastructure
+- Denying a directory now applies to everything beneath it, and the server answers
+  EACCES rather than a plain "no such file"; MKDIR refuses when the parent is a
+  file, as ENOTDIR.
+
+### Added — tests
+- The three permission messages, `createDirs` naming the directory it could not
+  create, a file in the middle of the path, and a deep chain that succeeds.
+
 ## 0.7.65 — 2026-10-31
 
 ### Added
