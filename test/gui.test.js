@@ -1107,3 +1107,59 @@ test('a machine written on one line is reported, not dropped', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a plugin id with a comment or quotes is still the plugin entry', async () => {
+  // The exact match made the whole entry invisible: the page showed no machines and
+  // no credential-file state for a file DSH reads fine.
+  for (const idLine of ['- id: dsh-ssh-safe   # the ssh plugin', '- id: "dsh-ssh-safe"']) {
+    const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+    const profile = path.join(home, 'profiles', 'desktop')
+    mkdirSync(profile, { recursive: true })
+    writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+      idLine,
+      '  config:',
+      '    machines:',
+      '      gpu:',
+      '        host: 10.8.8.8',
+    ].join('\n'))
+    const { child, base, token } = await start(home)
+    try {
+      const state = await call(base, token, '/api/state')
+      assert.ok(state.body.machines.find((m) => m.alias === 'gpu'), JSON.stringify(idLine) + ' must be found: ' + JSON.stringify(state.body.machines))
+      assert.equal(state.body.machinesProblem, '')
+    } finally {
+      child.kill()
+      rmSync(home, { recursive: true, force: true })
+    }
+  }
+})
+
+test('two plugin entries are read but reported as ambiguous', async () => {
+  // DSH may take the last entry; this page reads the first. Saying nothing made the
+  // displayed (and saved) machines look authoritative.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    machines:',
+    '      first:',
+    '        host: 10.1.1.1',
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    machines:',
+    '      second:',
+    '        host: 10.2.2.2',
+  ].join('\n'))
+  const { child, base, token } = await start(home)
+  try {
+    const state = await call(base, token, '/api/state')
+    assert.ok(state.body.machines.find((m) => m.alias === 'first'), 'the first entry is still listed')
+    assert.match(state.body.machinesProblem, /more than one plugin entry/)
+    assert.match(state.body.machinesProblem, /Remove the duplicate/)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

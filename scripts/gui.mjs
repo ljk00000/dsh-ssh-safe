@@ -104,7 +104,11 @@ function pluginBlock() {
   let text
   try { text = readFileSync(file, 'utf8') } catch { return null }
   const lines = text.split(/\r?\n/)
-  const start = lines.findIndex((line) => /^\s*-\s*id:\s*dsh-ssh-safe\s*$/.test(line))
+  // 'id: dsh-ssh-safe   # comment' and a quoted id are both valid YAML; the exact
+  // match used to make the whole plugin entry invisible, so the page showed no
+  // machines for a file DSH reads fine.
+  const idLine = /^\s*-\s*id:\s*["']?dsh-ssh-safe["']?\s*(?:#.*)?$/
+  const start = lines.findIndex((line) => idLine.test(line))
   if (start < 0) return null
   const entryIndent = (lines[start].match(/^\s*/) || [''])[0].length
 
@@ -127,6 +131,21 @@ function pluginBlock() {
  * The global hostKeyPolicy from the settings file, since machineDefinition only
  * carries the per-machine override.
  */
+/**
+ * How many `- id: dsh-ssh-safe` entries the profile has.
+ *
+ * Two entries are ambiguous: DSH may take the last and this page reads the first,
+ * so the count decides whether the page can trust what it shows.
+ *
+ * @returns {number}
+ */
+function pluginEntryCount() {
+  const file = path.join(profileDir, 'cordis.patch.yml')
+  let text
+  try { text = readFileSync(file, 'utf8') } catch { return 0 }
+  const idLine = /^\s*-\s*id:\s*["']?dsh-ssh-safe["']?\s*(?:#.*)?$/
+  return text.split(/\r?\n/).filter((line) => idLine.test(line)).length
+}
 function settingsHostKeyPolicy() {
   const block = pluginBlock()
   if (!block) return 'strict'
@@ -266,6 +285,10 @@ function machinesBlock() {
       if (value === 'false') value = false
       machines[current][key] = value
     }
+  }
+  if (pluginEntryCount() > 1) {
+    problem = problem || 'this profile has more than one plugin entry for dsh-ssh-safe; this page reads'
+      + ' the first one, so what it shows (and saves) may not be what is in effect. Remove the duplicate'
   }
   return { machines, problem }
 }

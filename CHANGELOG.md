@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.215 — 2026-11-01
+
+### Fixed
+- **`- id: dsh-ssh-safe   # comment` and `- id: "dsh-ssh-safe"` hid the whole entry.** The
+  match required the id line to end right after the name, so both forms made the page report no
+  machines and no credential-file state for a file DSH reads fine. Measured:
+  ```
+  id with a comment   (none)  →  gpu@10.3.3.3
+  id quoted           (none)  →  gpu@10.4.4.4
+  ```
+
+- **Two `- id: dsh-ssh-safe` entries were read without saying which one counts.** The page reads
+  the first; DSH may take the last, so the machines shown (and the ones a save would edit) could
+  be the ones that are not in effect. The list is still shown, and `machinesProblem` now says so in
+  the page banner: "this profile has more than one plugin entry for dsh-ssh-safe; this page reads
+  the first one, so what it shows (and saves) may not be what is in effect. Remove the duplicate".
+
+### Tests
+- Two new cases: both id spellings listed with no problem reported, and a duplicated entry that
+  lists the first machines while reporting the ambiguity. Suite 795 / 790 pass / 5 skipped /
+  0 fail, `tsc` clean.
+
+### My mistakes
+- The first patch attempt built an unterminated string literal and the second wrote a line break
+  inside a quoted message; both were caught by `node --check` before anything ran. The earlier
+  `_msg.txt` slip (0.7.214) is why the message path is now written out in full.
+
 ## 0.7.214 — 2026-11-01
 
 ### Fixed
