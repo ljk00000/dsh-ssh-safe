@@ -25,7 +25,7 @@ import net from 'node:net'
 import { homedir } from 'node:os'
 import { dirname as dirnameOf, join as joinPath } from 'node:path'
 import { SshPool, expandHome, formatHost, hideAddress, pick } from './pool.js'
-import { expectedEnv, redact } from './credentials.js'
+import { envNames, expectedEnv, redact } from './credentials.js'
 import {
   credentialFor,
   credentialState,
@@ -2177,6 +2177,20 @@ function passphraseLine(st) {
           head.push('  IGNORED         ' + JSON.stringify(ignoredEntry.alias) +
             ' in the credential file is ' + ignoredEntry.shape + ', not an object of fields')
         }
+      }
+      // Two aliases can normalise to the same environment prefix: envNames() turns
+      // every non-alphanumeric into an underscore, so "prod.1" and "prod_1" both read
+      // DSH_SSH_PROD_1_*. One variable then configures two machines, and nothing said
+      // so.
+      const byPrefix = new Map()
+      for (const alias of aliases) {
+        const prefix = envNames(alias).host.replace(/_HOST$/, '')
+        byPrefix.set(prefix, [...(byPrefix.get(prefix) || []), alias])
+      }
+      for (const [prefix, group] of byPrefix) {
+        if (group.length < 2) continue
+        head.push('  WARNING         aliases ' + group.map((a) => JSON.stringify(a)).join(' and ') +
+          ' share the environment prefix ' + prefix + '_*: one variable configures both')
       }
       if (aliases.length === 0) {
         head.push('', 'No machines defined yet.')

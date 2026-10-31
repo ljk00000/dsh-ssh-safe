@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.305 — 2026-11-01
+
+### Added — `ssh_credentials` says when two aliases share one environment prefix
+`envNames()` turns every non-alphanumeric into an underscore, so these are the same to the environment:
+```
+machines:
+  prod.1: { host: a.example, user: alice }
+  prod_1: { host: b.example, user: bob }
+
+DSH_SSH_PROD_1_PASSWORD=…    ← one variable, two machines
+```
+Both entries showed `password   env` and nothing hinted that a single variable was configuring both, so
+the second machine could authenticate as the wrong account. `ssh_credentials` now reports it:
+```
+WARNING   aliases "prod.1" and "prod_1" share the environment prefix DSH_SSH_PROD_1_*: one variable
+          configures both
+```
+
+### Verified this round (no defect found)
+- Alias-derived **paths** are safe: `.` and `..` are refused as workspace names ("cannot be used as a
+  workspace directory name"), `...` and `a..b` stay inside `remotes/`, and a trailing-dot alias
+  (`prod.` beside `prod`) gets its own directory — `remove … deleteFiles: true` deleted `prod.` and left
+  `prod` intact, so Node's path handling does not collapse them on Windows.
+
+### My own mistakes
+- I inserted the warning block against a marker that exists in the *workspace* tool first and got
+  "marker missing"; the credentials tool has its own `aliases.length` check a few hundred lines later.
+- Two CRLF misses on the same insertion before I read the bytes.
+
+### Tests
+- One new case: the warning appears for the colliding pair, names the shared prefix, and does not mention a
+  machine without a twin.
+  Suite 892 / 887 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.304 — 2026-11-01
 
 ### Fixed — the remedy named an environment variable the plugin never reads

@@ -1375,3 +1375,23 @@ test('the built-in deny rules are not reported as slow', async () => {
   assert.match(text, /the built-in set/)
   assert.doesNotMatch(text, /Deny patterns that can hang a command/)
 })
+
+test('ssh_credentials warns when two aliases share an environment prefix', async () => {
+  // envNames() turns every non-alphanumeric into an underscore, so 'prod.1' and
+  // 'prod_1' both read DSH_SSH_PROD_1_*. One variable then configures two machines,
+  // and the listing named the source 'env' for both without a word.
+  const tools = {}
+  await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+    machines: {
+      'prod.1': { host: 'a.example', user: 'alice' },
+      prod_1: { host: 'b.example', user: 'bob' },
+      other: { host: 'c.example', user: 'carol' },
+    },
+  })
+  const text = String((await tools.ssh_credentials.execute({}, {})).text)
+  assert.match(text, /WARNING +aliases "prod\.1" and "prod_1" share the environment prefix DSH_SSH_PROD_1_\*/)
+  assert.match(text, /one variable configures both/)
+  // A machine whose alias has no twin is not mentioned in the warning.
+  assert.doesNotMatch(text, /aliases "other"/)
+})
