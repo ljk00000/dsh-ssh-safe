@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.293 — 2026-11-01
+
+### Hardened — the "which ceiling" test now covers the larger-`maxBytes` case
+The existing test proved that `maxBytes` smaller than `maxFileBytes` is named correctly. The other
+direction was untested: a call asking for **more** than the configured ceiling is still limited by the
+config, and the note must not send the caller to a knob they already went past.
+```
+maxFileBytes 1024, maxBytes 9000 → [truncated: the first 1024 bytes … raise maxFileBytes in the plugin config …]
+```
+
+### Verified this round (no defect found)
+- `ssh_workspace create` under `machineInventory: "alias"`: `AGENTS.md`, the marker and the listing all hide
+  the host and port, and the instructions say so ("地址按 machineInventory: alias 隐藏").
+- Symlinks: the listing types them `l`, `ssh_read` follows them, `ssh_list` through a directory link works,
+  and `ssh_write` follows the link **and says so** — "that path is a symbolic link to /s/real.txt; the
+  content was written there, not to the link itself" — with the link itself intact afterwards.
+- `maxFileBytes`: a 5000-byte file at the 1024 ceiling truncates with the config knob named; a file of
+  exactly 1024 reads whole with no truncation note.
+- Exec output stays raw by design (it is the program's data); a listing name is escaped because it is a
+  path the caller must act on. The asymmetry is deliberate and now documented in the changelog rather than
+  discovered again next round.
+
+### My own mistake
+The first attempt to extend the test used an LF anchor on a CRLF file and failed; the second located the
+line and inserted with that line's own newline. This is the fifth time this project has paid for the same
+coating — the rule is now: never build a multi-line anchor from memory, read the bytes first.
+
+### Tests
+- Two extra assertions in the existing case (`first 1024 bytes`, `raise maxFileBytes`, and no
+  `raise maxBytes`).
+  Suite 876 / 871 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.292 — 2026-11-01
 
 ### Fixed — an escaped name in a listing looked like a path you could pass back

@@ -1320,6 +1320,14 @@ test('the truncation advice names the ceiling that actually applied', async () =
     assert.match(byMaxBytes, /first 10 bytes/)
     assert.match(byMaxBytes, /raise maxBytes in this call/,
       'advice must name the cap that applied: ' + byMaxBytes.slice(0, 160))
+
+    // A maxBytes LARGER than the configured ceiling still leaves maxFileBytes in
+    // charge: naming maxBytes there sends the caller to a knob they already went
+    // past.
+    const byBoth = String((await own.ssh_read.execute({ machine: 't', path: '/tmp/f.txt', maxBytes: 9000 }, {})).text)
+    assert.match(byBoth, /first 1024 bytes/)
+    assert.match(byBoth, /raise maxFileBytes in the plugin config/)
+    assert.doesNotMatch(byBoth, /raise maxBytes in this call/)
   } finally {
     await own.ssh_close?.execute?.({}, {}).catch(() => {})
     await srv2.close()
