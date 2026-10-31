@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.116 — 2026-10-31
+
+### Fixed — `remove` deleted another alias's placeholder, files and all
+- `ssh_workspace { action: "remove", machine: "alpha", deleteFiles: true }` where
+  `remotes/alpha` was `beta`'s placeholder removed everything:
+  ```
+  before: 远程工作区 alpha
+           已从侧栏移除「远程 · beta」
+           占位目录已删除
+          dir still exists: false   notes.txt still there: false
+  ```
+  `notes.txt` was a file the user had put there. The directory recording another
+  alias is refused now, and the refusal happens **before** the registration is
+  deleted — the first version of this fix still unregistered `beta` and then
+  refused the directory, leaving the workspace half-removed (measured: registry
+  entries left 0 instead of 1):
+  ```
+  没有删除任何东西：目录 …\remotes\alpha 是别名 "beta" 的占位目录，不是 "alpha" 的。
+  要删它，请用 machine: "beta"。
+  ```
+
+### Verified, no change needed
+- `remove` on a directory that does not exist reports "占位目录本来就不存在", not a
+  refusal, and a directory without a marker is still refused rather than deleted.
+
 ## 0.7.115 — 2026-10-31
 
 ### Fixed — a workspace could be created over another alias's placeholder

@@ -444,3 +444,49 @@ test('a placeholder that belongs to another alias is not adopted', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('remove refuses a placeholder that belongs to another alias, before it unregisters', async () => {
+  // It deleted the registration first and then refused the directory, so the other
+  // alias lost its sidebar entry while its files stayed.
+  const entries = [{ id: 'w1', path: '', title: '远程 · beta' }]
+  const registry = {
+    list: () => entries,
+    create: async () => ({ id: 'w1' }),
+    delete: async (id) => { const i = entries.findIndex((w) => w.id === id); if (i >= 0) { entries.splice(i, 1); return true } return false },
+  }
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-wsrm2-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const dir = path.join(remoteRoot(home), 'alpha')
+    entries[0].path = dir
+    const own = {}
+    await apply({
+      tools: { register: (d) => { own[d.name] = d } },
+      effect: () => {}, get: (name) => (name === 'workspaceRegistry' ? registry : undefined),
+    }, {
+      defaultMachine: 'alpha', hostKeyPolicy: 'tofu',
+      machines: { alpha: { host: 'h', port: 22, user: 'u' }, beta: { host: 'h2', port: 22, user: 'u2' } },
+    })
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, '.dsh-remote-workspace.json'), JSON.stringify({ alias: 'beta' }))
+    writeFileSync(path.join(dir, 'AGENTS.md'), '# remote beta')
+    writeFileSync(path.join(dir, 'notes.txt'), 'work in progress')
+
+    await assert.rejects(
+      () => own.ssh_workspace.execute({ action: 'remove', machine: 'alpha', deleteFiles: true }, {}),
+      (err) => {
+        assert.match(err.message, /没有删除任何东西/)
+        assert.match(err.message, /别名 "beta" 的占位目录/)
+        return true
+      },
+    )
+    assert.equal(existsSync(path.join(dir, 'notes.txt')), true, 'the files must survive')
+    assert.equal(JSON.parse(readFileSync(path.join(dir, '.dsh-remote-workspace.json'), 'utf8')).alias, 'beta')
+    assert.equal(entries.length, 1, 'the other alias must stay registered')
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

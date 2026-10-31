@@ -247,6 +247,25 @@ export function listWorkspaces(registry) {
   }
 }
 
+/**
+ * The alias a placeholder directory belongs to, when its marker names one.
+ *
+ * Used before anything is deleted or rewritten: a directory recording another
+ * alias is that alias workspace, not this one.
+ *
+ * @param {string} dshHome
+ * @param {string} alias
+ * @returns {string} empty when there is no marker or it names no alias
+ */
+export function workspaceOwner(dshHome, alias) {
+  try {
+    const parsed = JSON.parse(readFileSync(join(remoteDir(dshHome, alias), MARKER), 'utf8'))
+    return parsed && typeof parsed === 'object' && typeof parsed.alias === 'string' ? parsed.alias : ''
+  } catch {
+    return ''
+  }
+}
+
 /** Remove the placeholder directory entirely. */
 export function removeRemoteDir(dshHome, alias) {
   const dir = remoteDir(dshHome, alias)
@@ -261,6 +280,28 @@ export function removeRemoteDir(dshHome, alias) {
       'refusing to delete ' + dir + ': it is not a remote workspace placeholder ' +
       '(no ' + MARKER + '). Remove it yourself if that is what you meant.'
     )
+  }
+  // A placeholder that belongs to ANOTHER alias: deleting it takes that alias's
+  // workspace, and any files the user left in it, with no way back. The mirror of
+  // the create-side refusal.
+  const owner = (() => {
+    try {
+      const parsed = JSON.parse(readFileSync(join(dir, MARKER), 'utf8'))
+      return parsed && typeof parsed === 'object' && typeof parsed.alias === 'string' ? parsed.alias : ''
+    } catch {
+      return ''
+    }
+  })()
+  if (owner && owner !== alias) {
+    const err = new Error(
+      'refusing to delete ' + dir + ' for "' + alias + '": it is the placeholder for "' + owner +
+      '". Delete the ' + owner + ' workspace instead (machine: "' + owner + '").'
+    )
+    // @ts-expect-error -- marking the error so the tool can say it in the user's language
+    err.code = 'DSH_WORKSPACE_FOREIGN_ALIAS'
+    // @ts-expect-error -- same
+    err.owner = owner
+    throw err
   }
   rmSync(dir, { recursive: true, force: true })
   return dir

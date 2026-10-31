@@ -48,6 +48,7 @@ import {
   remoteRoot,
   remoteTitle,
   removeRemoteDir,
+  workspaceOwner,
   writeRemoteWorkspace,
 } from './remote-workspace.js'
 
@@ -1375,7 +1376,7 @@ function assertKnownArgs(args, known, toolName) {
           const m = machineDefinition(alias, { machines: cfg.machines, dshHome: credentialHome })
           const dir = remoteDir(dshHome, alias)
           const marker = readMarker(dshHome, alias)
-          const workspace = findWorkspace({ list: () => registryRead.items }, dir)
+        const workspace = findWorkspace({ list: () => registryRead.items }, dir)
           // "create will register it" is only true where a workspace service
           // exists. Without one (headless, tui) the old text sent the user to
           // run a command that cannot do what the line promised.
@@ -1529,6 +1530,16 @@ function assertKnownArgs(args, known, toolName) {
           throw new Error('读取工作区服务失败，未做任何改动：' + registryRead.error)
         }
         const workspace = findWorkspace({ list: () => registryRead.items }, dir)
+        // Before touching the registry: a directory that records ANOTHER alias is
+        // that alias workspace. Deleting the registration first removed 远程 · beta
+        // from the sidebar and then refused the directory, leaving it half-removed.
+        const owner = workspaceOwner(dshHome, alias)
+        if (owner && owner !== alias) {
+          throw new Error(
+            '没有删除任何东西：目录 ' + dir + ' 是别名 "' + owner + '" 的占位目录，不是 "' + alias + '" 的。\n' +
+            '要删它，请用 machine: "' + owner + '"。'
+          )
+        }
         let removed = '没有注册记录'
         if (workspace && registry && typeof registry.delete === 'function') {
           try {
