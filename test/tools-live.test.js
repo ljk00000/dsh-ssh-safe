@@ -1100,6 +1100,43 @@ test('the audit log records the end of a connection too', async () => {
 })
 
 
+
+test('a key trusted against an OpenSSH known_hosts says it was not recorded', async () => {
+  // The file is verified but never written, so trustHostKey accepts the key for
+  // this connection only. The reply used to look like any other success, and the
+  // next plain connect failed with the same 'Unknown host'.
+  const home2 = mkdtempSync(path.join(tmpdir(), 'dsh-readonlytrust-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home2
+  try {
+    const srv2 = await startServer()
+    const knownHosts = path.join(home2, 'kh')
+    writeFileSync(knownHosts, '# empty\n', 'utf8')
+    const own = {}
+    try {
+      await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+        defaultMachine: 't', hostKeyPolicy: 'strict', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+        connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+        machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass', knownHosts } },
+      })
+      const shown = String((await own.ssh_connect.execute({ machine: 't', trustHostKey: true }, {})).text)
+      assert.match(shown, /\[note\] that key was accepted for this connection only/)
+      assert.match(shown, /ssh-keyscan -p \d+ 127\.0\.0\.1 >>/)
+      assert.equal(readFileSync(knownHosts, 'utf8'), '# empty\n', 'the file is not written')
+      await own.ssh_close.execute({ force: true }, {})
+      const again = await own.ssh_connect.execute({ machine: 't' }, {}).then((r) => String(r.text), (e) => 'ERR: ' + e.message)
+      assert.match(again, /Unknown host/, 'the next connection asks again')
+    } finally {
+      await own.ssh_close.execute({ force: true }, {}).catch(() => {})
+      await srv2.close()
+    }
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home2, { recursive: true, force: true })
+  }
+})
+
 test('the connect record says whether the host key was verified', async () => {
   // 'connect ok' could not answer the question the audit trail exists for: was
   // this session protected against a man-in-the-middle?

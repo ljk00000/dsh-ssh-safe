@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.202 — 2026-10-31
+
+### Fixed
+- **A key trusted against an OpenSSH `knownHosts` file said nothing about not being recorded.**
+  That file is verified but never written, so `trustHostKey: true` accepts the key for one
+  connection only. The reply looked like any other success, and the next plain connect failed
+  with the same `Unknown host` the caller thought they had cleared:
+  ```
+  Connected: tester@127.0.0.1:12751
+  Host key: SHA256:h7AQcI7O0Z3P2w5mVMHs0fWvSSuk6db3SWnHjBT9mFo
+  Pool: 1 live / 8 max
+  [note] that key was accepted for this connection only: …\kh is an OpenSSH known_hosts file
+  this plugin verifies but does not write, so the next connection asks again (and fails under
+  hostKeyPolicy: strict). Add it with ssh-keyscan -p 12751 127.0.0.1 >> "…\kh".
+  ```
+  Only shown when the key was not found in the file, so an ordinary connect is unchanged. The
+  test also pins that the file is left byte-for-byte alone and that the next connect asks again.
+
+### Verified, no change needed
+- OpenSSH `known_hosts` handling end to end: a plain `[host]:port` entry verifies, an `|1|salt|hash`
+  entry (OpenSSH's default `HashKnownHosts yes`) verifies, `@revoked` refuses the key it presents
+  ("marked @revoked … Refusing to connect."), and an entry holding a different key reports
+  `HOST KEY CHANGED` with both fingerprints.
+
+### My mistakes
+- The first probe took `srv.key.getPublicSSH()` — `srv.key` is a PEM string, so the entry read
+  `undefined`. Then the host field was built as `[127.0.0.1:PORT]` instead of `[127.0.0.1]:PORT`,
+  which made a valid plain entry report `Unknown host`. I nearly filed that as a plugin bug; the
+  OpenSSH spelling was the thing that was wrong.
+- The patch script failed to compile because one array element mixed quote styles; rewritten as a
+  template literal.
+
 ## 0.7.201 — 2026-10-31
 
 ### Documented

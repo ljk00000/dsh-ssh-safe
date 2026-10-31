@@ -1033,10 +1033,21 @@ function assertKnownArgs(args, known, toolName) {
       // ssh_doctor is for; running 'uname' as a side effect of connecting put an
       // extra command in the audit trail and an extra entry in the in-flight
       // counter for something the caller never asked for.
+      // An OpenSSH known_hosts file is read-only here, so a key accepted with
+      // trustHostKey is accepted for this connection only. Saying so beats letting
+      // the next plain connect fail with the same 'Unknown host' the caller just
+      // thought they had cleared.
+      const readOnlyTrust = m.knownHosts && entry.hostKeyFirstSeen === true
+        ? '\n[note] that key was accepted for this connection only: ' + printable(expandHome(m.knownHosts)) +
+          ' is an OpenSSH known_hosts file this plugin verifies but does not write, so the next' +
+          ' connection asks again (and fails under hostKeyPolicy: strict). Add it with' +
+          ' ssh-keyscan -p ' + m.port + ' ' + m.host + ' >> "' + expandHome(m.knownHosts) + '".'
+        : ''
       return { text:
         'Connected: ' + endpointOf(m) +
         '\nHost key: ' + (entry.fingerprint || 'NOT VERIFIED (policy: ' + cfg.hostKeyPolicy + ')') +
         '\nPool: ' + stats.live + ' live' + (stats.limit > 0 ? ' / ' + stats.limit + ' max' : ' (no limit)') +
+        readOnlyTrust +
         (cfg.hostKeyPolicy === 'off' ? '\n\nWARNING: hostKeyPolicy is "off" — this connection is not protected against a man-in-the-middle.' : '') +
         credentialWarnings(alias, optionalText(args.password, 'password'))
           .map((warning) => '\n[note] ' + warning)
