@@ -1038,9 +1038,18 @@ function assertKnownArgs(args, known, toolName) {
       // The file is larger than the ceiling; say so and say what raises it.
       // maxBytes can only tighten the limit, so pointing at maxFileBytes is the
       // only advice that works.
-      const header = r.truncated
+      const truncatedNote = r.truncated
         ? '[truncated: the first ' + plural(r.bytes, 'byte') + ' of a larger file — raise maxFileBytes in the plugin config to read more]\n'
         : ''
+      // The bytes are decoded as UTF-8 whatever they are, so a PNG or a gzip
+      // stream arrives as replacement characters and NULs. Saying so is the
+      // difference between "this is what the file says" and "this is a lossy
+      // rendering of something that is not text".
+      const binaryNote = r.binary
+        ? '[binary file: ' + plural(r.bytes, 'byte') + ' decoded as UTF-8, so the text below is a lossy ' +
+          'rendering (replacement characters and NULs are not in the file)]\n'
+        : ''
+      const header = binaryNote + truncatedNote
       // Only claim to have masked something when the text actually changed: a
       // README read through the default path used to end with a warning that
       // implied secrets had been found and hidden.

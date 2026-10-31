@@ -228,6 +228,27 @@ async function danglingLink(sftp, target, original) {
 }
 
 /**
+ * Whether decoded text looks like a binary file rather than text.
+ *
+ * A NUL cannot appear in UTF-8 text at all, and a heavy share of replacement
+ * characters means the bytes were not UTF-8. Both were previously rendered as
+ * ordinary content.
+ *
+ * @param {string} text
+ * @returns {{binary: boolean, invalidBytes: number}}
+ */
+export function looksBinary(text) {
+  const value = String(text || '')
+  if (value.length === 0) return { binary: false, invalidBytes: 0 }
+  const invalidBytes = (value.match(/\uFFFD/g) || []).length
+  const nul = value.includes('\u0000')
+  // 2% is comfortably above the rate a stray replacement character reaches in
+  // text that is merely mangled in one place.
+  const binary = nul || invalidBytes > Math.max(2, value.length * 0.02)
+  return { binary, invalidBytes }
+}
+
+/**
  * The character `ls -l` puts in the first column, from the file's mode.
  *
  * @param {number} mode
@@ -354,7 +375,7 @@ async function ensureRemoteDir(sftp, dir) {
  * @param {any} client
  * @param {string} remotePath
  * @param {{maxBytes?: number, timeoutMs: number, signal?: AbortSignal}} options
- * @returns {Promise<{content: string, truncated: boolean, bytes: number, path: string}>}
+ * @returns {Promise<{content: string, truncated: boolean, bytes: number, path: string, binary?: boolean, invalidBytes?: number}>}
  */
 export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, signal }) {
   const target = normalizeRemotePath(remotePath, { file: true })
@@ -416,11 +437,17 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, 
     let explain = null
     const finish = () => {
       if (explain) return
+      const content = collector.toString()
       settle({
-        content: collector.toString(),
+        content,
         truncated: collector.truncated,
         bytes: collector.bytes,
         path: target,
+        // Decoding is always UTF-8. A PNG, a gzip stream or a Latin-1 log comes
+        // back as replacement characters and NULs, which then go into the
+        // transcript as if they were the file's text. Detecting it here is what
+        // lets the tool say so.
+        ...looksBinary(content),
       })
     }
 

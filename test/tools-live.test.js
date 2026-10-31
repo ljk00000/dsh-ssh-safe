@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import { apply } from '../src/index.js'
+import { looksBinary } from '../src/sftp.js'
 import { startServer, machineFor } from './helpers/local-ssh-server.js'
 
 // The twelve tool bodies are the largest untested part of src/index.js: they
@@ -650,4 +651,28 @@ test('a write through a symlinked directory lands where the server put it', asyn
   const nested = await tools.ssh_write.execute({ machine: 't', path: '/dirlink/sub/deep.txt', content: 'x', createDirs: true }, {})
   assert.match(String(nested.text), /Wrote 1 byte/)
   assert.equal(srv.vfs.getFile('/realdir/sub/deep.txt').toString(), 'x')
+})
+
+test('a binary file says it is binary instead of posing as text', async () => {
+  // The bytes are always decoded as UTF-8, so a PNG arrived as replacement
+  // characters and NULs with nothing to say it was not the file's text.
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0xff, 0xfe, 0xfd])
+  srv.vfs.putFile('/tmp/photo.png', png)
+  const binary = await tools.ssh_read.execute({ machine: 't', path: '/tmp/photo.png' }, {})
+  assert.match(String(binary.text), /\[binary file: 13 bytes decoded as UTF-8/)
+
+  // Text that merely contains a stray replacement character is not binary.
+  srv.vfs.putFile('/tmp/notes.txt', 'hello 中文 world')
+  const text = await tools.ssh_read.execute({ machine: 't', path: '/tmp/notes.txt' }, {})
+  assert.doesNotMatch(String(text.text), /\[binary file/)
+  assert.match(String(text.text), /hello 中文 world/)
+})
+
+test('the binary heuristic keeps ordinary text out of it', () => {
+  assert.equal(looksBinary('hello world').binary, false)
+  assert.equal(looksBinary('中文内容，正常读取').binary, false)
+  assert.equal(looksBinary('🙂 emoji text').binary, false)
+  assert.equal(looksBinary('').binary, false)
+  assert.equal(looksBinary('one \uFFFD stray').binary, false, 'a single stray byte is not a binary file')
+  assert.equal(looksBinary('\uFFFDPNG\u0000\u0000').binary, true)
 })
