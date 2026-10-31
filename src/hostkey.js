@@ -162,6 +162,20 @@ function hashedEntryMatches(field, host) {
 function entryCoversHost(field, host, port) {
   const bracketed = '[' + host + ']:' + port
   const candidates = port === 22 ? [host] : [bracketed, host]
+  // A '!pattern' anywhere in the list takes the whole entry out of play, which
+  // is what OpenSSH does. Ignoring the negation made '*.example.com,!bad.example.com'
+  // cover bad.example.com: a key the user explicitly excluded was accepted.
+  for (const rawPattern of String(field).split(',')) {
+    const trimmed = rawPattern.trim()
+    if (!trimmed.startsWith('!')) continue
+    const negated = trimmed.slice(1)
+    if (!negated) continue
+    if (negated.startsWith('|1|')) {
+      for (const candidate of candidates) if (hashedEntryMatches(negated, candidate)) return false
+      continue
+    }
+    for (const candidate of candidates) if (globMatch(negated, candidate)) return false
+  }
   for (const rawPattern of String(field).split(',')) {
     const pattern = rawPattern.trim()
     if (!pattern) continue

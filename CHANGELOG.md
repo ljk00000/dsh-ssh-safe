@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.132 — 2026-10-31
+
+### Fixed — a negated host pattern was ignored
+- OpenSSH takes a whole `known_hosts` line out of play when any `!pattern` in its
+  host list matches. This plugin skipped the negation and matched the positive part,
+  so a line the user wrote to *exclude* a host was applied to it, accepting a key
+  they had excluded:
+  ```
+  line: *.example.com,!bad.example.com ssh-ed25519 AAAA…
+  host: bad.example.com
+  before: ACCEPTED — host key matches the entry
+  after : REFUSED — Unknown host bad.example.com
+  ```
+  An unrelated negation does not clear the entry (`!other.example.com` still lets
+  `bad.example.com` match), and `host,!host` refuses as OpenSSH does.
+
+### Verified, no change needed
+- Real `known_hosts` shapes all verify correctly: plain `host`, `[host]:port` for a
+  non-standard port (and not covering port 22), hashed `|1|salt|hash` entries for both
+  forms, several key types on one host with one of them matching, comma lists,
+  wildcards, comments, blank lines and CRLF line endings.
+- `@revoked` refuses the presented key; `@cert-authority` is skipped and reported as an
+  unknown host rather than silently trusted.
+
 ## 0.7.131 — 2026-10-31
 
 ### Fixed

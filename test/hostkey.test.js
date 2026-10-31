@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import { createHash } from 'node:crypto'
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, rmSync, statSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -163,4 +164,22 @@ test('the OpenSSH store advice matches whether the file exists', () => {
     })
     assert.doesNotMatch(present.reason, /does not exist/)
   } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
+test('a negated host pattern takes the whole known_hosts entry out of play', () => {
+  // '*.example.com,!bad.example.com' covered bad.example.com: the negation was
+  // ignored, so a key the user explicitly excluded was accepted.
+  const blob = Buffer.from('the-presented-key-material-0123456789abcdef')
+  const base64 = blob.toString('base64')
+  const fp = 'SHA256:' + createHash('sha256').update(blob).digest('base64').replace(/=+$/, '')
+  const check = (text, host) => checkOpenSshHostKey({
+    text, file: '<f>', host, port: 22, keyBlob: blob, policy: 'strict', trustHostKey: false, fp,
+  })
+
+  assert.equal(check('*.example.com ssh-ed25519 ' + base64, 'bad.example.com').ok, true)
+  assert.equal(check('*.example.com,!bad.example.com ssh-ed25519 ' + base64, 'bad.example.com').ok, false,
+    'the negated host must not be covered')
+  assert.equal(check('*.example.com,!other.example.com ssh-ed25519 ' + base64, 'bad.example.com').ok, true,
+    'an unrelated negation must not clear the entry')
+  assert.equal(check('bad.example.com,!bad.example.com ssh-ed25519 ' + base64, 'bad.example.com').ok, false)
 })
