@@ -555,3 +555,22 @@ test('a tool with no parameters says so instead of ". Accepted: ."', async () =>
   )
   rmSync(home, { recursive: true, force: true })
 })
+
+test('the inventory lists only the fields that are missing', async () => {
+  // A machine with a host configured was told its HOST variable was missing
+  // too, which sends the user to set something that is already set.
+  const own = {}
+  await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    hostKeyPolicy: 'tofu',
+    machines: {
+      onlyhost: { host: '10.0.0.1' },
+      onlyuser: { user: 'root' },
+    },
+  })
+  const text = String((await own.ssh_machines.execute({}, {})).text)
+  const row = (alias) => text.split('\u2022 ').find((block) => block.startsWith(alias + ' ')) || ''
+  assert.match(row('onlyhost'), /MISSING: DSH_SSH_ONLYHOST_USER/)
+  assert.doesNotMatch(row('onlyhost'), /ONLYHOST_HOST/, 'the host is configured')
+  assert.match(row('onlyuser'), /MISSING: DSH_SSH_ONLYUSER_HOST/)
+  assert.doesNotMatch(row('onlyuser'), /ONLYUSER_USER/, 'the user is configured')
+})

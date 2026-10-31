@@ -749,6 +749,10 @@ function assertKnownArgs(args, known, toolName) {
       for (const alias of aliases) {
         const m = machineDefinition(alias, { machines: cfg.machines, dshHome: credentialHome })
         const need = expectedEnv(alias)
+        const missingFields = [
+          ...(m.host ? [] : [need.required[0]]),
+          ...(m.username ? [] : [need.required[1]]),
+        ]
         // machineDefinition() never carries the password itself (it may need
         // decrypting), so test the SOURCE. Testing m.password meant the line
         // said "NONE" for a machine whose password was sitting in the
@@ -780,7 +784,10 @@ function assertKnownArgs(args, known, toolName) {
                   .map(([field, source]) => field + '=' + source)
                 return used.length ? '\n    sources: ' + used.join(', ') : '\n    sources: none'
               })()) +
-          (m.host && m.username ? '' : '\n    MISSING: ' + need.required.join(', ')) +
+          // Only the names that are actually absent: the pair was printed
+          // whenever either was missing, so a machine with a host configured was
+          // told its host variable was missing too.
+          (missingFields.length ? '\n    MISSING: ' + missingFields.join(', ') : '') +
           (m.portProblem ? '\n    BAD PORT: ' + m.portProblem : '')
         )
       }
