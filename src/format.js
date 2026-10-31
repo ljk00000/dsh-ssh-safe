@@ -62,7 +62,7 @@ export function plural(count, noun) {
 /**
  * Render a directory listing.
  *
- * @param {{path: string, items: Array<{name: string, size: number, dir: boolean, mtime?: string|null}>}} listing
+ * @param {{path: string, items: Array<{name: string, size: number, dir: boolean, type?: string, mtime?: string|null}>}} listing
  * @param {number} [limit] maximum rows; 0 or absent means no limit
  * @returns {string}
  */
@@ -81,7 +81,9 @@ export function formatListing(listing, limit = 0) {
   const omitted = sorted.length - shown.length
 
   const rows = shown.map((it) =>
-    (it.dir ? 'd' : '-') + ' ' + String(it.size).padStart(10) + '  ' + (it.mtime || '') + '  ' + printable(it.name))
+    // The type character comes from the mode when the caller knows it: a symlink
+    // or a FIFO shown as '-' looks like an ordinary file.
+    (it.type || (it.dir ? 'd' : '-')) + ' ' + String(it.size).padStart(10) + '  ' + (it.mtime || '') + '  ' + printable(it.name))
 
   const tail = omitted > 0
     ? '\n… ' + omitted + ' more entr' + (omitted === 1 ? 'y' : 'ies') + ' not shown (maxListEntries = ' + max + ')'

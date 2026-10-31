@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.67 — 2026-10-31
+
+### Fixed
+- **A listing showed a symlink, a FIFO and a socket as an ordinary file, and a
+  socket as a directory.** The type column was `dir ? 'd' : '-'`, so
+  everything that is not a directory collapsed to `-`; and `dir` was
+  `(mode & 0o040000) !== 0`, a bit test that is also true for a socket
+  (`0o140000`). The column now carries the `ls -l` letter: `d`, `l`, `p`,
+  `s`, `c`, `b`, `-`.
+- **Reading a FIFO blocked until the deadline and blamed the network.** A FIFO has
+  no end until something writes to it, so the read never completes. The timeout now
+  stats the path -- after the timeout, so ordinary reads pay nothing -- and says:
+  `reading /tmp/pipe did not complete within 1500ms — /tmp/pipe is a named pipe
+  (FIFO) — a FIFO has no end until something writes to it, so reading it blocks
+  forever`. The write deadline names a FIFO the same way.
+
+### Test infrastructure
+- The in-memory server can hold a FIFO, socket or device (`putSpecial`), stalls the
+  open of one the way a real server blocks, and readdir uses LSTAT attributes -- a
+  link is reported as a link. Listings also include links at all (they were missing
+  from every listing).
+
+### Added — tests
+- The type character for every kind, a listing that tells all four apart, and a FIFO
+  read that names the FIFO.
+
 ## 0.7.66 — 2026-10-31
 
 ### Fixed

@@ -91,6 +91,7 @@ export function createVfs() {
   const links = new Map()
   // path -> permission bits for files created with an explicit mode.
   const modes = new Map()
+  const specials = new Set()
   const MAX_LINK_DEPTH = 8
   const now = () => Math.floor(Date.now() / 1000)
 
@@ -104,7 +105,13 @@ export function createVfs() {
   const statLocal = (target) => {
     if (dirs.has(target)) return { dir: true, size: 4096, mode: 0o040755, mtime: now() }
     const buf = files.get(target)
-    if (buf) return { dir: false, size: buf.length, mode: 0o100000 | (modes.get(target) ?? 0o644), mtime: now() }
+    if (buf) {
+      const stored = modes.get(target)
+      const mode = stored !== undefined && (stored & 0o170000) !== 0
+        ? stored
+        : 0o100000 | (stored ?? 0o644)
+      return { dir: false, size: buf.length, mode, mtime: now() }
+    }
     return null
   }
 
@@ -167,6 +174,19 @@ export function createVfs() {
       if (typeof mode === 'number') modes.set(target, mode)
     },
     modeOf(p) { return modes.get(follow(p).path) },
+    /**
+     * Add an entry that is not a regular file: 'p' FIFO, 's' socket, 'c' char
+     * device. It exists for listings and stats; reading it stalls.
+     */
+    putSpecial(p, kind) {
+      const target = normalize(p)
+      mkdirp(path.posix.dirname(target))
+      const bits = kind === 'p' ? 0o010000 : kind === 's' ? 0o140000 : 0o020000
+      files.set(target, Buffer.alloc(0))
+      modes.set(target, bits | 0o644)
+      specials.add(target)
+      return target
+    },
     putDir(p) { return mkdirp(p) },
     putLink(p, target) {
       const link = normalize(p)
@@ -176,6 +196,7 @@ export function createVfs() {
     readLink(p) { return links.get(normalize(p)) },
     resolve(p) { return follow(p) },
     deniedBy,
+    isSpecial(p) { return specials.has(follow(p).path) },
     getFile(p) { return files.get(follow(p).path) },
     list(p) {
       const followed = follow(p)
@@ -186,6 +207,9 @@ export function createVfs() {
         const names = new Set()
         for (const dir of dirs) if (dir.startsWith(prefix) && dir !== target) names.add(dir.slice(prefix.length).split('/')[0])
         for (const file of files.keys()) if (file.startsWith(prefix)) names.add(file.slice(prefix.length).split('/')[0])
+        // readdir reports links too; leaving them out made a link invisible in
+        // every listing.
+        for (const link of links.keys()) if (link.startsWith(prefix) && link !== target) names.add(link.slice(prefix.length).split('/')[0])
         return [...names]
       }
       return null
@@ -278,6 +302,9 @@ export function attachSftp(stream, vfs) {
       reader.skipAttrs()
       const requestedMode = readModeFromAttrs(payload, attrStart)
       const existing = vfs.stat(target)
+      // Opening a FIFO/socket/device blocks on a real server until the other end
+      // shows up; answering nothing is how that looks to the client.
+      if (vfs.isSpecial(target)) return
       // A link cycle is ELOOP on a real server, not an empty file.
       if (existing && existing.cycle) return status(id, STATUS.FAILURE, 'Too many levels of symbolic links')
       if (existing && existing.dir) return status(id, STATUS.FAILURE, 'is a directory')
@@ -393,7 +420,10 @@ export function attachSftp(stream, vfs) {
       const parts = [u32(next.length)]
       for (const name of next) {
         const child = vfs.normalize(handle.path === '/' ? '/' + name : handle.path + '/' + name)
-        const stat = vfs.stat(child) || { dir: false, size: 0, mode: 0o100644, mtime: 0 }
+        // readdir answers with LSTAT attributes: a link is reported as a link, not
+        // as whatever it points at. Using stat here made every symlink in a
+        // listing look like an ordinary file.
+        const stat = vfs.lstat(child) || { dir: false, size: 0, mode: 0o100644, mtime: 0 }
         parts.push(str(name), str(name), attrsOf(stat))
       }
       return send(FXP.NAME, id, ...parts)

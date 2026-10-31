@@ -189,6 +189,55 @@ async function danglingLink(sftp, target, original) {
   )
 }
 
+/**
+ * The character `ls -l` puts in the first column, from the file's mode.
+ *
+ * @param {number} mode
+ * @returns {string}
+ */
+export function typeChar(mode) {
+  const bits = Number(mode) & 0o170000
+  if (bits === 0o040000) return 'd'
+  if (bits === 0o120000) return 'l'
+  if (bits === 0o010000) return 'p'
+  if (bits === 0o140000) return 's'
+  if (bits === 0o020000) return 'c'
+  if (bits === 0o060000) return 'b'
+  return '-'
+}
+
+/**
+ * Name a path that is not a regular file, for a timeout that it caused.
+ *
+ * @param {any} sftp
+ * @param {string} target
+ * @param {'read'|'write'} operation
+ * @returns {Promise<string>} '' when the path is an ordinary file
+ */
+async function specialFileNote(sftp, target, operation) {
+  if (typeof sftp.stat !== 'function') return ''
+  let attrs
+  try { attrs = await callSftp(sftp, 'stat', target) } catch { return '' }
+  if (!attrs || typeof attrs.mode !== 'number') return ''
+  const kind = typeChar(attrs.mode)
+  const names = {
+    p: 'a named pipe (FIFO)',
+    s: 'a socket',
+    c: 'a character device',
+    b: 'a block device',
+    d: 'a directory',
+    l: 'a symbolic link',
+  }
+  const name = names[kind]
+  if (!name) return ''
+  const why = kind === 'p'
+    ? (operation === 'read'
+      ? ' — a FIFO has no end until something writes to it, so reading it blocks forever'
+      : ' — a FIFO blocks until something reads from it')
+    : ' — only regular files can be read or written this way'
+  return ' — ' + target + ' is ' + name + why
+}
+
 /** Promisify an ssh2 sftp method's node-style callback. */
 function callSftp(sftp, method, ...args) {
   return new Promise((resolve, reject) => {
@@ -301,8 +350,15 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, 
       else resolve(result)
     }
 
-    timer = setTimeout(() => {
-      settle(null, new Error('reading ' + target + ' did not complete within ' + timeoutMs + 'ms'))
+    timer = setTimeout(async () => {
+      if (settled) return
+      // A read that never returns is usually a FIFO: a real server blocks on the
+      // open until something writes, and the deadline message then blames the
+      // network. One stat after the timeout (not before, so ordinary reads pay
+      // nothing) names the real cause.
+      const detail = await specialFileNote(sftp, target, 'read')
+      if (settled) return
+      settle(null, new Error('reading ' + target + ' did not complete within ' + timeoutMs + 'ms' + detail))
     }, timeoutMs)
     abortListener = onAbort(signal, 'reading ' + target + ' was cancelled', (error) => settle(null, error))
 
@@ -402,10 +458,13 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
       if (wrote === 0) return 'the file was opened (which truncates it) but no data was sent, so its previous content is gone'
       return 'sent ' + wrote + ' byte' + (wrote === 1 ? '' : 's') + ' before it stopped; the file is partial'
     }
-    timer = setTimeout(() => {
+    timer = setTimeout(async () => {
+      if (settled) return
+      const detail = await specialFileNote(sftp, target, 'write')
+      if (settled) return
       settle(null, new Error(
         'writing ' + target + ' did not complete within ' + timeoutMs + 'ms' +
-        ' — the remote channel may have dropped; ' + writeState()
+        (detail || ' — the remote channel may have dropped') + '; ' + writeState()
       ))
     }, timeoutMs)
     // A function, not a string: the state is composed when the abort happens.
@@ -529,7 +588,12 @@ export async function listRemoteDir(client, remotePath, { timeoutMs, signal }) {
           items: items.map((it) => ({
             name: it.filename,
             size: it.attrs.size,
-            dir: (it.attrs.mode & 0o040000) !== 0,
+            // Compare the whole type field: a socket is 0o140000, which also has
+            // the 0o040000 directory bit set, so a bit test called sockets dirs.
+            dir: (it.attrs.mode & 0o170000) === 0o040000,
+            // A symlink, a FIFO and a socket are not regular files, and a listing
+            // that shows all three as '-' invites reading a FIFO, which blocks.
+            type: typeChar(it.attrs.mode),
             mtime: it.attrs.mtime ? new Date(it.attrs.mtime * 1000).toISOString() : null,
           })),
         })
