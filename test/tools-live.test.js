@@ -3305,3 +3305,43 @@ test('timeoutMs: 0 means the configured value, and a negative one is refused', a
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a null host-key record is refused, not treated as never seen', async () => {
+  // '!recorded' was true for null, so a hand-edited '{"h:22": null}' read as
+  // 'first contact' and a tofu connection overwrote the record the user had.
+  const ssh2 = (await import('ssh2')).default
+  const own = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-khnull-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  try {
+    const dir = path.join(home, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    const key = '127.0.0.1:' + own.port
+    const file = path.join(dir, 'known_hosts.json')
+    writeFileSync(file, JSON.stringify({ version: 1, hosts: { [key]: null } }))
+    await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { t: machineFor('t', own.port) },
+    })
+    const outcome = await tools.ssh_connect.execute({ machine: 't' }, {}).then(
+      (r) => String(r.text), (err) => 'ERR: ' + err.message)
+    assert.match(outcome, /Host key verification failed/)
+    assert.match(outcome, /is not an object \(null\)/)
+    // The store must be untouched: recording here would replace a user's entry.
+    const after = JSON.parse(readFileSync(file, 'utf8'))
+    assert.equal(after.hosts[key], null)
+    // The inventory must not claim the host was never seen.
+    const inventory = String((await tools.ssh_machines.execute({}, {})).text)
+    assert.match(inventory, /trusted: NO — the recorded entry has no usable fingerprint/)
+    assert.doesNotMatch(inventory, /not trusted yet \(no fingerprint recorded\)/)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await own.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

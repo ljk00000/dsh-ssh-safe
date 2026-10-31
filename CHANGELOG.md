@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.7.290 — 2026-11-01
+
+### Fixed — a `null` host-key record read as "never seen", so tofu could overwrite it
+Every other damaged record was already refused. `{"hosts": {"h:22": null}}` was not, because the check
+was `!recorded`:
+```
+before  ssh_connect   Unknown host 127.0.0.1:4026 with fingerprint SHA256:…   ← "first contact"
+        ssh_machines  not trusted yet (no fingerprint recorded)
+        …and under hostKeyPolicy: "tofu" the presented key was recorded over the entry.
+
+after   ssh_connect   Host key verification failed: the recorded entry for 127.0.0.1:4026 in …
+                      known_hosts.json is not an object (null), so nothing can be verified
+                      against it. Remove that entry and connect again to record the key you
+                      verify out of band.
+        ssh_machines  trusted: NO — the recorded entry has no usable fingerprint …
+```
+A truthy non-object (a string, an array, a number) already reached the "no usable fingerprint" refusal;
+only the falsy values — `null`, `0`, `false`, `""` — fell through to the first-contact path. The check
+now tests existence with `Object.hasOwn`, so `null` is a damaged record rather than an absent one. The
+store is left untouched under both `tofu` and `strict`.
+
+### Also in this round
+- `ssh_credentials` now lists credential-file entries that are not objects of fields
+  (`IGNORED "num" in the credential file is a number, not an object of fields`), matching `ssh_machines`
+  and the connection error from 0.7.289.
+
+### My own mistakes
+- My first `brokenRecord` condition was `!recorded || typeof recorded !== 'object'`, which also caught
+  strings and changed a message an existing test pins (`no usable fingerprint`). The suite caught it; the
+  condition is now `hasEntry && !recorded`, and only the behaviour that was wrong changed.
+- Two CRLF anchor misses: `index.js` is CRLF in that block while the code I was reading around it is not.
+
+### Tests
+- One new live case: a `null` record under `tofu` is refused, the store is not rewritten, and the
+  inventory says the record has no usable fingerprint instead of "not trusted yet".
+  Suite 874 / 869 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.289 — 2026-11-01
 
 ### Fixed — a credential-file entry that is not an object vanished without a word

@@ -879,8 +879,13 @@ function assertKnownArgs(args, known, toolName) {
     } catch {
       return 'known-hosts store unreadable (parse error): ' + file
     }
-    const rec = raw?.hosts?.[String(m.host) + ':' + (m.port || 22)]
-    if (!rec) return 'not trusted yet (no fingerprint recorded)'
+    const recKey = String(m.host) + ':' + (m.port || 22)
+    // An entry that exists but is null or not an object is a damaged record, not
+    // "never seen": printing "not trusted yet" invited a tofu connect that would
+    // overwrite it.
+    const hasRec = Boolean(raw && typeof raw === 'object' && raw.hosts && Object.hasOwn(raw.hosts, recKey))
+    const rec = hasRec ? raw.hosts[recKey] : undefined
+    if (!hasRec) return 'not trusted yet (no fingerprint recorded)'
     // A record with no usable fingerprint is not trust: the check refuses with
     // 'no usable fingerprint'. Printing 'trusted: undefined' said the opposite,
     // and a record that is not even an object is refused the same way.
@@ -2155,6 +2160,13 @@ function passphraseLine(st) {
         // machine has a password"; name it here, where the sources are listed.
         const fileState = readCredentialFile(dshHome)
         if (fileState.problem) head.push('  WARNING         ' + fileState.problem)
+        // Entries that exist but are not objects of fields are listed here too: this
+        // is the tool that says where credentials come from, and an alias it omits
+        // silently reads as "nothing is defined".
+        for (const ignoredEntry of fileState.ignored || []) {
+          head.push('  IGNORED         ' + JSON.stringify(ignoredEntry.alias) +
+            ' in the credential file is ' + ignoredEntry.shape + ', not an object of fields')
+        }
       }
       if (aliases.length === 0) {
         head.push('', 'No machines defined yet.')

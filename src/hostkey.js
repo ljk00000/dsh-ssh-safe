@@ -510,7 +510,15 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
   const label = hostLabel(host, port)
   const read = readStore(file)
   const store = read.store
+  const hasEntry = Object.hasOwn(store.hosts, id)
   const recorded = store.hosts[id]
+  // A hand-edited null (or a number) is an entry that exists and cannot be used.
+  // `!recorded` treated it as "never seen", so the next tofu connection overwrote
+  // a record the user had written down.
+  // Only the FALSY case is new: a truthy non-object (a string, an array, a
+  // number) already reached the "no usable fingerprint" refusal below. `null`,
+  // `0`, `false` and `""` are the values that read as "never seen".
+  const brokenRecord = hasEntry && !recorded
 
   if (policy === 'off') {
     return { ok: true, reason: 'host key verification disabled by policy', fp, firstSeen: !recorded }
@@ -524,6 +532,17 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
         'Host key verification failed: ' + read.problem + '. Nothing can be verified against it, ' +
         'and recording a new key would overwrite the hosts already trusted there. Repair or remove ' +
         'that file, then connect again.',
+      fp,
+      firstSeen: false,
+    }
+  }
+  if (brokenRecord) {
+    return {
+      ok: false,
+      reason:
+        'Host key verification failed: the recorded entry for ' + label + ' in ' + file +
+        ' is not an object (' + (recorded === null ? 'null' : typeof recorded) + '), so nothing can be verified ' +
+        'against it. Remove that entry and connect again to record the key you verify out of band.',
       fp,
       firstSeen: false,
     }
