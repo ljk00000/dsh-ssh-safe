@@ -877,7 +877,8 @@ function assertKnownArgs(args, known, toolName) {
   registerTool({
     name: 'ssh_machines',
     description:
-      'List the SSH machines configured through environment variables: alias, host, user, auth ' +
+      'List the SSH machines this profile can reach (settings form, credential file and environment): ' +
+      'alias, host, user, auth ' +
       'kind, host-key trust state. Never returns a password, passphrase, or key material. ' +
       'Call this first when you do not know which aliases exist.',
     parameters: {},
@@ -1479,7 +1480,8 @@ function assertKnownArgs(args, known, toolName) {
   // ── ssh_list ──────────────────────────────────────────────────────────
   registerTool({
     name: 'ssh_list',
-    description: 'List a directory on the remote machine (name, size, type, mtime).',
+    description: 'List a directory on the remote machine (name, size, type, mtime). Shows at most ' +
+      'maxListEntries rows and says how many more there are; pass offset to read the next page.',
     parameters: {
       machine: { type: 'string', description: 'Machine alias. Defaults to defaultMachine.' },
       path: { type: 'string', description: 'Absolute path on the remote host. Defaults to "."' },
@@ -2210,8 +2212,9 @@ function blockingFileAbove(dir) {
   registerTool({
     name: 'ssh_doctor',
     description:
-      'Diagnose one machine stage by stage: configuration, TCP reachability, host key, then ' +
-      'authentication. Each stage reports pass, fail or skip, so a bare ' +
+      'Diagnose one machine stage by stage: configuration, credentials, TCP reachability, host key, ' +
+      'authentication, the shell, then the SFTP subsystem every file tool needs. Each stage reports ' +
+      'pass, fail or skip, so a bare ' +
       '"All configured authentication methods failed" becomes actionable. Never prints a ' +
       'password, passphrase or key body.',
     parameters: {

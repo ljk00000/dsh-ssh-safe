@@ -2915,3 +2915,41 @@ test('ssh_exec masks secret-shaped output and raw: true bypasses the mask', asyn
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the doctor description names every stage the doctor reports', async () => {
+  // The description listed configuration/TCP/host key/authentication. The sftp
+  // stage arrived in 0.7.241 and was never added, so the one stage that fails on a
+  // server without the subsystem was undocumented.
+  const srv2 = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-docstages-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    const report = String((await own.ssh_doctor.execute({ machine: 't' }, {})).text)
+    const stages = new Set()
+    for (const line of report.split('\n')) {
+      const match = line.match(/^\[(?:ok|FAIL|warn|skip)\] ([a-z ]+):/)
+      if (match) stages.add(match[1])
+    }
+    assert.ok(stages.size >= 5, 'expected several stages, saw ' + [...stages].join(', '))
+    const description = String(own.ssh_doctor.description || '')
+    for (const stage of stages) {
+      // 'tcp' is written as 'TCP reachability' in the prose; compare the words.
+      const words = stage.toLowerCase().split(' ')
+      const mentioned = words.every((word) => description.toLowerCase().includes(word))
+      assert.ok(mentioned, 'the description must mention the ' + stage + ' stage')
+    }
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1500))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

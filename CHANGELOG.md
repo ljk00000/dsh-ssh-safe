@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.258 — 2026-11-01
+
+### Fixed — three tool descriptions that had drifted from the tools
+```
+ssh_doctor    before: configuration, TCP reachability, host key, then authentication
+              after : configuration, credentials, TCP reachability, host key, authentication, the
+                      shell, then the SFTP subsystem every file tool needs
+
+ssh_machines  before: machines configured through environment variables
+              after : machines this profile can reach (settings form, credential file and environment)
+
+ssh_list      before: List a directory (name, size, type, mtime)
+              after : … Shows at most maxListEntries rows and says how many more there are; pass
+                      offset to read the next page
+```
+The `sftp` stage arrived in 0.7.241 and was never added to the description — the one stage that fails
+on a server without the subsystem, which is exactly when a caller reads the description. The other two
+are the same kind of drift: the machine list stopped being environment-only when the credential file
+and settings form were wired in, and the listing learned to page.
+
+### Tests
+- One new case takes every stage label out of a real doctor report and asserts the tool description
+  mentions each one, so adding a stage without documenting it now fails. **Proved it fails**: with
+  `SFTP subsystem` removed from the description the test reports `the doctor description names every
+  stage …` red, then passes again once restored.
+  Suite 844 / 839 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.257 — 2026-11-01
 
 ### Fixed — `ssh_connect` promised a `uname` it never ran
