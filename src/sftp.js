@@ -102,9 +102,9 @@ function remoteError(err, target, operation) {
     if (operation === 'write') {
       hints.push('the account may not write there — check the owner and mode of the parent directory (ls -ld <dir>), or choose a path it owns')
     } else if (operation === 'read') {
-      hints.push('the account may not read this file — check its owner and mode (ls -l <path>)')
+      hints.push('the account may not read this file — check the owner and mode of the file and of the directories above it (ls -l <path>, ls -ld <dir>)')
     } else if (operation === 'list') {
-      hints.push('the account may not list this directory — check its owner and mode (ls -ld <path>)')
+      hints.push('the account may not list this directory — check its owner and mode, and the search permission on the directories above it (ls -ld <path>)')
     } else {
       hints.push('the account may not touch this path — check its owner and mode (ls -ld <parent>)')
     }
@@ -407,6 +407,22 @@ async function ensureRemoteDir(sftp, dir) {
           'loop (the links point at each other), so nothing can be created through it; replace ' +
           'or remove one of the links'
         )
+      }
+      // A component that is a symlink answering "No such file" is not missing:
+      // it points at something that cannot be reached, and mkdir on it produced
+      // "could not create remote directory /w/gone/a: not a directory" — a
+      // sentence about a different path than the one that is broken.
+      if (typeof sftp.lstat === 'function') {
+        let linkAttrs = null
+        try { linkAttrs = await callSftp(sftp, 'lstat', probe) } catch { /* gone again */ }
+        if (linkAttrs && typeof linkAttrs.isSymbolicLink === 'function' && linkAttrs.isSymbolicLink()) {
+          let points = ''
+          try { points = String(await callSftp(sftp, 'readlink', probe)) } catch { /* gone again */ }
+          throw new Error(
+            'cannot create the parent directories of this path: ' + probe + ' is a symbolic link' +
+            (points ? ' to ' + points : '') + ', and that target cannot be reached; fix that link first'
+          )
+        }
       }
       // Everything else keeps the old path (try mkdir, then report what the server
       // said): a denied directory is not a loop, and "could not create … Permission

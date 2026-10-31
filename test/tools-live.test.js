@@ -2150,3 +2150,39 @@ test('reading through a symlink loop names the loop, not just "no such file"', a
   const listed = await attempt('ssh_list', { path: '/links/gone/x' })
   assert.match(listed, /is a symbolic link to \/links\/nowhere\.txt/)
 })
+
+test('a dangling link above the target is named for writes with createDirs too', async () => {
+  // '/w/gone/a/b/x.txt' answered 'could not create remote directory /w/gone/a: not a
+  // directory' — about a path that was never the problem. The one-level case already
+  // named the link, so the two disagreed about the same condition.
+  srv.vfs.putDir('/dl')
+  srv.vfs.putLink('/dl/gone', '/dl/nowhere.txt')
+  const attempt = async (args) => {
+    try { return await run('ssh_write', args) } catch (err) { return 'ERR: ' + err.message }
+  }
+  const one = await attempt({ path: '/dl/gone/x.txt', content: 'x', createDirs: true })
+  assert.match(one, /\/dl\/gone is a symbolic link to \/dl\/nowhere\.txt/)
+  const deep = await attempt({ path: '/dl/gone/a/b/x.txt', content: 'x', createDirs: true })
+  assert.match(deep, /\/dl\/gone is a symbolic link to \/dl\/nowhere\.txt/)
+  assert.match(deep, /that target cannot be reached/)
+  assert.doesNotMatch(deep, /not a directory/)
+})
+
+test('a denied directory above the target is named as a possibility', async () => {
+  srv.vfs.putDir('/deny')
+  srv.vfs.putDir('/deny/inner')
+  srv.vfs.putFile('/deny/inner/f.txt', 'x')
+  srv.vfs.control.deny('/deny')
+  try {
+    const attempt = async (name, args) => {
+      try { return await run(name, args) } catch (err) { return 'ERR: ' + err.message }
+    }
+    const read = await attempt('ssh_read', { path: '/deny/inner/f.txt' })
+    assert.match(read, /may not read this file/)
+    assert.match(read, /and of the directories above it/)
+    const listed = await attempt('ssh_list', { path: '/deny/inner' })
+    assert.match(listed, /search permission on the directories above it/)
+  } finally {
+    srv.vfs.control.undeny()
+  }
+})

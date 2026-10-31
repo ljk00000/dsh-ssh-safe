@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.223 — 2026-11-01
+
+### Fixed
+- **`createDirs` with a dangling link above the target named the wrong path.** One level under the
+  link was explained, three levels were not:
+  ```
+  /w/gone/x.txt        cannot reach /w/gone/x.txt: /w/gone is a symbolic link to /w/nowhere.txt …
+  /w/gone/a/b/x.txt    before: could not create remote directory /w/gone/a: not a directory
+                       after : cannot create the parent directories of this path: /w/gone is a
+                               symbolic link to /w/nowhere.txt, and that target cannot be reached;
+                               fix that link first
+  ```
+  `ensureRemoteDir()` now lstat's a component whose stat failed before deciding it is missing.
+
+- **"Permission denied" on a file blamed only the file.** A denial usually comes from a directory
+  on the way, so pointing at `ls -l <path>` alone sent the user to a check that also fails:
+  ```
+  read: … check the owner and mode of the file and of the directories above it (ls -l <path>, ls -ld <dir>)
+  list: … check its owner and mode, and the search permission on the directories above it (ls -ld <path>)
+  ```
+
+### Tests
+- Two new live cases: the dangling link is named at one level and at three, and both permission
+  hints mention the directories above. Suite 804 / 799 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.222 — 2026-11-01
 
 ### Fixed
