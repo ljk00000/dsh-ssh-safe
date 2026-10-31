@@ -380,3 +380,26 @@ test('a store that cannot be written says which file and why the connection fail
     )
   } finally { rmSync(home, { recursive: true, force: true }) }
 })
+
+test('a store written by a newer plugin is explained, not called corrupt', () => {
+  // 'not in the expected format (version 2)' described a valid file written by a
+  // newer dsh-ssh-safe as damage, and never said what version this plugin expects.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-khversion-'))
+  try {
+    const file = storePath(home)
+    mkdirSync(path.dirname(file), { recursive: true })
+    const keyBlob = Buffer.from('not-a-real-key')
+    writeFileSync(file, JSON.stringify({ version: 2, hosts: {} }))
+    const newer = checkHostKey({ dshHome: home, host: 'h.example', port: 22, keyBlob, policy: 'tofu' })
+    assert.equal(newer.ok, false)
+    assert.match(newer.reason, /has store version 2 and this plugin understands version 1/)
+    assert.match(newer.reason, /A newer dsh-ssh-safe wrote it/)
+    assert.match(newer.reason, /upgrade the plugin/)
+
+    writeFileSync(file, JSON.stringify({ hosts: {} }))
+    const other = checkHostKey({ dshHome: home, host: 'h.example', port: 22, keyBlob, policy: 'tofu' })
+    assert.equal(other.ok, false)
+    assert.match(other.reason, /expects version 1/)
+    assert.match(other.reason, /Repair the file/)
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})

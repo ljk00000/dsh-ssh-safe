@@ -53,10 +53,22 @@ function readStore(file) {
     if (raw && raw.version === STORE_VERSION && raw.hosts && typeof raw.hosts === 'object') {
       return { store: raw, problem: '' }
     }
+    // A file written by a NEWER plugin says "version 2" in exactly this shape, and
+    // "not in the expected format" then sounds like corruption: the reader deletes
+    // a valid file, or upgrades nothing and stays broken. Name the version this
+    // plugin understands and say which of the two situations it is.
+    const seen = raw && typeof raw === 'object' ? raw.version : undefined
+    const newer = typeof seen === 'number' && seen > STORE_VERSION
+    const shape = '{"version": 1, "hosts": {"host:port": {"fingerprint": "SHA256:…"}}}'
     return {
       store: empty,
-      problem: 'the host key store ' + file + ' is not in the expected format (version ' +
-        JSON.stringify(raw && raw.version) + ')',
+      problem: 'the host key store ' + file + ' has store version ' + JSON.stringify(seen) +
+        (newer
+          ? ' and this plugin understands version ' + STORE_VERSION + '. A newer dsh-ssh-safe wrote it —' +
+            ' upgrade the plugin to use it, or move the file aside to start a fresh store (every host' +
+            ' will then ask for its fingerprint again)'
+          : ' while this plugin expects version ' + STORE_VERSION + '. Repair the file (its shape is ' +
+            shape + ') or move it aside to start a fresh store'),
     }
   } catch (err) {
     return {

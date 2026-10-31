@@ -60,7 +60,7 @@ test('a store in the wrong shape is named as such', () => {
     policy: 'strict', trustHostKey: false,
   })
   assert.equal(verdict.ok, false)
-  assert.match(verdict.reason, /is not in the expected format \(version 99\)/)
+  assert.match(verdict.reason, /has store version 99 and this plugin understands version 1/)
   assert.equal(readFileSync(file, 'utf8'), JSON.stringify({ version: 99, hosts: {} }))
 })
 

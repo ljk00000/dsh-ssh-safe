@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.291 — 2026-11-01
+
+### Fixed — a store from a newer plugin was called corrupt, with no remedy
+`known_hosts.json` written by a newer dsh-ssh-safe is valid JSON in exactly the documented shape; only
+its `version` is higher. The reader said:
+```
+before  … is not in the expected format (version 2)
+
+after   … has store version 2 and this plugin understands version 1. A newer dsh-ssh-safe wrote it —
+        upgrade the plugin to use it, or move the file aside to start a fresh store (every host will
+        then ask for its fingerprint again).
+```
+“Not in the expected format” reads as corruption, so the natural fix — deleting the file — also throws
+away every pinned host. The non-newer cases now name the expected version, show the shape the file should
+have, and offer both remedies:
+```
+… has store version "1" while this plugin expects version 1. Repair the file (its shape is
+{"version": 1, "hosts": {"host:port": {"fingerprint": "SHA256:…"}}}) or move it aside to start a
+fresh store
+```
+
+### My own mistakes
+- Four attempts at the wording: a backslash-escaped quote broke `node --check` twice, and one splice left
+  a stray `}` (`Missing catch or finally after try`).
+- My first message ended with a period, and the caller appends its own sentence: `again).. Nothing can be
+  verified` — the double period is gone, and the caller keeps owning the closing sentence.
+- An existing test pinned `is not in the expected format (version 99)`; the assertion now checks the new
+  sentence, which is the point of the change.
+
+### Tests
+- One new case: version 2 names the newer-plugin situation and the upgrade remedy; a file without a
+  version number names the expected version and the shape.
+  Suite 875 / 870 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.290 — 2026-11-01
 
 ### Fixed — a `null` host-key record read as "never seen", so tofu could overwrite it
