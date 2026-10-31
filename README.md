@@ -445,7 +445,7 @@ ssh_read { machine: "prod", path: "/opt/app/.env", raw: true }
 - `rm -rf ~` / `rm -rf $HOME`（家目录顶层）
 - `cd /`（或 `cd ~`）之后紧跟 `rm -rf *`——斜杠在 cd 里，第一条看不见
 - `find /` 配合 `-delete` 或 `-exec rm`；`find / | xargs rm`、`xargs rm -rf`（`find . | xargs rm` 不带递归时仍放行）
-- `mkfs.*`、`dd if=... of=/dev/sd*`、往块设备重定向（`>: /dev/sda`）、`wipefs`、`shred`、fork 炸弹
+- `mkfs.*`、`dd if=... of=/dev/sd*`、往块设备重定向（`> /dev/sda`、`>: /dev/sda`、`>| /dev/sda`、`&> /dev/sda`）、`wipefs … /dev/sd*`、`shred … /dev/sd*`、fork 炸弹
 - `shutdown` / `reboot` / `halt` / `poweroff`，且只在**命令位置**匹配（`grep -c shutdown 日志` 不再被误拦）
 - 下载即执行，不经过管道也算：`bash -c "$(curl …)"`、`source <(curl …)`、`. <(wget …)`（`cat <(curl …)` 只读文本，仍放行）
 

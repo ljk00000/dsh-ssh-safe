@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.278 — 2026-11-01
+
+### Fixed — `>: /dev/sda` slipped past the deny list, although the README named it
+The block-device rule matched `\d?>>?` before the device, so the two spellings that put a `:` or a `|`
+straight after the operator were not covered:
+```
+BLOCKED   > /dev/sda        >  /dev/sda (unchanged)   &> /dev/sda
+allowed   >: /dev/sda       >:/dev/sda               >| /dev/sda
+allowed   2>: /dev/sda      >>: /dev/sda
+```
+`>: file` is a redirect with no command word and `>| file` is bash’s clobber form: both truncate the
+device exactly like `> file`. The fragment is now `\d?(?:&|>>?\|?)\s*:?\s*/dev/…`, which covers every
+spelling measured above while leaving `echo hi > /dev/null`, `2> /dev/stderr` and
+`cat /dev/sda > backup.img` allowed (a device on the left is a backup).
+
+### README corrected
+The rule list wrote `shred` bare, but the rule (and its message) only covers `shred … /dev/sd*`:
+`shred -u app.log` is ordinary work and stays allowed. The line now says `wipefs … /dev/sd*` and
+`shred … /dev/sd*` and names the four redirect spellings the rule actually blocks.
+
+### My own mistakes
+- The first fuzz run labelled nine allowed commands as BLOCKED: my `blocked()` regex matched "refused"
+  inside `connect ECONNREFUSED`. Re-running with `/Command refused/` showed the two genuine slips.
+- `connectTimeoutMs: 700` was refused by the schema (minimum 1000) before any command ran — the trap I
+  have hit before, in a probe whose whole point was the config.
+
+### Tests
+- The block-device case now also requires `>:`, `>:`, `>|`, `2>:`, `>>:` and `&>` to be refused.
+  Suite 862 / 857 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.277 — 2026-11-01
 
 ### Fixed — a credential file that cannot be parsed looked like an empty one

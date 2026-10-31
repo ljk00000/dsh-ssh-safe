@@ -312,7 +312,7 @@ export const DEFAULT_DENY_RULES = [
     // A write to a block device destroys it. Only the device on the RIGHT of a
     // redirect counts: 'cat /dev/sda > backup.img' reads a disk, which is ordinary
     // backup work, and 'echo x > /dev/null' is not a write to a disk at all.
-    pattern: '(?:\\bwipefs\\b[^\\n]*\\s/dev/(?:sd|nvme|hd|vd|mmcblk|disk/)|\\bshred\\b[^\\n]*\\s/dev/(?:sd|nvme|hd|vd|mmcblk|disk/)|\\d?>>?\\s*/dev/(?:sd|nvme|hd|vd|mmcblk|disk/))',
+    pattern: '(?:\\bwipefs\\b[^\\n]*\\s/dev/(?:sd|nvme|hd|vd|mmcblk|disk/)|\\bshred\\b[^\\n]*\\s/dev/(?:sd|nvme|hd|vd|mmcblk|disk/)|\\d?(?:&|>>?\\|?)\\s*:?\\s*/dev/(?:sd|nvme|hd|vd|mmcblk|disk/))',
     why: 'it overwrites a block device (redirect into /dev/sd*, wipefs, shred)',
   },
   {

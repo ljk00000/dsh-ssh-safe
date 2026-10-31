@@ -158,7 +158,11 @@ test('writing to a block device is refused, reading one is not', () => {
   // 'dd if=... of=/dev/sda' was covered; ': > /dev/sda', 'cat img > /dev/sda',
   // 'wipefs -a /dev/sda' and 'shred -u /dev/sda' were not.
   const patterns = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
-  for (const command of ['wipefs -a /dev/sda', 'shred -u /dev/sda1', 'echo x > /dev/nvme0n1', 'cat img > /dev/mmcblk0', ': > /dev/disk/by-id/x']) {
+  // '>:' is a redirect with no command word and '>|' is the clobber form; both
+  // write the device just like '>' and both were measured slipping through, even
+  // though the README lists '>: /dev/sda' as a covered spelling.
+  for (const command of ['wipefs -a /dev/sda', 'shred -u /dev/sda1', 'echo x > /dev/nvme0n1', 'cat img > /dev/mmcblk0', ': > /dev/disk/by-id/x',
+    '>: /dev/sda', '>:/dev/sda', '>| /dev/sda', '2>: /dev/sda', '>>: /dev/sda', '&> /dev/sda']) {
     assert.equal(checkCommand(command, patterns).blocked, true, command)
   }
   // A device on the LEFT of a redirect is a backup, and /dev/null is not a disk.
