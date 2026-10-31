@@ -553,7 +553,11 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
           ? 'no data was sent: opening it is the step that has not finished'
           : 'sent ' + wrote + ' byte' + (wrote === 1 ? '' : 's') + ' before it stopped'
       }
-      if (wrote === 0) return 'the file was opened (which truncates it) but no data was sent, so its previous content is gone'
+      // 'its previous content is gone' was printed for a file that never existed,
+      // which describes damage to nothing. Naming the state that is true either
+      // way avoids both the false alarm and an extra round trip to find out.
+      if (wrote === 0) return 'the file was opened (which truncates it) but no data was sent, so it is empty now' +
+        ' (if it existed before, that content is gone)'
       return 'sent ' + wrote + ' byte' + (wrote === 1 ? '' : 's') + ' before it stopped; the file is partial'
     }
     timer = setTimeout(async () => {

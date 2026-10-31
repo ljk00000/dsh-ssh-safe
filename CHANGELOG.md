@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.143 — 2026-10-31
+
+### Fixed
+- **A timed-out write claimed previous content was destroyed on a file that never
+  existed.** The server had an empty file either way, but the sentence described
+  damage to nothing:
+  ```
+  before: the file was opened (which truncates it) but no data was sent, so its
+          previous content is gone
+  after : … so it is empty now (if it existed before, that content is gone)
+  ```
+  No extra round trip: the wording is true whether or not the file was there.
+
+### Verified, no change needed
+- A write or a listing interrupted by `ssh_close force: true` now settles on its own
+  timeout (3289ms and 3019ms for a 3s budget) instead of hanging.
+- Closing while a connection is still being established keeps its promise: the call
+  reports that it will close on arrival, the connect still reports what happened, and
+  immediately afterwards `Live connections: 0` with no client left on the server; the
+  next command reconnects and runs.
+
 ## 0.7.142 — 2026-10-31
 
 ### Fixed — a read could hang forever

@@ -1219,7 +1219,7 @@ test('the truncation advice names the ceiling that actually applied', async () =
     assert.match(byMaxBytes, /raise maxBytes in this call/,
       'advice must name the cap that applied: ' + byMaxBytes.slice(0, 160))
   } finally {
-    await own.ssh_close.execute({}, {}).catch(() => {})
+    await own.ssh_close?.execute?.({}, {}).catch(() => {})
     await srv2.close()
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous
@@ -1339,6 +1339,37 @@ test('a read in flight settles when the connection is force-closed', async () =>
     srv2.vfs.control.stallReads = false
     await own.ssh_close.execute({}, {}).catch(() => {})
     await srv2.close()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a timed-out write does not claim previous content was destroyed on a new file', async () => {
+  // 'so its previous content is gone' was printed for a file that never existed;
+  // the server confirms size 0 either way, so the message names that state.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-wstate-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    srv2.vfs.putDir('/tmp')
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000, sftpTimeoutMs: 1000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    srv2.vfs.control.stallWrites = true
+    const message = await own.ssh_write.execute({ machine: 't', path: '/tmp/never.txt', content: 'x'.repeat(50) }, {})
+      .then(() => '', (err) => String(err.message))
+    assert.match(message, /so it is empty now/)
+    assert.match(message, /if it existed before, that content is gone/)
+    assert.equal(srv2.vfs.getFile('/tmp/never.txt').length, 0, 'the server has an empty file, as the message says')
+  } finally {
+    srv2.vfs.control.stallWrites = false
+    await own.ssh_close.execute({}, {}).catch(() => {})
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
     rmSync(home, { recursive: true, force: true })
   }
 })
