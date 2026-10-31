@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.135 — 2026-10-31
+
+### Fixed
+- **An IPv6 host was reported as `::1:22`, which reads two ways.** Messages a user has
+  to act on could be misread as host `::` port `1:22`:
+  ```
+  before: HOST KEY CHANGED for ::1:22: recorded SHA256:…
+          Unknown host ::1:2222 with fingerprint …
+  after : HOST KEY CHANGED for [::1]:22: recorded SHA256:…
+          Unknown host [::1]:2222 with fingerprint …
+  ```
+  Only the label changed. The fingerprint is still stored under `::1:22`, so existing
+  IPv6 records keep verifying — re-keying the store would orphan them, and an orphaned
+  record makes the next key look like a first contact. IPv4 output is unchanged.
+
+### Verified, no change needed
+- The destructive-command guard explains itself per rule:
+  `rm -rf /` → "it deletes the filesystem root (…)", `shutdown` → "it shuts the machine
+  down or restarts it", `mkfs` → "it builds a filesystem on a device".
+- A custom `denyPatterns` list replaces the built-ins and the config says so
+  (`1 pattern(s) — replaces the 10 built-in rules`); an empty list reads
+  `0 pattern(s) — the destructive-command guard is OFF`, and that command then reaches
+  the connection step as it should.
+- A pattern that does not compile is refused at load rather than skipped at match time.
+
 ## 0.7.134 — 2026-10-31
 
 ### Added

@@ -101,7 +101,21 @@ function recordHost(file, id, fingerprintValue) {
 }
 
 export function keyId(host, port) {
-  return host + ':' + port
+  // The key this plugin stores a host under. Keep it stable: changing it would
+  // orphan every recorded IPv6 fingerprint, and an orphaned record means the
+  // next key is silently recorded as a first contact.
+  return String(host) + ':' + port
+}
+
+/**
+ * How a host:port is written in a message a user has to act on.
+ *
+ * '::1:22' reads as either host '::1' port 22 or host '::' port 1:22, so an
+ * IPv6 literal is bracketed the way ssh writes it.
+ */
+export function hostLabel(host, port) {
+  const name = String(host)
+  return (name.includes(':') ? '[' + name + ']' : name) + ':' + port
 }
 
 /**
@@ -262,7 +276,7 @@ function storeState(file) {
  */
 export function checkOpenSshHostKey({ text, file, host, port, keyBlob, policy, trustHostKey, fp }) {
   const parsedFile = parseOpenSshKnownHosts(text)
-  const id = keyId(host, port)
+  const id = hostLabel(host, port)
   const presented = fingerprint(keyBlob)
   const covers = (entry) => entryCoversHost(entry.hostField, host, port)
 
@@ -392,6 +406,7 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
     }
   }
   const id = keyId(host, port)
+  const label = hostLabel(host, port)
   const read = readStore(file)
   const store = read.store
   const recorded = store.hosts[id]
@@ -425,7 +440,7 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
       // through untouched instead of prefixing "Could not connect", which reads
       // like a network problem.
       reason:
-        'Host key verification failed: the recorded entry for ' + id + ' in ' + file +
+        'Host key verification failed: the recorded entry for ' + label + ' in ' + file +
         ' has no usable fingerprint (' + typeof recorded.fingerprint + '), so nothing can be verified ' +
         'against it. Remove that entry and connect again to record the key you verify out of band.',
       fp,
@@ -437,7 +452,7 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
     return {
       ok: false,
       reason:
-        'HOST KEY CHANGED for ' + id + ': recorded ' + recorded.fingerprint + ', presented ' + fp +
+        'HOST KEY CHANGED for ' + label + ': recorded ' + recorded.fingerprint + ', presented ' + fp +
         '. This can mean the server was reinstalled — or that traffic is being intercepted. ' +
         'Refusing to connect. If the server was legitimately rebuilt, remove the entry from ' +
         file + ' after verifying the new fingerprint out of band.',
@@ -453,7 +468,7 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
   return {
     ok: false,
     reason:
-      'Unknown host ' + id + ' with fingerprint ' + fp + '. This machine is not in ' + file +
+      'Unknown host ' + label + ' with fingerprint ' + fp + '. This machine is not in ' + file +
       '. Verify the fingerprint out of band, then either set hostKeyPolicy to "tofu" for this ' +
       'machine or call ssh_connect with trustHostKey: true once.',
     fp,

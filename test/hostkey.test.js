@@ -183,3 +183,33 @@ test('a negated host pattern takes the whole known_hosts entry out of play', () 
     'an unrelated negation must not clear the entry')
   assert.equal(check('bad.example.com,!bad.example.com ssh-ed25519 ' + base64, 'bad.example.com').ok, false)
 })
+
+test('an IPv6 host is bracketed in messages but stored the same way as before', () => {
+  // '::1:22' reads as host '::1' port 22 or host '::' port 1:22. Bracketing only
+  // the label matters: changing the stored key would orphan every recorded IPv6
+  // fingerprint, and an orphaned record means the next key is silently trusted.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-v6msg-'))
+  const blob = Buffer.from('ipv6-message-format-0123456789')
+  const fp = 'SHA256:' + createHash('sha256').update(blob).digest('base64').replace(/=+$/, '')
+  const first = checkHostKey({ dshHome: home, host: '::1', port: 22, keyBlob: blob, policy: 'tofu', trustHostKey: false, fp })
+  assert.equal(first.ok, true)
+  // The record lives under the old key, so existing stores keep working.
+  const stored = JSON.parse(readFileSync(storePath(home), 'utf8'))
+  assert.deepEqual(Object.keys(stored.hosts), ['::1:22'])
+  // A repeat lookup finds it.
+  assert.equal(checkHostKey({ dshHome: home, host: '::1', port: 22, keyBlob: blob, policy: 'tofu', trustHostKey: false, fp }).ok, true)
+  // A different key names the host unambiguously.
+  const changed = checkHostKey({
+    dshHome: home, host: '::1', port: 22, keyBlob: Buffer.from('other'), policy: 'tofu', trustHostKey: false, fp: 'SHA256:other',
+  })
+  assert.equal(changed.ok, false)
+  assert.match(changed.reason, /HOST KEY CHANGED for \[::1\]:22/)
+  // An unknown port is spelled the same way.
+  const unknown = checkHostKey({
+    dshHome: home, host: '::1', port: 2222, keyBlob: blob, policy: 'strict', trustHostKey: false, fp,
+  })
+  assert.match(unknown.reason, /Unknown host \[::1\]:2222/)
+  // IPv4 is unchanged.
+  const v4 = checkHostKey({ dshHome: home, host: '10.0.0.1', port: 22, keyBlob: blob, policy: 'strict', trustHostKey: false, fp })
+  assert.match(v4.reason, /Unknown host 10\.0\.0\.1:22/)
+})
