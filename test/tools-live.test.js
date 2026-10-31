@@ -2412,3 +2412,48 @@ test('close reports the retry gate it clears', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a boolean or array port in the file is a problem, not a silent port 1', async () => {
+  // Number(true) is 1 and Number([22]) is 22, so a hand-edited credentials.json with
+  // 'port: true' dialled port 1 while the page showed the machine green. The plugin
+  // config schema already refuses these (invalid configuration at load); the file is
+  // raw JSON and reaches machineDefinition directly.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-porttype-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  writeFileSync(
+    path.join(home, 'dsh-ssh-safe', 'credentials.json'),
+    JSON.stringify({
+      yes: { host: '127.0.0.1', port: true, user: 'tester' },
+      arr: { host: '127.0.0.1', port: [22], user: 'tester' },
+      fine: { host: '127.0.0.1', port: 2222, user: 'tester' },
+    }),
+    'utf8',
+  )
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 1500, commandTimeoutMs: 1500,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    const attempt = async (promise) => {
+      try { return String((await promise).text) } catch (err) { return 'ERR: ' + err.message }
+    }
+    const listing = await attempt(own.ssh_machines.execute({}, {}))
+    assert.match(listing, /port true from the file is not an integer between 1 and 65535/)
+    assert.match(listing, /port \[22\] from the file is not an integer between 1 and 65535/)
+    // The valid one is untouched.
+    assert.match(listing, /root@|tester@127\.0\.0\.1:2222/)
+    const doc = await attempt(own.ssh_doctor.execute({ machine: 'yes' }, {}))
+    assert.match(doc, /\[FAIL\] configuration: port true from the file/)
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

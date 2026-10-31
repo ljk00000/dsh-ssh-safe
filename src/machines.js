@@ -231,7 +231,12 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
   // came back as "Port should be >= 0 and < 65536. Received type number (99999)"
   // with no machine, no source and nothing to fix. Keep the value, report it.
   const configured = filled(port.value)
-  const portNumber = Number(port.value)
+  // Number(true) is 1 and Number([22]) is 22, so a boolean or an array in a
+  // hand-edited file became a real port: port: true dialled port 1, the page
+  // showed it green, and nothing said the value was not a port at all. Only a
+  // number or a numeric string counts.
+  const numeric = typeof port.value === 'number' || typeof port.value === 'string'
+  const portNumber = numeric ? Number(port.value) : NaN
   const portValid = !configured ||
     (Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535)
   const portProblem = portValid ? '' :

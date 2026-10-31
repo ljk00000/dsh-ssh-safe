@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.231 — 2026-11-01
+
+### Fixed
+- **`"port": true` in `credentials.json` became port 1, silently.** `Number(true)` is 1 and
+  `Number([22])` is 22, so any non-string, non-number value that JavaScript can coerce slipped through
+  the range check — and the page then showed the machine with a green tag:
+  ```
+  before: port → 1,  no problem reported,  ssh_machines shows tester@127.0.0.1:1
+  after : port → 22, "port true from the file is not an integer between 1 and 65535"
+          and the doctor reports [FAIL] configuration: port true from the file …
+  ```
+  Only `typeof number` and `typeof string` are accepted now. The plugin config schema already refused
+  these values at load ("expected number but got true"), so the reachable paths are the credential
+  file and the YAML machine list the page reads.
+
+### Verified, no change needed
+- The rest of the port matrix is unchanged: absent/empty → 22, `"022"`/`"+22"`/`" 22 "` → 22, and
+  `0`/`-1`/`22.5`/`70000`/`"abc"`/`"   "` each keep 22 and report their own value and source
+  (config / file / env).
+- Client-side page logic reviewed: delete asks for confirmation first, test-with-a-typed-password saves
+  before testing (so the test does not say "no credential"), and the page re-queries the output
+  element after a refresh instead of writing into a detached node.
+
+### Tests
+- One new live case: boolean and array ports in the file are reported by the listing and by the
+  doctor, and a numeric port in the same file keeps working. Suite 812 / 807 pass / 5 skipped /
+  0 fail, `tsc` clean.
+
 ## 0.7.230 — 2026-11-01
 
 ### Fixed
