@@ -25,7 +25,7 @@
 
 import { spawnSync } from 'node:child_process'
 import { encryptDpapi, dpapiAvailable } from '../src/dpapi.js'
-import { chmodSync, existsSync, statSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, statSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -133,6 +133,29 @@ if (!alias) {
 }
 
 /**
+ * Rename over the credential file, retrying while Windows says it is busy.
+ *
+ * The plugin may hold the file open while reading it, and Windows refuses a rename
+ * over a file another handle has open (EPERM) -- the settings page learned this the
+ * hard way and retries the same way.
+ */
+function renameWithRetry(from, to) {
+  const retryable = new Set(['EPERM', 'EBUSY', 'EACCES'])
+  let last = null
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    try {
+      renameSync(from, to)
+      return
+    } catch (err) {
+      last = err
+      if (!retryable.has(String(err && err.code))) throw err
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15 * attempt)
+    }
+  }
+  throw new Error('could not replace ' + to + ' after 6 attempts (' + String(last && last.code) + ')')
+}
+
+/**
  * Write the store, or explain why nothing was written and exit 2.
  *
  * Three commands write this file (store, clear password, clear passphrase) and
@@ -144,7 +167,19 @@ if (!alias) {
 function persist(next) {
   try {
     mkdirSync(dir, { recursive: true })
-    writeFileSync(file, JSON.stringify(next, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
+    // Write beside the file and rename over it. An in-place write truncates
+    // first, so the plugin -- which re-reads this file on every connection, from
+    // another process -- could read an empty file and answer "no credentials"
+    // while this command reported success. Measured: one read in 185k landed in
+    // that window before this change.
+    const tmp = file + '.tmp-' + process.pid
+    writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
+    try {
+      renameWithRetry(tmp, file)
+    } catch (err) {
+      try { rmSync(tmp, { force: true }) } catch { /* nothing left to do */ }
+      throw err
+    }
   } catch (err) {
     const code = err && err.code
     if ((code === 'EEXIST' || code === 'ENOTDIR') && existsSync(dir) && statSync(dir).isFile()) {

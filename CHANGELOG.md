@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.286 — 2026-11-01
+
+### Fixed — the CLI wrote the credential file in place, so a reader could parse half of it
+The settings page has written `credentials.json` atomically since the round that measured a connection
+reading an empty file mid-save. `set-password.mjs` never got that fix: it called `writeFileSync` on the
+file itself, which truncates first.
+```
+measured, one CLI save, reader looping readCredentialFile():
+  before   185,367 reads → 1 × "credentials.json could not be parsed
+                          (Unexpected end of JSON input)"
+  after    159,706 reads → 0
+```
+That one read is a connection that answers "no credentials" while the save reports success — rare, and
+exactly the failure nobody can reproduce on demand. `persist()` now writes `credentials.json.tmp-<pid>`
+and renames it over the file, with the same six-attempt retry the page uses for Windows `EPERM` (the
+plugin may hold the file open while reading). A failed rename removes the temp file.
+
+### My own mistake
+The first version of the measurement loop read 185k times in four seconds and reported the error once —
+I nearly dismissed it as noise. Running it again after the fix, and seeing 0 with the same volume, is what
+made the single hit meaningful: a rare event needs a control run, not a judgement call.
+
+### Still open (checked, not changed)
+- `remote-workspace.js` writes `AGENTS.md` and the marker in place. Neither holds a credential, and a
+  half-written marker only affects that page’s own listing, so it is left for now.
+
+### Tests
+- One new case: two saves leave a valid store with both aliases and no `credentials.json.tmp-*` behind.
+  Suite 870 / 865 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.285 — 2026-11-01
 
 ### Fixed — a crashed save left a copy of every password in the profile directory

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -374,4 +374,24 @@ test('--clear-key-passphrase removes the stored passphrase and nothing else', ()
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
+})
+
+test('a save never truncates the file a reader is about to parse', () => {
+  // The CLI wrote the credential file in place, so the plugin -- which re-reads it
+  // on every connection from another process -- could parse a half-written file.
+  // Measured before the fix: one read in 185k saw 'Unexpected end of JSON input'.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-swatomic-'))
+  try {
+    const dir = path.join(home, 'dsh-ssh-safe')
+    const file = path.join(dir, 'credentials.json')
+    const first = runSetPassword(home, ['--alias', 'a', '--host', 'h1', '--user', 'u', '--password', 'pw1'])
+    assert.equal(first.status, 0, first.stderr || first.stdout)
+    const second = runSetPassword(home, ['--alias', 'b', '--host', 'h2', '--user', 'u', '--password', 'pw2'])
+    assert.equal(second.status, 0, second.stderr || second.stdout)
+    // The store is valid JSON with both entries and no temp file left behind.
+    const store = JSON.parse(readFileSync(file, 'utf8'))
+    assert.deepEqual(Object.keys(store).sort(), ['a', 'b'])
+    const leftovers = readdirSync(dir).filter((n) => /credentials\.json\.tmp-/.test(n))
+    assert.deepEqual(leftovers, [], 'a successful save must not leave its temp file')
+  } finally { rmSync(home, { recursive: true, force: true }) }
 })
