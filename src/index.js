@@ -1391,7 +1391,19 @@ function assertKnownArgs(args, known, toolName) {
         if (registry && typeof registry.create === 'function') {
           try {
             const workspace = await registry.create(dir, remoteTitle(alias))
-            registered = '已注册到侧栏工作区：「' + (workspace && workspace.title || remoteTitle(alias)) + '」'
+            // create() resolving is not the same as the workspace being there:
+            // a stub returning {} produced "已注册到侧栏工作区" while the next
+            // list call answered "有占位目录，但未注册". Read it back.
+            const created = workspace && (workspace.id || workspace.path)
+            const after = listWorkspaces(registry)
+            const landed = !after.error && Boolean(findWorkspace({ list: () => after.items }, dir))
+            if (landed || created) {
+              registered = '已注册到侧栏工作区：「' + (workspace && workspace.title || remoteTitle(alias)) + '」'
+            } else {
+              registered = '注册请求已发出，但工作区服务没有返回可用的工作区' +
+                (after.error ? '（读取注册表失败：' + after.error + '）' : '（注册表里查不到这个目录）') +
+                '；按 F5 刷新看侧栏是否出现「' + remoteTitle(alias) + '」'
+            }
           } catch (err) {
             registered = '目录已就绪，但注册失败：' + String(err && err.message ? err.message : err).slice(0, 200)
           }

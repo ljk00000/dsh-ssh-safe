@@ -18,6 +18,19 @@ import { dpapiAvailable } from '../src/dpapi.js'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const script = path.join(here, '..', 'scripts', 'gui.mjs')
 
+/**
+ * Ports undici (and therefore fetch) refuses to connect to, from the Fetch spec's
+ * "bad port" list. The server asks for port 0, so the OS can hand out one of
+ * these: fetch then fails with "bad port" and the test looks like a server bug.
+ * Only the ephemeral-range entries matter, but the whole list is cheap.
+ */
+const BAD_PORTS = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104,
+  109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515,
+  526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049,
+  3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
+])
+
 /** Start the server, wait for the URL it prints, hand back the token. */
 function start(home, options = {}) {
   return new Promise((resolve, reject) => {
@@ -33,6 +46,13 @@ function start(home, options = {}) {
       const match = out.match(/http:\/\/127\.0\.0\.1:(\d+)\/\?t=([0-9a-f]+)/)
       if (match) {
         clearTimeout(timer)
+        if (BAD_PORTS.has(Number(match[1]))) {
+          // Retry on another port rather than failing a test the code did not
+          // break: the OS handed out one fetch refuses to talk to.
+          child.kill()
+          resolve(start(home, options))
+          return
+        }
         resolve({ child, base: 'http://127.0.0.1:' + match[1], token: match[2], output: () => out })
       }
     })

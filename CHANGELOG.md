@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.102 — 2026-10-31
+
+### Fixed
+- **A successful `registry.create()` was reported as "已注册到侧栏工作区" even when
+  nothing was registered.** A workspace service that resolves with `{}` produced
+  that line while the very next `ssh_workspace list` answered "有占位目录，但未注册".
+  The tool reads the registry back now and reports what it finds:
+  ```
+  注册请求已发出，但工作区服务没有返回可用的工作区（注册表里查不到这个目录）；
+  按 F5 刷新看侧栏是否出现「远程 · prod」
+  ```
+  A real registration is still reported as registered, and a `create()` that throws
+  still says "目录已就绪，但注册失败：…".
+
+### Fixed — a flaky test
+- **`test/gui.test.js` failed about once every few hundred runs with
+  `fetch failed: bad port`.** The server asks for port 0, so the OS can hand out
+  one of the ports the Fetch spec forbids (6666, 6000, 5060 …); `fetch` refuses it
+  and the test blamed the server. The helper retries on another port now, with the
+  reason written down. Three consecutive full runs: 679 tests, 674 pass, 0 fail.
+
+### Verified, no change needed
+- Settings-form typos are named with a spelling suggestion: `usr` reports
+  `machine "typo" … has an unknown field "usr" (did you mean "user"?) — it is ignored`
+  in both the inventory and the doctor.
+- A schema-level mistake is refused at load with the exact path
+  (`$.machines.box.port expected number but got 2222`).
+
 ## 0.7.101 — 2026-10-31
 
 ### Fixed

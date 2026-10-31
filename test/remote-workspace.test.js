@@ -318,3 +318,22 @@ test('create refuses to adopt a directory that holds foreign files', () => {
   assert.equal(made.created, false)
   assert.equal(existsSync(path.join(empty, 'AGENTS.md')), true)
 })
+
+test('a registry that returns an empty object is not reported as registered', async () => {
+  // create() resolving is not the same as the workspace being there: a stub that
+  // answered {} produced '已注册到侧栏工作区' while the next list call said
+  // '有占位目录，但未注册'.
+  const hollow = {
+    list: async () => [],
+    create: async () => ({}),
+  }
+  const { tools, restore } = await toolsFor({ DSH_SSH_GPU_HOST: 'h', DSH_SSH_GPU_USER: 'u' }, hollow)
+  try {
+    const text = TEXT_OF(await tools.ssh_workspace.execute({ action: 'create', machine: 'gpu' }))
+    assert.doesNotMatch(text, /已注册到侧栏工作区/)
+    assert.match(text, /注册请求已发出，但工作区服务没有返回可用的工作区/)
+    // And what the next listing says agrees with it.
+    const list = TEXT_OF(await tools.ssh_workspace.execute({ action: 'list' }))
+    assert.match(list, /未注册/)
+  } finally { restore() }
+})
