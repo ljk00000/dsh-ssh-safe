@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.265 — 2026-11-01
+
+### Fixed — the session-limit message named only remedies outside the plugin
+When sshd refuses a channel because the connection is at `MaxSessions`, the message said "close other
+sessions on that host, or raise the limit in sshd_config" — both are things the reader of this
+transcript usually cannot do. The one remedy the plugin does offer is its own, and it now says so:
+```
+… the usual cause is its session limit (MaxSessions, 10 by default) — close other sessions on that
+host, or raise the limit in sshd_config. A fresh budget is one call away: ssh_close { machine: "n" }
+drops this connection, and the next call starts a new one.
+```
+Measured: a burst of six parallel commands against a server allowing two sessions gives 2 successes and
+4 refusals; after `ssh_close` the next call runs (`done [exit 0]`), which is exactly what the new
+sentence promises.
+
+### My own mistake
+My first probe reported the connection as permanently broken — the "after" call failed with the same
+refusal. That was my fake server leaking its session counter (it never decremented on reject), not the
+plugin: with a correct counter the same sequence recovers immediately. I nearly filed a defect against
+the plugin on the strength of a broken test rig.
+
+### Verified this round (no change needed)
+- Burst behaviour: 6 parallel execs, 2 accepted, 4 refused with the session-limit message, and the pool
+  stays usable afterwards.
+- An `exit-signal` path could not be produced with ssh2 in server mode (`signal()` answers
+  "Client-only method called in server mode"), so the signal wording stays covered by the unit-level
+  rendering test rather than an integration probe.
+
+### Tests
+- The existing MaxSessions test now also pins `ssh_close { machine: "n" }` in the message.
+  Suite 851 / 846 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.264 — 2026-11-01
 
 ### Fixed — a single relative symlink was reported as a chain, and named the wrong place

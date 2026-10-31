@@ -417,7 +417,8 @@ function explainGone(err, alias) {
       message.replace(/^\(SSH\)\s*/, '').replace(/:\s*$/, '') + '). The connection itself is ' +
       'still up; the usual cause is its session limit ' +
       '(MaxSessions, 10 by default) — close other sessions on that host, or raise the limit in ' +
-      'sshd_config.'
+      'sshd_config. A fresh budget is one call away: ssh_close { machine: "' + alias + '" } drops ' +
+      'this connection, and the next call starts a new one.'
     )
   }
   if (!/Not connected|not connected/i.test(message)) return err instanceof Error ? err : new Error(message)

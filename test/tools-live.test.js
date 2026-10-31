@@ -2772,6 +2772,9 @@ test('a refused channel is reported as a session limit, not a dead connection', 
     assert.match(refused, /MaxSessions/)
     assert.match(refused, /still up/)
     assert.doesNotMatch(refused, /is gone/)
+    // The reader is a user of THIS plugin: the remedy it can actually run is
+    // ssh_close, which gives the next call a fresh session budget.
+    assert.match(refused, /ssh_close \{ machine: "n" \}/)
     // One parenthesis, no stray empty reason.
     assert.doesNotMatch(refused, /\)\)|\(\s*\)/)
   } finally {
