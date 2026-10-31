@@ -1240,17 +1240,29 @@ function assertKnownArgs(args, known, toolName) {
           // exists. Without one (headless, tui) the old text sent the user to
           // run a command that cannot do what the line promised.
           const noService = !registry || typeof registry.list !== 'function'
+          // 'not created' was also printed for a directory that exists but is not
+          // a placeholder (marker deleted, or the user put something there). The
+          // row then contradicted itself: "未创建" followed by the directory path.
+          const dirExists = existsSync(dir)
+          // The instructions are the point of the placeholder: a workspace whose
+          // AGENTS.md was deleted still registers, but the session that opens
+          // there learns nothing about the remote host.
+          const missingInstructions = dirExists && !existsSync(dir + '\\AGENTS.md')
           const state = registryRead.error
             ? '无法读取工作区服务，无法判断是否已注册（' + registryRead.error + '）'
             : workspace
               ? '已注册为工作区「' + workspace.title + '」'
-              : noService
-                ? marker
-                  ? '有占位目录（当前 profile 没有 workspace 服务，无法注册到侧栏）'
-                  : '未创建（当前 profile 没有 workspace 服务，只能生成目录）'
-                : marker
-                  ? '有占位目录，但未注册（用 action: "create" 注册）'
-                  : '未创建（用 action: "create" 创建）'
+              : marker
+                ? (missingInstructions
+                  ? '有占位目录，但 AGENTS.md 已被删除（说明文件缺失，会话学不到远端规则）；用 action: "create" 重建'
+                  : noService
+                    ? '有占位目录（当前 profile 没有 workspace 服务，无法注册到侧栏）'
+                    : '有占位目录，但未注册（用 action: "create" 注册）')
+                : dirExists
+                  ? '目录已存在，但不是占位目录（.dsh-remote-workspace.json 缺失或无法解析）；用 action: "create" 重建'
+                  : (noService
+                    ? '未创建（当前 profile 没有 workspace 服务，只能生成目录）'
+                    : '未创建（用 action: "create" 创建）')
           const endpoint = lean
             ? '<host hidden>'
             : (m.username || '?') + '@' + (m.host || '?') + ':' + (m.port || 22)
@@ -1278,7 +1290,23 @@ function assertKnownArgs(args, known, toolName) {
             '。先用设置界面或凭据文件补齐，再创建远程工作区。'
           )
         }
-        const { created } = writeRemoteWorkspace(dshHome, alias, m)
+        let created
+        try {
+          ({ created } = writeRemoteWorkspace(dshHome, alias, m))
+        } catch (err) {
+          // A file sitting where the placeholder directory should be fails as a
+          // bare 'EEXIST: file already exists, mkdir …', which does not say which
+          // machine, which tool, or what to do about it.
+          const code = err && /** @type {{code?: string}} */ (err).code
+          const detail = code === 'EEXIST' || code === 'ENOTDIR'
+            ? '那个位置已经有一个同名文件，占位目录建不出来'
+            : '目录无法创建（' + (code || (err && err.message) || '未知原因') + '）'
+          throw new Error(
+            '无法创建机器 "' + alias + '" 的远程工作区：' + detail + '。\n' +
+            '  目录：' + dir + '\n' +
+            '先删除或改名那个文件，再重试。'
+          )
+        }
         let registered = ''
         if (registry && typeof registry.create === 'function') {
           try {

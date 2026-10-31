@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.78 — 2026-10-31
+
+### Fixed
+- **A placeholder directory that was not a placeholder was listed as 未创建.**
+  Deleting (or corrupting) .dsh-remote-workspace.json made the row say "not
+  created" while the same row printed the directory path — the answer
+  contradicted itself, and `action: "create"` looked like it would create
+  something new. Three states are distinguished now:
+  - the marker is there and AGENTS.md too: a placeholder, as before;
+  - the marker is there but AGENTS.md was deleted: 
+    "有占位目录，但 AGENTS.md 已被删除 …用 action: \"create\" 重建" (the instructions are
+    the point: a session opened there would learn nothing about the host);
+  - the directory exists without a marker: 
+    "目录已存在，但不是占位目录 …用 action: \"create\" 重建".
+- **A file sitting where the placeholder belongs answered
+  `EEXIST: file already exists, mkdir …`.** No alias, no tool name, no remedy.
+  Now:
+  "无法创建机器 \"b\" 的远程工作区：那个位置已经有一个同名文件，占位目录建不出来。
+  目录：… 先删除或改名那个文件，再重试。"
+
+### Added — tests
+- Four: the not-a-placeholder state, the deleted-instructions state (and its
+  repair), the file-in-the-way message, and create → remove → remove with
+  deleteFiles.
+
 ## 0.7.77 — 2026-10-31
 
 ### Fixed
