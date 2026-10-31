@@ -457,7 +457,7 @@ pnpm approve-builds --all
 
 ### 开发与测试
 
-- `npm test` —— 全部离线测试（近 500 个，不需要任何主机）
+- `npm test` —— 全部离线测试（不需要任何主机）
 - `npm run typecheck` —— `tsc --noEmit`
 - `npm run test:loopback` —— 在本机起一个内存中的 SSH/SFTP 服务端，把
   `test/integration.test.js` 那几条「真主机」用例跑一遍
@@ -476,7 +476,7 @@ loopback 服务端不执行命令、不碰磁盘，只按脚本回包——它�
 | `allowSessionPassword` | `false` | 是否允许在会话里传密码 |
 | `allowPlaintextPassword` | `false` | 是否接受凭据文件或设置界面里的明文密码（默认只认 DPAPI 加密值） |
 | `machineInventory` | `full` | `alias` 时隐藏 host/port/私钥路径 |
-| `auditLog` | `false` | 是否记录操作到 `~/.dsh/dsh-ssh-safe/audit.ndjson`（单文件 4 MB 上限，滚动保留 4 代；`ssh_audit` 读当前文件） |
+| `auditLog` | `false` | 是否记录操作到 `~/.dsh/dsh-ssh-safe/audit.ndjson`（单文件 4 MB 上限，滚动保留 4 代；`ssh_audit` 从旧到新读取当前文件与这 4 代） |
 | `maxConnections` | `8` | 常驻连接上限，LRU 淘汰，`0` 不限制 |
 | `commandTimeoutMs` | `30000` | 单条命令超时 |
 | `sftpTimeoutMs` | `30000` | 单次传输超时 |
@@ -706,7 +706,7 @@ A safety rail against catastrophic typos — **not** a security boundary.
 
 ### Tests
 
-- `npm test` — the whole offline suite (close to 500 tests; no host needed)
+- `npm test` — the whole offline suite (no host needed)
 - `npm run typecheck` — `tsc --noEmit`
 - `npm run test:loopback` — starts an in-memory SSH/SFTP server on this machine
   and runs the "real host" cases in `test/integration.test.js` against it

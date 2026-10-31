@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.188 — 2026-10-31
+
+### Fixed (documentation)
+- **`0.7.187` said `ssh_audit` reads only the live file. It reads the rotations too.** The
+  sentence I added last round was wrong, and this round proved it: with an empty
+  `audit.ndjson` and three records in `audit.ndjson.1`, `ssh_audit` printed all three (and the
+  live record after them). `recentDetailed()` walks `.4` → `.1` → live, oldest first;
+  `test/audit-rotation.test.js` already pinned that behaviour. The row now says so.
+- **The README claimed "近 500 个" tests.** The suite runs 767. The number has no test behind
+  it and will drift again, so both the Chinese and English lines now just say "the whole
+  offline suite" without a count.
+
+### Verified, no change needed
+- Every one of the 23 config keys appears in the defaults table, and the table lists nothing
+  that is not a key (checked against `Config({})`).
+- Concurrent `ssh_write createDirs: true` into the same new tree: three writers, six rounds,
+  no failure; all three files land.
+- Other numbers in the README still match the code: `maxFileBytes` 1 MB, `maxListEntries`
+  2000, `maxConnections` 8, the 8 KB head/tail window (`MAX_SCAN_CHARS = 8192`).
+
 ## 0.7.187 — 2026-10-31
 
 ### Fixed
