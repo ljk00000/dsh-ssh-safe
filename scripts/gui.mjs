@@ -751,11 +751,23 @@ function readBody(req) {
     })
     req.on('end', () => {
       if (!data) return resolve({})
-      try { resolve(JSON.parse(data)) } catch {
+      let parsed
+      try { parsed = JSON.parse(data) } catch {
         const error = new Error('invalid JSON')
         error.statusCode = 400
         reject(error)
+        return
       }
+      // null is valid JSON, and reading .alias from it threw: the caller got a
+      // 500 carrying "Cannot read properties of null (reading 'alias')" for a
+      // request the server could have refused in one sentence.
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        const error = new Error('body must be a JSON object')
+        error.statusCode = 400
+        reject(error)
+        return
+      }
+      resolve(parsed)
     })
     req.on('error', reject)
   })

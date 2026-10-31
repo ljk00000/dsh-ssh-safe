@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.240 — 2026-11-01
+
+### Fixed
+- **`POST /api/save` with the body `null` answered 500 with a Node TypeError.** `null` is valid
+  JSON, so the parser accepted it and the first `body.alias` threw:
+  ```
+  body null    before: 500 {"error":"Cannot read properties of null (reading 'alias')"}
+               after : 400 {"error":"body must be a JSON object"}
+  body []      before: 400 {"error":"别名不能为空"}   (a different wrong answer)
+  body "hi"    before: 400 {"error":"别名不能为空"}
+  ```
+  The parser now refuses anything that is not a JSON object — null, an array, a string, a number or
+  a boolean — with one sentence, before any handler reads a field from it. This covers every
+  endpoint, not just save.
+
+### Verified, no change needed
+- `readBody()` limits the body to 64 KB and answers `413 body too large` (measured with a 2 MB
+  keyPath). `invalid JSON` is 400, a missing token is 403, an unknown route and a wrong method are
+  404, and a request without `content-type` still works.
+
+### Tests
+- One new case: five non-object bodies all get the 400 sentence, a real object still saves and an
+  empty body keeps its old answer. Suite 822 / 817 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.239 — 2026-11-01
 
 ### Fixed

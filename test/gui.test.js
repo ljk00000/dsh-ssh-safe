@@ -1253,3 +1253,30 @@ test('delete and test use the same alias rule as save', { skip: dpapiAvailable()
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a non-object JSON body is refused with 400, not a 500', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
+  // null is valid JSON; reading .alias from it answered 500 with
+  // "Cannot read properties of null (reading 'alias')" for a client mistake.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-body-'))
+  const { child, base, token } = await start(home)
+  try {
+    for (const body of ['null', '[]', '"hi"', '42', 'true']) {
+      const res = await fetch(base + '/api/save', {
+        method: 'POST',
+        headers: { 'x-gui-token': token, 'content-type': 'application/json' },
+        body,
+      })
+      assert.equal(res.status, 400, body + ' must be a client error')
+      const json = await res.json()
+      assert.equal(json.error, 'body must be a JSON object')
+    }
+    // An object still works, and an empty body keeps its old answer.
+    const ok = await call(base, token, '/api/save', { alias: 'good', host: 'h', user: 'u' })
+    assert.equal(ok.status, 200, JSON.stringify(ok.body))
+    const empty = await fetch(base + '/api/save', { method: 'POST', headers: { 'x-gui-token': token } })
+    assert.equal(empty.status, 400)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
