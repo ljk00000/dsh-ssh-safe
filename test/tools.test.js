@@ -464,6 +464,28 @@ test('a plaintext settings password is shown as ignored, with what wins instead'
   }
 })
 
+
+test('the default machine is marked in the listing', async () => {
+  // The listing put the default first so a call may omit `machine`, then sorted
+  // the rest: against 60 machines that read as an arbitrary order.
+  const { tools, restore } = capture({
+    defaultMachine: 'web-010',
+    machines: {
+      'db-001': { host: 'h1', user: 'u1' },
+      'web-010': { host: 'h2', user: 'u2' },
+      'zz-last': { host: 'h3', user: 'u3' },
+    },
+  })
+  try {
+    const text = String((await tools['ssh_machines'].execute({})).text)
+    assert.match(text, /• web-010  \(default\)/)
+    const order = [...text.matchAll(/• (\S+)/g)].map((m) => m[1])
+    assert.equal(order[0], 'web-010', 'the default comes first: ' + order.join(','))
+    assert.deepEqual(order.slice(1), ['db-001', 'zz-last'])
+    assert.doesNotMatch(text, /• db-001  \(default\)/)
+  } finally { restore() }
+})
+
 test('the defaults in the README table match the defaults in the code', async () => {
   // A default that drifts silently makes the documentation a trap: someone tunes
   // maxFileBytes to 2 MB because the README said 1 MB, and it was already 1 MB.

@@ -888,6 +888,7 @@ function assertKnownArgs(args, known, toolName) {
       }
       const out = []
       const lean = cfg.machineInventory === 'alias'
+      const defaultAlias = cfg.defaultMachine ? normalizeAlias(cfg.defaultMachine) : ''
       for (const alias of aliases) {
         const m = machineDefinition(alias, { machines: cfg.machines, dshHome: credentialHome })
         const need = expectedEnv(alias)
@@ -932,7 +933,9 @@ function assertKnownArgs(args, known, toolName) {
         // they are as untrusted as a filename: an escape sequence or a bidi
         // override here scrambles the very report a user checks their config with.
         out.push(
-          '• ' + printable(alias) + '  ' + endpoint +
+          // The default machine is listed first so a call can omit `machine`;
+          // without the marker the order looked arbitrary against the sorted rest.
+          '• ' + printable(alias) + (alias === defaultAlias ? '  (default)' : '') + '  ' + endpoint +
           '\n    auth: ' + authKind +
           '\n    hostKeyPolicy: ' + printable(m.hostKeyPolicy || cfg.hostKeyPolicy) +
           '\n    ' + trustedLine(m) +

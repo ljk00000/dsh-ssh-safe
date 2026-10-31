@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.194 — 2026-10-31
+
+### Changed
+- **`ssh_machines` marks the default machine.** The listing always put it first (that is why a
+  call can omit `machine`) and sorted the rest, so with sixty machines the first line looked
+  out of order:
+  ```
+  before: • web-000  u0@10.0.0.1:2200
+  after : • web-000  (default)  u0@10.0.0.1:2200
+  ```
+  The rest stay sorted (`db-001`, `db-003`, …) — measured with 60 machines: apply 3 ms,
+  listing 8 ms.
+
+### Verified, no change needed
+- Two `apply()` calls in one process keep separate pools (two connections to the same server)
+  and separate audit settings: only the instance with `auditLog: true` wrote a record.
+
 ## 0.7.193 — 2026-10-31
 
 ### Fixed
