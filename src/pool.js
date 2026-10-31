@@ -208,6 +208,17 @@ function hostShapeHint(host) {
   if (text !== text.trim()) {
     return 'the host has leading or trailing spaces'
   }
+  // '#' first: 'example.com # note' contains both, and the comment is the
+  // informative half -- anything after '#' in a config file was meant as a note.
+  if (text.includes('#')) {
+    return "the host contains '#' — in a config file everything after it is a comment and is not part of the name"
+  }
+  // A space in the middle survives trim() and then fails at DNS, where the
+  // message is "the host name did not resolve" -- true, and nowhere near the
+  // actual problem.
+  if (/\s/.test(text)) {
+    return 'the host contains a space — host names cannot contain spaces'
+  }
   if (/[\\/]/.test(text)) {
     return 'the host contains a path separator'
   }
@@ -228,7 +239,33 @@ function userShapeHint(username) {
   const text = String(username || '')
   if (!text) return ''
   if (text.includes('@')) return 'the user contains "@" — put only the account name, without the host'
+  if (/[\u0000-\u001f]/.test(text)) return 'the user contains a control character (a newline from a pasted value?)'
   if (/\s/.test(text)) return 'the user contains whitespace'
+  return ''
+}
+
+/**
+ * A host or user name that can never work, checked before dialling.
+ *
+ * Both were only caught after a real attempt: a user name with a newline stalled
+ * until the handshake timed out, and a host with a space failed at DNS. Neither
+ * message pointed at the field, and both cost a timeout.
+ *
+ * @param {{host?: string, username?: string}} m
+ * @returns {string} a message naming the field, or '' when the values are usable
+ */
+export function identityProblem(m) {
+  const host = String((m && m.host) || '')
+  const user = String((m && m.username) || '')
+  const hostHint = hostShapeHint(host)
+  // Only the shapes that cannot be repaired by retrying: a URL or a host:port is
+  // a different field's value, and a space or '#' is not a legal character.
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(host)) return 'the host field holds a URL: ' + hostHint
+  // '#' before whitespace: 'example.com # note' has both, and the comment is the
+  // informative one.
+  if (host.includes('#')) return 'the host field is unusable: ' + hostHint
+  if (/\s/.test(host)) return 'the host field is unusable: ' + hostHint
+  if (/[\u0000-\u001f]/.test(user)) return 'the user field is unusable: ' + userShapeHint(user)
   return ''
 }
 
@@ -657,6 +694,13 @@ export class SshPool {
         'Machine "' + alias + '" cannot be used: ' + m.portProblem + '. ' +
         'Fix the port in that source, then retry.'
       ))
+    }
+    // A host with a space and a user with a newline both fail much later with a
+    // message about DNS or the handshake, so neither names the field that is
+    // wrong. Refuse before dialling.
+    const identity = identityProblem(m)
+    if (identity) {
+      throw noCooldown(new Error('Machine "' + alias + '" cannot be used: ' + identity + '.'))
     }
     if (auth.kind === 'none') {
       throw noCooldown(new Error(

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.76 — 2026-10-31
+
+### Fixed
+- **A host with a space and a user with a newline were only diagnosed after a
+  timeout.** `exa mple.com` failed at DNS ("the host name did not resolve"), and a
+  user name holding a newline (a pasted value) stalled until the handshake timed
+  out — neither message named the field that was wrong, and the newline case cost
+  a full timeout before the caller learned anything. Both are refused before a
+  socket is opened:
+  - `the host field is unusable: the host contains a space — host names cannot
+    contain spaces`
+  - `the host contains '#' — in a config file everything after it is a comment and
+    is not part of the name` (a very realistic paste into a YAML settings form)
+  - `the user field is unusable: the user contains a control character (a newline
+    from a pasted value?)`
+  A URL in the host field is refused the same way, with the reason it was always
+  given. IPv6 literals, `DOMAIN\\user` and ordinary names are unaffected.
+
+### Verified, no change needed
+- The settings page already refuses a non-numeric port, an out-of-range port, an
+  alias with spaces or a colon, and a non-string host; a host containing a comment
+  or a space is stored as written and is now caught by the check above.
+
 ## 0.7.75 — 2026-10-31
 
 ### Fixed
