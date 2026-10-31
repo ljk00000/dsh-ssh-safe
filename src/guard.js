@@ -275,14 +275,14 @@ export const DEFAULT_DENY_RULES = [
   },
   {
     // 'find / -delete' walks the whole tree and deletes every file.
-    pattern: '\\bfind\\s+/+(?:\\s|$)[^\n]*-delete\\b',
-    why: 'it deletes every file it can reach (find / -delete)',
+    pattern: '\\bfind\\s+/+(?:\\s|$)[^\\n]*-delete\\b|\\bfind\\s+(?:~|\\$(?:\\{HOME\\}|HOME))(?:\\s|$)(?![^\\n]*-{1,2}(?:iname|ipath|name|path|regex)[ \\t])[^\\n]*-delete\\b',
+    why: 'it deletes every file it can reach (find / -delete, find ~ -delete)',
   },
   {
     // -ok asks per file and -execdir runs per directory; both still delete the
     // tree, and only the plain -exec spelling was covered.
-    pattern: '\\bfind\\s+/+(?:\\s|$)[^\n]*-(?:exec|execdir|ok)\\s+(?:[\\w./-]*/)?rm\\b',
-    why: 'it deletes every file it can reach through find -exec rm',
+    pattern: '\\bfind\\s+/+(?:\\s|$)[^\\n]*-(?:exec|execdir|ok)\\s+(?:[\\w./-]*/)?rm\\b|\\bfind\\s+(?:~|\\$(?:\\{HOME\\}|HOME))(?:\\s|$)(?![^\\n]*-{1,2}(?:iname|ipath|name|path|regex)[ \\t])[^\\n]*-(?:exec|execdir|ok)\\s+(?:[\\w./-]*/)?rm\\b',
+    why: 'it deletes every file it can reach through find -exec rm, also under ~',
   },
   {
     // Spacing inside the body is free: ':(){ : | : & }; :' is the same bomb.

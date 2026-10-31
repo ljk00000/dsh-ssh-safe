@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.7.307 — 2026-11-01
+
+### Fixed — `find ~ -delete` deleted every file under home and was allowed
+The home rule refused `rm -rf ~`, but the `find` rules only knew `/`:
+```
+before  find ~ -delete                 ALLOW      rm -rf ~        BLOCK
+before  find ~ -exec rm {} +           ALLOW
+after   find ~ -delete                 BLOCK
+after   find $HOME -delete             BLOCK
+after   find ~ -exec rm {} +           BLOCK      find ~ -ok rm {} ;   BLOCK
+after   find / -name x -delete         BLOCK      the root stays strict, filter or not
+after   find ~ -name "*.log" -delete   ALLOW      a filter narrows it, so it is cleanup
+after   find ~/tmp -delete             ALLOW      find /var/tmp -delete   ALLOW
+```
+The `-delete` and `-exec/-execdir/-ok rm` rules now have two branches: the filesystem root stays refused
+whatever follows, and the home directory is refused unless a `-name`/`-iname`/`-path`/`-ipath`/`-regex`
+filter narrows what it finds. The `| xargs rm` rule was left root-only on purpose — `find ~ -name "*.log" |
+xargs rm` is ordinary cleanup and blocking it would be noise.
+
+### Verified this round (no defect found)
+- `rm -rf /` spellings already covered: `-- /`, `rm -- -rf /`, `/ --no-preserve-root`, and the wrapper forms
+  `sudo rm -rf /`, `sudo -u root rm -rf /`, `env rm -rf /`, `sh -c "rm -rf /"`, `bash -c "sudo rm -rf ~/"`.
+- `cd ~ && rm -rf .` and `cd / && rm -rf ..` stay allowed: `rm` refuses `.` and `..` itself, so those
+  spellings are not deletions at all.
+- `find /root -delete` stays allowed: it is one user’s home, not the filesystem root.
+
+### My own mistakes — this took five attempts
+1. The first widening applied the filter exemption to `/` as well, so `find / -name x -delete` became
+   allowed — a regression caught only by re-running the original matrix.
+2. A `replaceAll` with `\\s` in a TypeScript string wrote `\s` into a JS string literal, where it parses to
+   a plain `s`: the lookahead silently became `regex)s` and never fired.
+3. Rewriting the rules wholesale inserted single backslashes into the source, so every pattern became a
+   no-op and **nothing** was blocked. Caught by the matrix, fixed by emitting the literals through
+   JSON.stringify.
+4. `guard.js` was corrupted earlier in the round by writing `lines[-1]` from a `findIndex` that returned -1;
+   recovered with `git checkout --`.
+
+### Tests
+- One new case: four home-root deletions refused, six filtered or narrower deletions allowed.
+  Suite 894 / 889 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.306 — 2026-11-01
 
 ### Fixed — `rm -rf ~/.` deleted the home directory and was allowed

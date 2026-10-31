@@ -208,3 +208,28 @@ test('rm -rf ~/. is the home directory, not another spelling of a path', async (
     assert.equal(blocked(command), false, 'must be allowed: ' + command)
   }
 })
+
+test('find -delete over the home directory is refused unless a filter narrows it', async () => {
+  // 'find ~ -delete' deletes every file under home, exactly what 'rm -rf ~' does
+  // and what the home rule already refused. 'find ~ -name "*.log" -delete' is
+  // ordinary cleanup, so a -name/-path/-regex filter keeps the command allowed.
+  const { checkCommand, DEFAULT_DENY_RULES } = await import('../src/guard.js')
+  const patterns = DEFAULT_DENY_RULES.map((r) => r.pattern)
+  const blocked = (command) => {
+    const verdict = checkCommand(command, patterns, {})
+    return Boolean(verdict && verdict.blocked)
+  }
+  for (const command of ['find ~ -delete', 'find $HOME -delete', 'find ~ -exec rm {} +', 'find ~ -ok rm {} ;']) {
+    assert.equal(blocked(command), true, 'must be refused: ' + command)
+  }
+  for (const command of [
+    'find ~/tmp -delete',
+    'find ~/projects -name "*.o" -delete',
+    'find ~ -name "*.log" -delete',
+    'find ~ -name "*.log" | xargs rm',
+    'find /var/tmp -delete',
+    'find . -delete',
+  ]) {
+    assert.equal(blocked(command), false, 'must be allowed: ' + command)
+  }
+})
