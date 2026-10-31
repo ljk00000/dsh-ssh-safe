@@ -116,7 +116,10 @@ export function agentSocket(env = process.env) {
  * catch 'api_key: ...' without a list. These are the plugin's own vocabulary: a
  * boolean and a path, neither of which can leak a credential.
  */
-const NEVER_SECRET = new Set(['trusthostkey', 'keypath', 'keytype'])
+const NEVER_SECRET = new Set(['trusthostkey', 'keypath', 'keytype',
+  // PWD and OLDPWD are the working directory far more often than a secret;
+  // DB_PWD and MYSQL_PWD are passwords, and the suffix rule catches those.
+  'pwd', 'oldpwd'])
 
 /**
  * Replace PEM blocks (complete or cut off) with '<redacted-pem>'.
@@ -177,7 +180,7 @@ export function redact(text) {
   // characters, and a 200k-character single-line output took 33 seconds to
   // redact. See the timing test in test/redact-coverage.test.js.
   s = s.replace(
-    /(^|[^\w])(["']?)([A-Za-z0-9_]*?(?:PASSWORD|PASSWD|PASSPHRASE|PASS|SECRET|TOKEN|KEY|MYSQL_PWD))\2(\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,}]+)/gi,
+    /(^|[^\w])(["']?)([A-Za-z0-9_]*?(?:PASSWORD|PASSWD|PASSPHRASE|PASS|SECRET|TOKEN|CREDENTIAL|BEARER|COOKIE|AUTH|KEY|PWD))\2(\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,}]+)/gi,
     (match, lead, quote, key, separator) => {
       // 'trustHostKey: true' is an instruction, not a secret: it ends in KEY like
       // every password field does, and replacing its value with '<redacted>'
@@ -186,6 +189,23 @@ export function redact(text) {
       return lead + quote + key + quote + separator + '<redacted>'
     },
   )
+  // A YAML / docker-inspect style value runs to the end of the line:
+  // 'password: two words' kept the second word, which is half the secret. Only the
+  // ': ' form is affected -- 'KEY=value' stops at the first space, because a shell
+  // assignment does.
+  s = s.replace(
+    /(^|[^\w])(["']?)([A-Za-z0-9_]*?(?:PASSWORD|PASSWD|PASSPHRASE|PASS|SECRET|TOKEN|CREDENTIAL|BEARER|COOKIE|AUTH|KEY|PWD))\2(\s*:\s+)([^\n]+)/gi,
+    (match, lead, quote, key, separator) => {
+      if (NEVER_SECRET.has(String(key).toLowerCase())) return match
+      return lead + quote + key + quote + ': <redacted>'
+    },
+  )
+  // Dockerfile ENV has no separator at all: ENV TOKEN abc123.
+  s = s.replace(
+    /(^|\n)(\s*ENV\s+)([A-Za-z0-9_]*(?:PASSWORD|PASSWD|PASS|SECRET|TOKEN|KEY|PWD|CREDENTIAL))((?:\s+)[^\n]+)/gi,
+    '$1$2$3 <redacted>',
+  )
+
   // 'curl -u user:password' and '--user=user:password' carry the secret after a
   // flag rather than after '=' or ':', so the rule above misses them.
   // No \b in front of a flag: '-' is not a word character, so a boundary can

@@ -310,3 +310,30 @@ test('a quoted value after -p= or -pass is masked whole', () => {
   assert.equal(redact('ssh -p 2222 host'), 'ssh -p 2222 host')
   assert.equal(redact('ssh -p2222 host'), 'ssh -p2222 host')
 })
+
+test('a YAML value runs to the end of the line and a Dockerfile ENV is masked', () => {
+  // 'password: two words' kept the second word: the env rule stopped at the first
+  // space, which is right for KEY=value and wrong for YAML.
+  assert.equal(redact('password: my secret phrase'), 'password: <redacted>')
+  assert.equal(redact('db:\n  password: hunter2\n  host: h'), 'db:\n  password: <redacted>\n  host: h')
+  // A JSON line keeps the fields after the secret.
+  assert.equal(redact('{"user":"u","password":"hunter2","host":"h"}'),
+    '{"user":"u","password":<redacted>,"host":"h"}')
+  // Dockerfile ENV has no separator at all.
+  assert.equal(redact('ENV API_TOKEN hunter2'), 'ENV API_TOKEN <redacted>')
+  assert.equal(redact('ENV API_TOKEN=hunter2'), 'ENV API_TOKEN=<redacted>')
+})
+
+test('the extra env names are masked and their look-alikes are not', () => {
+  // A generated matrix of 117 name/separator pairs leaked CREDENTIAL, AUTH, BEARER,
+  // COOKIE and DB_PWD (PWD itself is the working directory).
+  for (const name of ['CREDENTIAL', 'AUTH', 'BEARER', 'COOKIE', 'DB_PWD', 'CLIENT_SECRET']) {
+    assert.equal(redact(name + '=hunter2'), name + '=<redacted>', name)
+  }
+  // Paths and names that merely contain a word stay readable.
+  for (const text of ['GOOGLE_APPLICATION_CREDENTIALS=/tmp/creds.json', 'PASSFILE=/tmp/pw',
+    'KEY_PATH=/home/u/.ssh/id_ed25519', 'PWD=/home/u', 'OLDPWD=/tmp', 'AUTHORS=me',
+    'TOKENIZER=bert', 'KEYBOARD_LAYOUT=us']) {
+    assert.equal(redact(text), text, text + ' must not be rewritten')
+  }
+})

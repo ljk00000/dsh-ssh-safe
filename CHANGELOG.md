@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.253 — 2026-11-01
+
+### Fixed — the env-name matrix, second pass
+The same generated matrix (39 names × 3 separators) run against `KEY=VALUE` shapes leaked **30 of
+117 (26%)**; now **15 (13%)**, and every remainder is a deliberate exclusion:
+```
+before  CREDENTIAL=hunter2      after  CREDENTIAL=<redacted>
+before  AUTH=hunter2            after  AUTH=<redacted>
+before  BEARER=hunter2          after  BEARER=<redacted>
+before  COOKIE=hunter2          after  COOKIE=<redacted>
+before  DB_PWD=hunter2          after  DB_PWD=<redacted>
+still   PWD=/home/u, OLDPWD=/tmp, PASSFILE=/tmp/pw, KEY_PATH=…,
+        GOOGLE_APPLICATION_CREDENTIALS=…, AUTHORS=me, TOKENIZER=bert
+```
+`PWD` is the working directory far more often than a secret, so it is excluded by name while
+`*_PWD` (DB_PWD, MYSQL_PWD) is masked; paths and names that merely contain a word stay readable.
+
+### Fixed — two shapes the value pattern could not reach
+```
+before  password: my secret phrase   after  password: <redacted>          (was: <redacted> phrase)
+before  ENV API_TOKEN hunter2        after  ENV API_TOKEN <redacted>     (Dockerfile, no separator)
+```
+A YAML value runs to the end of the line, while a shell assignment stops at the first space — the
+single value pattern was right for one and wrong for the other. A one-line JSON document keeps the
+fields around the secret.
+
+### Tests
+- Two new cases: YAML, Dockerfile and JSON forms; six masked names and eight look-alikes that must
+  stay readable. Suite 839 / 834 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.252 — 2026-11-01
 
 ### Fixed — every remaining flag spelling a generated matrix could leak
