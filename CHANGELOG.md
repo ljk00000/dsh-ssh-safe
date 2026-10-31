@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.82 — 2026-10-31
+
+### Fixed
+- **Two spellings of `rm -rf /` got past the deny list.** The first rule matched
+  `-[rf]{1,2}` only, so `rm --recursive --force /` and `rm -rf -- /` — both of which
+  GNU rm executes exactly like `rm -rf /` — were measured slipping through, while
+  the rule’s own description promised "its spellings". The rule now accepts any
+  run of short or long flags. Ordinary work is untouched: `rm -rf /tmp/build`,
+  `rm -rf ./build`, `rm -i file.txt`, `rm -v /tmp/x` and `rm file.txt` are still
+  allowed, because a seatbelt that blocks normal commands gets switched off.
+
+### Verified, no change needed
+- `denyPatterns` given as rule objects, as one bare string, or as an invalid
+  regular expression is refused at load with a message naming the index and the
+  reason — it never falls back to silently allowing everything.
+
+### Added — tests
+- Nine flag spellings of `rm` on `/` that must be blocked, five ordinary
+  commands that must not be.
+
 ## 0.7.81 — 2026-10-31
 
 ### Fixed

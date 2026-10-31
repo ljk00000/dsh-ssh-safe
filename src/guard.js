@@ -226,8 +226,12 @@ export const DEFAULT_DENY_RULES = [
     // destroy the filesystem, so the target must be '/' and not the start of a
     // longer path. The boundary set includes a backtick: '`rm -rf /`' is a
     // command substitution, the same as '$(rm -rf /)'.
-    pattern: '(?:^|[\\s;&|()\`])rm\\s+-[rf]{1,2}\\s+/+(?:\\*|\\.{1,2})?(?:\\s|$|[)\`])',
-    why: 'it deletes the filesystem root (rm -rf / and its spellings //, /*, /., /..)',
+    // Any run of flags, not just '-rf': 'rm -r -f /', 'rm -fr /', 'rm -Rf /',
+    // 'rm --recursive --force /' and 'rm -rf -- /' all delete the root, and two
+    // of those were measured slipping through. The flags must still be flags
+    // ('-x' or '--long'), so 'rm file /' is not matched.
+    pattern: '(?:^|[\\s;&|()\`])rm(?:\\s+-{1,2}[A-Za-z-]+)+\\s+/+(?:\\*|\\.{1,2})?(?:\\s|$|[)\`])',
+    why: 'it deletes the filesystem root (rm -rf / and its spellings //, /*, /., /.., -r -f /, --recursive --force /)',
   },
   {
     // The home directory is the other root-shaped target. '~/*' deletes

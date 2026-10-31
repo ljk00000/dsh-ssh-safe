@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { checkCommand, normalizeCommand, canonicalizeRm } from '../src/guard.js'
+import { checkCommand, normalizeCommand, canonicalizeRm, DEFAULT_DENY_RULES } from '../src/guard.js'
 
 // The reference patterns shipped as the Config default.
 const PATTERNS = [
@@ -116,4 +116,36 @@ test('reading or printing the text is not the command', () => {
   }
   // The unquoted part is still checked.
   assert.equal(checkCommand('grep x notes.md && rm -rf /', full).blocked, true)
+})
+
+test('every flag spelling of rm on / is caught, and ordinary paths are not', () => {
+  // Measured slipping through before: 'rm --recursive --force /' and
+  // 'rm -rf -- /'. Both delete the root, and the rule's own description promises
+  // the spellings are covered.
+  const patterns = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
+  for (const command of [
+    'rm -rf /',
+    'rm -fr /',
+    'rm -Rf /',
+    'rm -r -f /',
+    'rm --recursive --force /',
+    'rm -rf -- /',
+    'rm -rf /*',
+    'rm -rf /.',
+    'rm -rf //',
+  ]) {
+    assert.equal(checkCommand(command, patterns).blocked, true, command)
+  }
+
+  // A seatbelt that blocks ordinary work gets switched off, which protects
+  // nothing: these must stay allowed.
+  for (const command of [
+    'rm -rf /tmp/build',
+    'rm -rf ./build',
+    'rm -i file.txt',
+    'rm -v /tmp/x',
+    'rm file.txt',
+  ]) {
+    assert.equal(checkCommand(command, patterns).blocked, false, command)
+  }
 })
