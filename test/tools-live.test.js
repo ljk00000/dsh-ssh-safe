@@ -532,3 +532,16 @@ test('a file path with a trailing slash is refused, not silently used', async ()
   const listed = await run('ssh_list', { path: '/etc/' })
   assert.match(listed, /keep\.txt/)
 })
+test('ssh_write reports the mode and refuses a mode that is not octal digits', async () => {
+  const text = await run('ssh_write', { path: '/tmp/mode-note.txt', content: 'x', mode: '600' })
+  assert.match(text, /Wrote 1 byte to \/tmp\/mode-note\.txt \(mode 0600\)/, text)
+  assert.equal(srv.vfs.modeOf('/tmp/mode-note.txt'), 0o600)
+
+  await assert.rejects(
+    () => run('ssh_write', { path: '/tmp/mode-bad.txt', content: 'x', mode: '999' }),
+    (err) => {
+      assert.match(err.message, /mode must be octal digits like "600" or "0644"/)
+      return true
+    },
+  )
+})

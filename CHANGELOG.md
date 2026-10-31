@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.65 — 2026-10-31
+
+### Added
+- **`ssh_write` takes a `mode`.** A file created over SFTP gets whatever the
+  server's umask gives -- typically 0644, world-readable -- and an agent writing a
+  private key or a `.env` had no way to ask for 0600. `mode: "600"` (octal digits,
+  with or without a leading zero) sets the permissions of a **new** file; an
+  existing file keeps its own, so a rewrite never chmods by accident. A value that
+  is not octal digits is refused:
+  `mode must be octal digits like "600" or "0644" (received "999")`.
+- **The reply states the mode that resulted**, which is not always the one asked
+  for (the server applies its umask):
+  `Wrote 6 bytes to /home/id_ed25519 (mode 0600)`. The audit record carries
+  `mode` and, for a write through a symlink, `linkTarget`.
+- README: the `ssh_write` row mentions `mode` and says to use it for keys and
+  `.env` files.
+
+### Test infrastructure
+- The in-memory SFTP server records the permissions from an OPEN request
+  (`modeOf()`), so the resulting mode is observable.
+
+### Added — tests
+- 0600 on a new file, the mode surviving an overwrite, 0644 for a public file,
+  and the refusal of a non-octal value.
+
 ## 0.7.64 — 2026-10-31
 
 ### Fixed

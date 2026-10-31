@@ -24,6 +24,21 @@ const STATUS = { OK: 0, EOF: 1, NO_SUCH_FILE: 2, PERMISSION_DENIED: 3, FAILURE: 
 
 const PFLAG = { READ: 1, WRITE: 2, APPEND: 4, CREAT: 8, TRUNC: 16, EXCL: 32 }
 
+/**
+ * Permission bits from an attrs block that starts at `off`.
+ * flags(4) [size(8)] [uidgid(8)] [permissions(4)] -- the order the RFC gives.
+ */
+const readModeFromAttrs = (buf, off) => {
+  if (!Buffer.isBuffer(buf) || off + 4 > buf.length) return undefined
+  const flags = buf.readUInt32BE(off)
+  if (!(flags & 0x4)) return undefined
+  let pos = off + 4
+  if (flags & 0x1) pos += 8
+  if (flags & 0x2) pos += 8
+  if (pos + 4 > buf.length) return undefined
+  return buf.readUInt32BE(pos) & 0o777
+}
+
 const u32 = (value) => {
   const buf = Buffer.alloc(4)
   buf.writeUInt32BE(value >>> 0, 0)
@@ -74,6 +89,8 @@ export function createVfs() {
   // path -> link target. Kept apart from files/dirs so STAT (which follows) and
   // LSTAT (which does not) can answer differently, the way a real server does.
   const links = new Map()
+  // path -> permission bits for files created with an explicit mode.
+  const modes = new Map()
   const MAX_LINK_DEPTH = 8
   const now = () => Math.floor(Date.now() / 1000)
 
@@ -87,7 +104,7 @@ export function createVfs() {
   const statLocal = (target) => {
     if (dirs.has(target)) return { dir: true, size: 4096, mode: 0o040755, mtime: now() }
     const buf = files.get(target)
-    if (buf) return { dir: false, size: buf.length, mode: 0o100644, mtime: now() }
+    if (buf) return { dir: false, size: buf.length, mode: 0o100000 | (modes.get(target) ?? 0o644), mtime: now() }
     return null
   }
 
@@ -126,11 +143,13 @@ export function createVfs() {
   return {
     control,
     normalize,
-    putFile(p, content) {
+    putFile(p, content, mode) {
       const target = normalize(p)
       mkdirp(path.posix.dirname(target))
       files.set(target, Buffer.isBuffer(content) ? Buffer.from(content) : Buffer.from(String(content), 'utf8'))
+      if (typeof mode === 'number') modes.set(target, mode)
     },
+    modeOf(p) { return modes.get(follow(p).path) },
     putDir(p) { mkdirp(p) },
     putLink(p, target) {
       const link = normalize(p)
@@ -235,7 +254,11 @@ export function attachSftp(stream, vfs) {
       const target = vfs.normalize(reader.path())
       if (vfs.control.denied.has(target)) return status(id, STATUS.PERMISSION_DENIED, 'Permission denied')
       const pflags = reader.u32()
+      // The attrs carry the requested permissions; a real server masks with the
+      // umask, this one records them as given.
+      const attrStart = reader.off
       reader.skipAttrs()
+      const requestedMode = readModeFromAttrs(payload, attrStart)
       const existing = vfs.stat(target)
       // A link cycle is ELOOP on a real server, not an empty file.
       if (existing && existing.cycle) return status(id, STATUS.FAILURE, 'Too many levels of symbolic links')
@@ -246,7 +269,7 @@ export function attachSftp(stream, vfs) {
         // exist; without this the plugin's createDirs advice was never reached.
         const parent = vfs.stat(path.posix.dirname(target))
         if (!parent || !parent.dir) return status(id, STATUS.NO_SUCH_FILE, 'no such file')
-        vfs.putFile(target, Buffer.alloc(0))
+        vfs.putFile(target, Buffer.alloc(0), requestedMode)
       } else if (pflags & PFLAG.TRUNC) {
         vfs.truncate(target)
       }

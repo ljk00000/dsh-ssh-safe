@@ -328,11 +328,12 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, 
  * @param {any} client
  * @param {string} remotePath
  * @param {string|Buffer} content
- * @param {{timeoutMs: number, createDirs?: boolean, signal?: AbortSignal}} options
- * @returns {Promise<{bytes: number, path: string, linkTarget?: string}>} `linkTarget`
- *   is set when the path was a symlink, so the caller can say where the bytes went
+ * @param {{timeoutMs: number, createDirs?: boolean, signal?: AbortSignal, mode?: number}} options
+ * @returns {Promise<{bytes: number, path: string, linkTarget?: string, mode?: number}>}
+ *   `linkTarget` is set when the path was a symlink (where the bytes went);
+ *   `mode` is the permission bits the file ended up with
  */
-export async function writeRemoteFile(client, remotePath, content, { timeoutMs = 30000, createDirs = false, signal } = /** @type {any} */ ({})) {
+export async function writeRemoteFile(client, remotePath, content, { timeoutMs = 30000, createDirs = false, signal, mode } = /** @type {any} */ ({})) {
   const target = normalizeRemotePath(remotePath, { file: true })
   const payload = Buffer.isBuffer(content) ? content : Buffer.from(String(content ?? ''), 'utf8')
   const sftp = await openSftp(client)
@@ -384,7 +385,9 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
       (error) => settle(null, error))
 
     try {
-      stream = sftp.createWriteStream(target)
+      // mode is only applied when the file is created; an existing file keeps
+      // its permissions, which is what chmod-less writing should do.
+      stream = sftp.createWriteStream(target, mode === undefined ? undefined : { mode })
     } catch (err) {
       return kindMismatch(sftp, target, 'file').then(
         (better) => settle(null, better || remoteError(err, target)),
@@ -404,6 +407,7 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
       // result used to say only the path it was given, so the caller never
       // learned where the content actually landed.
       let linkTarget
+      let mode
       try {
         if (typeof sftp.lstat === 'function') {
           const attrs = await callSftp(sftp, 'lstat', target)
@@ -411,10 +415,14 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
             typeof sftp.readlink === 'function') {
             linkTarget = String(await callSftp(sftp, 'readlink', target))
           }
+          // The permissions the file ended up with are not the ones asked for on
+          // every server (umask applies), and they decide who can read the file
+          // just written.
+          if (attrs && typeof attrs.mode === 'number') mode = attrs.mode & 0o777
         }
       } catch { /* the link may be gone again; the write itself succeeded */ }
       if (explain) return
-      settle({ bytes: payload.length, path: target, linkTarget })
+      settle({ bytes: payload.length, path: target, linkTarget, mode })
     }
     stream.on('error', (e) => {
       if (explain) return

@@ -233,3 +233,15 @@ test('a write cancelled before it starts says the file was not touched', async (
   )
   assert.equal(srv.vfs.getFile('/tmp/untouched.txt'), undefined, 'nothing may be created')
 })
+test('a new file can be given explicit permissions, and the result is reported', async () => {
+  const privateKey = await pool.writeFile('t', '/home/id_ed25519', 'PRIVATE KEY', { mode: 0o600 })
+  assert.equal(privateKey.mode, 0o600, 'the mode the file ended up with')
+  assert.equal(srv.vfs.modeOf('/home/id_ed25519'), 0o600)
+
+  // Overwriting keeps what is there: no chmod by accident.
+  const rotated = await pool.writeFile('t', '/home/id_ed25519', 'PRIVATE KEY v2')
+  assert.equal(rotated.mode, 0o600, 'an existing file keeps its permissions')
+
+  const publicFile = await pool.writeFile('t', '/home/readme.txt', 'hi', { mode: 0o644 })
+  assert.equal(publicFile.mode, 0o644)
+})

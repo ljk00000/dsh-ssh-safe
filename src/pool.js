@@ -980,7 +980,7 @@ export class SshPool {
     return result
   }
 
-  /** @param {string} alias @param {string} remotePath @param {{timeoutMs?: number, sessionPassword?: string, createDirs?: boolean, signal?: AbortSignal}} [opts] */
+  /** @param {string} alias @param {string} remotePath @param {{timeoutMs?: number, sessionPassword?: string, createDirs?: boolean, signal?: AbortSignal, mode?: number}} [opts] */
   async writeFile(alias, remotePath, content, opts = {}) {
     this.beginOp(alias)
     try {
@@ -999,9 +999,9 @@ export class SshPool {
    * @param {string} alias
    * @param {string} remotePath
    * @param {string|Buffer} content
-   * @param {{sessionPassword?: string, timeoutMs?: number, createDirs?: boolean, signal?: AbortSignal}} [inline]
+   * @param {{sessionPassword?: string, timeoutMs?: number, createDirs?: boolean, signal?: AbortSignal, mode?: number}} [inline]
    */
-  async #writeFileOn(alias, remotePath, content, { sessionPassword, timeoutMs, createDirs, signal } = {}) {
+  async #writeFileOn(alias, remotePath, content, { sessionPassword, timeoutMs, createDirs, signal, mode } = {}) {
     // See readFile: reject a bad path before touching the network.
     normalizeRemotePath(remotePath, { file: true })
     const client = await this.connect(alias, { sessionPassword })
@@ -1009,6 +1009,7 @@ export class SshPool {
       timeoutMs: timerValue(pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)), 30000),
       createDirs: createDirs === true,
       signal,
+      mode,
     })
   }
 

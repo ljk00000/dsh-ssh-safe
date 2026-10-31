@@ -307,6 +307,29 @@ export async function apply(ctx, config) {
     return trimmed
   }
 
+  /**
+   * Permission bits, written the way chmod writes them.
+   *
+   * Accepts "600", "0600" and the number 600 -- all read as octal digits, which
+   * is what a user typing a mode means. 0o600 (the JS number 384) is rejected
+   * with the reason, because guessing between decimal and octal is how a file
+   * ends up world-readable.
+   *
+   * @param {unknown} value
+   * @returns {number|undefined} the numeric mode, e.g. 0o600
+   */
+  const parseMode = (value) => {
+    if (value === undefined || value === null || value === '') return undefined
+    const text = String(value).trim().replace(/^0o/i, '')
+    if (!/^[0-7]{3,4}$/.test(text)) {
+      throw new Error(
+        'mode must be octal digits like "600" or "0644" (received ' + JSON.stringify(value) + '). ' +
+        'Use 0600 for a file only the account should read.'
+      )
+    }
+    return parseInt(text, 8)
+  }
+
   /** Optional string: absent stays undefined, a non-string is rejected. */
   const optionalText = (value, field) => {
     if (value === undefined || value === null || value === '') return undefined
@@ -986,6 +1009,7 @@ function assertKnownArgs(args, known, toolName) {
       path: { type: 'string', required: true, description: 'Absolute path on the remote host.' },
       content: { type: 'string', required: true, description: 'Full file content.' },
       createDirs: { type: 'boolean', description: 'Create missing parent directories first. Default false, so a mistyped path does not silently build a tree.' },
+      mode: { type: 'string', description: 'Permission bits for a NEWLY created file, as octal digits: "600" for a key or .env, "644" for content other users must read. An existing file keeps its permissions. Default: the server umask.' },
       timeoutMs: { type: 'integer', description: 'Override the per-transfer deadline. 0 = configured value.' },
       password: { type: 'string', description: 'Only honoured when the profile sets allowSessionPassword: true.' },
       confirm: { type: 'boolean', description: 'Required when execGuard is "confirm".' },
@@ -1018,11 +1042,13 @@ function assertKnownArgs(args, known, toolName) {
       const startedAt = Date.now()
       let r
       const createDirs = optionalFlag(args.createDirs, 'createDirs')
+      const mode = parseMode(args.mode)
       try {
         r = await pool.writeFile(alias, remotePath, content, {
           timeoutMs: optionalBudget(args.timeoutMs, 'timeoutMs'),
           sessionPassword: optionalText(args.password, 'password'),
           createDirs,
+          mode,
           signal: executionSignal(execution),
         })
       } catch (err) {
@@ -1047,8 +1073,10 @@ function assertKnownArgs(args, known, toolName) {
       audit.write({
         kind: 'write', machine: alias, path: r.path, outcome: 'ok', bytes: r.bytes,
         // The link target is where the bytes actually went; an operator reading
-        // the log after 'why did /etc change?' needs it.
+        // the log after 'why did /etc change?' needs it. The mode says who can
+        // read the file afterwards.
         ...(r.linkTarget ? { linkTarget: r.linkTarget } : {}),
+        ...(typeof r.mode === 'number' ? { mode: r.mode.toString(8).padStart(4, '0') } : {}),
         ms: Date.now() - startedAt,
       })
       // A symlink means the bytes are somewhere the path did not name. Say where;
@@ -1057,7 +1085,13 @@ function assertKnownArgs(args, known, toolName) {
         ? '\n[note] that path is a symbolic link to ' + r.linkTarget +
           '; the content was written there, not to the link itself'
         : ''
-      return { text: 'Wrote ' + plural(r.bytes, 'byte') + ' to ' + r.path + viaLink }
+      // The mode the file ended up with decides who can read what was just
+      // written; the server applies its umask, so it is not always the one asked
+      // for.
+      const modeNote = typeof r.mode === 'number'
+        ? ' (mode ' + r.mode.toString(8).padStart(4, '0') + ')'
+        : ''
+      return { text: 'Wrote ' + plural(r.bytes, 'byte') + ' to ' + r.path + modeNote + viaLink }
     },
   })
 
@@ -1310,6 +1344,9 @@ function assertKnownArgs(args, known, toolName) {
         // renderer dropped every one of them.
         const detail = []
         if (r.bytes !== undefined) detail.push(r.bytes + 'B')
+        // Where a write actually landed, and who can read it afterwards.
+        if (r.mode) detail.push('mode ' + String(r.mode))
+        if (r.linkTarget) detail.push('via link ' + String(r.linkTarget))
         if (r.entries !== undefined) detail.push(r.entries + (r.entries === 1 ? ' entry' : ' entries'))
         if (r.truncated) detail.push('truncated')
         if (r.redacted === true) detail.push('redacted')

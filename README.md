@@ -249,7 +249,7 @@ DSH_SSH_PROD_KNOWN_HOSTS=~/.ssh/known_hosts.json
 | `ssh_connect` | 建立或复用连接，返回主机指纹与远端 `uname` |
 | `ssh_exec` | 在远端执行命令，返回 stdout / stderr / 退出码 |
 | `ssh_read` | 读远端文件（UTF-8，按字节上限截断；默认对疑似密钥打码，`raw: true` 关闭） |
-| `ssh_write` | 写远端文件（覆盖）；父目录不存在时报错，`createDirs: true` 自动创建 |
+| `ssh_write` | 写远端文件（覆盖）；父目录不存在时报错，`createDirs: true` 自动创建；新建文件的权限用 `mode: "600"` 指定（写私钥、`.env` 时务必指定），回执里会报出实际权限 |
 | `ssh_list` | 列远端目录（超过 `maxListEntries` 截断并说明略过多少条） |
 | `ssh_close` | 关闭连接（有命令在跑会拒绝，除非 `force: true`） |
 | `ssh_doctor` | 分级诊断：配置 / 凭据 / TCP / 主机密钥 / 认证 |
@@ -537,7 +537,7 @@ Restart DeepSeek Harness — environment variables are read at process start.
 | `ssh_connect` | Open/reuse a connection; reports fingerprint and remote `uname` |
 | `ssh_exec` | Run a command; returns stdout, stderr, exit code |
 | `ssh_read` | Read a remote file (UTF-8, byte-capped; secret-shaped text masked unless `raw: true`) |
-| `ssh_write` | Write a remote file (overwrite); `createDirs: true` creates missing parents |
+| `ssh_write` | Write a remote file (overwrite); `createDirs: true` creates missing parents; `mode: "600"` sets the permissions of a new file (always do this for keys and `.env`), and the reply reports the mode that resulted |
 | `ssh_list` | List a remote directory (capped by `maxListEntries`) |
 | `ssh_close` | Close connections |
 | `ssh_doctor` | Stage-by-stage diagnosis, including a real authentication attempt |
