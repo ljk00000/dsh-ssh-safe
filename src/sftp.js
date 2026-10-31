@@ -451,7 +451,7 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, 
  * @param {string} remotePath
  * @param {string|Buffer} content
  * @param {{timeoutMs: number, createDirs?: boolean, signal?: AbortSignal, mode?: number}} options
- * @returns {Promise<{bytes: number, path: string, linkTarget?: string, mode?: number}>}
+ * @returns {Promise<{bytes: number, path: string, linkTarget?: string, mode?: number, modeRequested?: number}>}
  *   `linkTarget` is set when the path was a symlink (where the bytes went);
  *   `mode` is the permission bits the file ended up with
  */
@@ -509,6 +509,7 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
     abortListener = onAbort(signal, () => 'writing ' + target + ' was cancelled; ' + writeState(),
       (error) => settle(null, error))
 
+    const requestedMode = mode
     try {
       // mode is only applied when the file is created; an existing file keeps
       // its permissions, which is what chmod-less writing should do.
@@ -547,7 +548,12 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
         }
       } catch { /* the link may be gone again; the write itself succeeded */ }
       if (explain) return
-      settle({ bytes: payload.length, path: target, linkTarget, mode })
+      // The caller asked for a mode and the file already existed: report both, so
+      // the tool can say the mode was not applied instead of leaving the caller
+      // with an executable script that is not executable.
+      // (the local 'mode' above shadows the parameter, so the requested value
+      // is the one captured before the write started)
+      settle({ bytes: payload.length, path: target, linkTarget, mode, modeRequested: requestedMode })
     }
     stream.on('error', (e) => {
       if (explain) return

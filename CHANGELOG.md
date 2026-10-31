@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.85 — 2026-10-31
+
+### Fixed
+- **A mode that never got applied was reported as a bare number.** `ssh_write`
+  applies `mode` only when it creates the file (documented), so writing an
+  existing `/root/backup.sh` with `mode: "700"` left it 0644 — and the result said
+  `(mode 0644)`, leaving the caller to compare a four-digit number against what
+  they asked for. It now says so:
+  "Wrote 3 bytes to /tmp/script.sh (mode 0644) — asked for 0700 but the file already
+  existed, so it kept its own permissions; run chmod through ssh_exec to change
+  them"
+  A new file still gets the mode it asked for, and a write without `mode` says
+  nothing extra.
+
+### Added — tests
+- The existing-file note, the new-file case that must not carry it, and the plain
+  write that must stay unchanged.
+
 ## 0.7.84 — 2026-10-31
 
 ### Fixed

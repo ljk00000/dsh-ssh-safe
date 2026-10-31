@@ -1126,7 +1126,15 @@ function assertKnownArgs(args, known, toolName) {
       // written; the server applies its umask, so it is not always the one asked
       // for.
       const modeNote = typeof r.mode === 'number'
-        ? ' (mode ' + r.mode.toString(8).padStart(4, '0') + ')'
+        ? ' (mode ' + r.mode.toString(8).padStart(4, '0') + ')' +
+          // mode is only applied when the file is created. Writing an existing
+          // script with mode '755' left it 0644, and the only clue was a number
+          // the caller had to compare against what they asked for.
+          (typeof r.modeRequested === 'number' && (r.modeRequested & 0o777) !== (r.mode & 0o777)
+            ? ' — asked for ' + (r.modeRequested & 0o777).toString(8).padStart(4, '0') +
+              ' but the file already existed, so it kept its own permissions; ' +
+              'run chmod through ssh_exec to change them'
+            : '')
         : ''
       return { text: 'Wrote ' + plural(r.bytes, 'byte') + ' to ' + r.path + modeNote + viaLink }
     },

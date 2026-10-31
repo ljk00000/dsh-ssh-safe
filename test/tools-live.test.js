@@ -580,3 +580,20 @@ test('ssh_doctor records its login, and alias mode keeps the host out of the log
     rmSync(home2, { recursive: true, force: true })
   }
 })
+
+test('a mode that could not be applied says so instead of staying silent', async () => {
+  // mode is only applied when the file is created. Writing an existing script
+  // with mode 700 left it 0644, and the only clue was a four-digit number the
+  // caller had to compare with what they asked for.
+  srv.vfs.putFile('/tmp/script.sh', 'old', 0o644)
+  const existing = await tools.ssh_write.execute({ machine: 't', path: '/tmp/script.sh', content: 'new', mode: '700' }, {})
+  assert.match(existing.text, /asked for 0700/)
+  assert.match(existing.text, /already existed/)
+
+  const fresh = await tools.ssh_write.execute({ machine: 't', path: '/tmp/new.sh', content: 'new', mode: '700', createDirs: true }, {})
+  assert.match(fresh.text, /mode 0700/)
+  assert.doesNotMatch(fresh.text, /asked for/, 'a new file gets what was asked for')
+
+  const plain = await tools.ssh_write.execute({ machine: 't', path: '/tmp/script.sh', content: 'again' }, {})
+  assert.doesNotMatch(plain.text, /asked for/, 'no mode, no note')
+})
