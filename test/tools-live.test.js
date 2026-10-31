@@ -1596,3 +1596,54 @@ test('a local filesystem failure is not reported as a connection failure', async
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('a clipped audit error says it was clipped', async () => {
+  // A bare slice(0, 200) stored an error that looked complete but ended mid-sentence.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-clip-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const srv2 = await startServer()
+  srv2.vfs.putDir('/tmp')
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, auditLog: true,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    await own.ssh_read.execute({ machine: 't', path: '/tmp/' + 'x'.repeat(500) + '.txt' }, {}).catch(() => {})
+    const line = readFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'), 'utf8').trim().split('\n').pop()
+    const record = JSON.parse(line)
+    const error = String(record.error || '')
+    assert.ok(error.length > 0, 'the record should keep the error')
+    assert.ok(error.length <= 200, 'got ' + error.length)
+    assert.match(error, /…$/, 'a clipped error must say so: ' + JSON.stringify(error.slice(-20)))
+  } finally {
+    await own.ssh_close.execute({}, {}).catch(() => {})
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a refused session password names the setting that allows it', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-sesspwfit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const own = {}
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 's', hostKeyPolicy: 'tofu', reconnectCooldownMs: 0, connectTimeoutMs: 2000,
+      machines: { s: { host: '127.0.0.1', port: 1, user: 'u' } },
+    })
+    const message = await own.ssh_connect.execute({ machine: 's', password: 'secret' }, {})
+      .then(() => '', (err) => String(err.message))
+    assert.match(message, /allowSessionPassword: true/)
+    assert.match(message, /disabled for this profile/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

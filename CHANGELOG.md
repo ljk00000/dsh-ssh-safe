@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.156 — 2026-10-31
+
+### Fixed
+- **A clipped audit error looked like the whole message.** Five call sites stored
+  `error: …slice(0, 200)`, so the record ended mid-sentence with nothing to say it had
+  been cut — the one thing a log must not do:
+  ```
+  before: "error": "failure reading /tmp/xxxx…xxxx — the remote channel may have dro"
+  after : "error": "failure reading /tmp/xxxx…xxxx — the remote channel may have…"
+  ```
+  `clipText()` (in `format.js`) now adds the ellipsis and never splits a surrogate pair.
+- **A refused session password named no setting.** Passing `password` without
+  `allowSessionPassword` said only that it was disabled:
+  ```
+  before: … Passing a password in conversation is disabled for this profile.
+  after : … Passing a password in conversation is disabled for this profile — set
+          allowSessionPassword: true in the plugin config to allow it.
+  ```
+
+### Verified, no change needed
+- `createDirs: true` through a symlinked parent directory works: the file lands in the
+  link target (`/linked/a/b/f.txt` → `/real/a/b/f.txt`).
+- `allowSessionPassword: true` accepts the password argument and dials (then fails at
+  the socket, as it should against a closed port).
+
 ## 0.7.155 — 2026-10-31
 
 ### Fixed

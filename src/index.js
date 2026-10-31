@@ -38,7 +38,7 @@ import {
 } from './machines.js'
 import { storePath } from './hostkey.js'
 import { parsePrivateKey } from './connect.js'
-import { printable } from './format.js'
+import { printable , clipText } from './format.js'
 import { DEFAULT_DENY_RULES, checkCommand, describeRule, invalidPatterns } from './guard.js'
 import { exitLine, formatListing, plural } from './format.js'
 import { AuditLog, summarize } from './audit.js'
@@ -977,7 +977,7 @@ function assertKnownArgs(args, known, toolName) {
           kind: 'connect',
           machine: alias,
           outcome: 'error',
-          error: auditText(alias, err && err.message ? err.message : String(err)).slice(0, 200),
+          error: clipText(auditText(alias, err && err.message ? err.message : String(err)), 200),
           ms: Date.now() - startedAt,
         })
         throw err
@@ -1052,7 +1052,7 @@ function assertKnownArgs(args, known, toolName) {
           machine: alias,
           command: summarize(command),
           outcome: 'error',
-          error: auditText(alias, err && err.message ? err.message : String(err)).slice(0, 200),
+          error: clipText(auditText(alias, err && err.message ? err.message : String(err)), 200),
           ms: Date.now() - startedAt,
         })
         throw err
@@ -1198,7 +1198,7 @@ function assertKnownArgs(args, known, toolName) {
       } catch (err) {
         audit.write({
           kind: 'read', machine: alias, path: remotePath, outcome: 'error',
-          error: auditText(alias, err && err.message ? err.message : String(err)).slice(0, 200),
+          error: clipText(auditText(alias, err && err.message ? err.message : String(err)), 200),
           ms: Date.now() - startedAt,
         })
         throw err
@@ -1329,7 +1329,7 @@ function assertKnownArgs(args, known, toolName) {
         }
         audit.write({
           kind: 'write', machine: alias, path: remotePath, outcome: 'error',
-          error: auditText(alias, err && err.message ? err.message : String(err)).slice(0, 200),
+          error: clipText(auditText(alias, err && err.message ? err.message : String(err)), 200),
           ms: Date.now() - startedAt,
         })
         throw err
@@ -1412,7 +1412,7 @@ function assertKnownArgs(args, known, toolName) {
       } catch (err) {
         audit.write({
           kind: 'list', machine: alias, path: remotePath, outcome: 'error',
-          error: auditText(alias, err && err.message ? err.message : String(err)).slice(0, 200),
+          error: clipText(auditText(alias, err && err.message ? err.message : String(err)), 200),
           ms: Date.now() - startedAt,
         })
         throw err
@@ -1614,7 +1614,7 @@ function assertKnownArgs(args, known, toolName) {
                 '；按 F5 刷新看侧栏是否出现「' + remoteTitle(alias) + '」'
             }
           } catch (err) {
-            registered = '目录已就绪，但注册失败：' + String(err && err.message ? err.message : err).slice(0, 200)
+            registered = '目录已就绪，但注册失败：' + clipText(err && err.message ? err.message : err, 200)
           }
         } else {
           registered = '当前 profile 没有 workspace 服务：目录已就绪，请在「工作区 → 打开文件夹」里手动选择它。'

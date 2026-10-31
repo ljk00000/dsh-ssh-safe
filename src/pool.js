@@ -765,7 +765,11 @@ export class SshPool {
         ' which none was found at.' +
         (this.config.allowSessionPassword
           ? ' Or pass password (this profile allows it).'
-          : ' Passing a password in conversation is disabled for this profile.') +
+          // The user just passed one; saying only 'disabled' left them with no idea
+          // which setting to change. Every other refusal in this plugin names its
+          // setting.
+          : ' Passing a password in conversation is disabled for this profile — set' +
+            ' allowSessionPassword: true in the plugin config to allow it.') +
         // A credential file that exists but cannot be read is the likeliest
         // reason for "no credentials" right after editing it, and the message
         // above pointed at the environment instead.

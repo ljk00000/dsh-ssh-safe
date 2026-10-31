@@ -17,6 +17,22 @@
  * @param {unknown} name
  * @returns {string}
  */
+/**
+ * Cut text to a length, saying so.
+ *
+ * A bare slice(0, 200) in an audit record produced an error that looked complete
+ * but ended mid-sentence. The ellipsis is the difference between 'this is the
+ * message' and 'this is the beginning of it'.
+ */
+export function clipText(text, max) {
+  const value = String(text ?? '')
+  if (value.length <= max) return value
+  let cut = value.slice(0, Math.max(0, max - 1))
+  // Never leave half of a surrogate pair: readers show it as U+FFFD.
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1)
+  return cut + '…'
+}
+
 export function printable(name) {
   return String(name ?? '')
     .replace(/\\/g, '\\\\')
