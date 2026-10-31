@@ -239,7 +239,8 @@ DSH_SSH_PROD_KNOWN_HOSTS=~/.ssh/known_hosts.json
 | 手动断开 | `ssh_close` |
 
 排障顺序永远是 **`ssh_machines` → `ssh_doctor` → 具体操作**。​`ssh_doctor` 把失败分成
-配置 / 凭据 / TCP / 主机密钥 / 认证五级，比一句「认证失败」有用得多。​
+配置 / 凭据 / TCP / 主机密钥 / 认证五级，比一句「认证失败」有用得多；另有三个只在需要时出现的提示行：
+`audit`（审计日志写不进去，例如只读目录）、`connect`（连接阶段的失败原因）、`shell`（登录成功但远端不产出输出）。
 
 ### 工具
 
@@ -252,7 +253,7 @@ DSH_SSH_PROD_KNOWN_HOSTS=~/.ssh/known_hosts.json
 | `ssh_write` | 写远端文件（覆盖）；父目录不存在时报错，`createDirs: true` 自动创建；新建文件的权限用 `mode: "600"` 指定（写私钥、`.env` 时务必指定），回执里会报出实际权限 |
 | `ssh_list` | 列远端目录（超过 `maxListEntries` 截断并说明略过多少条） |
 | `ssh_close` | 关闭连接（有命令在跑会拒绝，除非 `force: true`） |
-| `ssh_doctor` | 分级诊断：配置 / 凭据 / TCP / 主机密钥 / 认证 |
+| `ssh_doctor` | 分级诊断：配置 / 凭据 / TCP / 主机密钥 / 认证（必要时还有 `audit` / `connect` / `shell` 提示） |
 | `ssh_audit` | 查看操作记录（需 `auditLog: true`；`outcome` 取值见下表） |
 | `ssh_config` | 查看运行时实际生效的配置 |
 | `ssh_credentials` | 查看凭据来源与优先级（只报来源，永不打印值） |
@@ -583,7 +584,7 @@ Restart DeepSeek Harness — environment variables are read at process start.
 | `ssh_write` | Write a remote file (overwrite); `createDirs: true` creates missing parents; `mode: "600"` sets the permissions of a new file (always do this for keys and `.env`), and the reply reports the mode that resulted |
 | `ssh_list` | List a remote directory (capped by `maxListEntries`) |
 | `ssh_close` | Close connections |
-| `ssh_doctor` | Stage-by-stage diagnosis, including a real authentication attempt |
+| `ssh_doctor` | Stage-by-stage diagnosis (configuration / credentials / TCP / host key / authentication, plus `audit` / `connect` / `shell` notes when they apply), including a real authentication attempt |
 | `ssh_audit` | Recent operations (requires `auditLog: true`) |
 | `ssh_config` | The configuration actually in effect |
 | `ssh_credentials` | Credential sources and precedence (never values) |

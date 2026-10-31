@@ -188,7 +188,10 @@ export function redact(text) {
   // 'ls -a', so only immediately after the client's own name.
   // A quoted password is one value: masking only its first word left the rest in
   // the log ('-a <redacted> pass" ping').
-  s = s.replace(/(^|[\s"'])(redis-cli)([^\n]*?)\s(-a)\s+("[^"]*"|'[^']*'|\S+)/gi, '$1$2$3 -a <redacted>')
+  // The gap is bounded: '[^\n]*?' scanned to the end of the line for every
+  // 'redis-cli' that had no '-a' after it, and 20 000 of them took 785 ms.
+  // 200 characters covers 'redis-cli --user u --tls -a SECRET' and stops there.
+  s = s.replace(/(^|[\s"'])(redis-cli)([^\n]{0,200}?)\s(-a)\s+("[^"]*"|'[^']*'|\S+)/gi, '$1$2$3 -a <redacted>')
   // PEM blocks: masked by scanning, not by a backtracking regex.
   //
   // /-----BEGIN [\s\S]*?-----END [^-]*-----/ is quadratic when the text holds many

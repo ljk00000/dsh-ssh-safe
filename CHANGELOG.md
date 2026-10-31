@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.170 — 2026-10-31
+
+### Fixed
+- **The `redis-cli -a` rule was quadratic.** Its gap between the client name and the flag
+  was `[^\n]*?`, so every `redis-cli` without a following `-a` scanned to the end of the
+  line — 20 000 of them in 240 KB took 785 ms. The gap is now bounded at 200 characters
+  (enough for `redis-cli --user u --tls -a SECRET`) and the same input takes 6 ms.
+  Masking behaviour is unchanged, including `ls -a` and `tar -af` staying untouched.
+
+### Changed (documentation only)
+- **`ssh_doctor` has more stages than the README listed.** Code can print eight labels;
+  the docs named five. The extra three are now described where they appear:
+  `audit` (the log cannot be written — a read-only directory), `connect` (the failure
+  happened while dialling) and `shell` (login succeeded but the remote produces no
+  output). Both the Chinese and the English table rows were updated.
+
+### Verified, no change needed
+- Every other masking rule stays linear on 20 000 repetitions each (`--pass`, `-p`,
+  `Authorization:`, `KEY=`, `user:pass@` URLs): 4–13 ms for 200–520 KB single lines.
+
 ## 0.7.169 — 2026-10-31
 
 ### Fixed
