@@ -260,6 +260,29 @@ function readStore() {
   } catch { return {} }
 }
 
+/**
+ * Why the credential file cannot be read, or '' when it is fine.
+ *
+ * readStore() answers {} for a file it cannot parse, and a save then wrote that
+ * single entry over the whole file: one missing comma cost the user every machine
+ * in it, with no warning. Saving and deleting now refuse while the file is broken.
+ *
+ * @returns {string}
+ */
+function storeProblem() {
+  let text
+  try { text = readFileSync(credFile, 'utf8') } catch (err) {
+    return err && err.code === 'ENOENT' ? '' : ('无法读取 ' + credFile + '：' + (err && err.message))
+  }
+  try {
+    const parsed = JSON.parse(text)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return ''
+    return credFile + ' 的内容不是 JSON 对象（收到 ' + (Array.isArray(parsed) ? 'array' : typeof parsed) + '）'
+  } catch (err) {
+    return credFile + ' 现在无法解析（' + (err && err.message) + '）'
+  }
+}
+
 /** Block this event loop for a moment (there is no sync sleep in Node). */
 function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
@@ -656,7 +679,7 @@ const server = createServer(async (req, res) => {
     const body = req.method === 'POST' ? await readBody(req) : {}
 
     if (req.method === 'GET' && url.pathname === '/api/state') {
-      return sendJson(res, 200, state())
+      return sendJson(res, 200, { ...state(), fileProblem: storeProblem() })
     }
 
     if (req.method === 'POST' && url.pathname === '/api/save') {
@@ -665,6 +688,10 @@ const server = createServer(async (req, res) => {
       const alias = parsedAlias.alias
       if (RESERVED_ALIASES.has(alias)) {
         return sendJson(res, 400, { error: '别名 "' + alias + '" 与 JavaScript 内置属性冲突，无法保存，请换一个名字' })
+      }
+      const problem = storeProblem()
+      if (problem) {
+        return sendJson(res, 409, { error: problem + '——为避免把它整个覆盖掉，本页不会写入。请先修正语法，或把文件移走再回来。' })
       }
       const store = readStore()
       const entry = { ...(store[alias] && typeof store[alias] === 'object' ? store[alias] : {}) }
@@ -732,6 +759,10 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/api/delete') {
       const alias = aliasOf(body.alias)
+      const problem = storeProblem()
+      if (problem) {
+        return sendJson(res, 409, { error: problem + '——为避免把它整个覆盖掉，本页不会写入。请先修正语法，或把文件移走再回来。' })
+      }
       const store = readStore()
       const removed = Boolean(store[alias])
       if (removed) {

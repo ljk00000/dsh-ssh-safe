@@ -103,6 +103,8 @@
     请在 profile 的 cordis.patch.yml 里改为 true，或改用环境变量。
   </div>
 
+  <div class="note" id="fileBad" style="display:none;margin:0 0 12px;color:#f87171"></div>
+
   <div id="list"></div>
 
   <div class="card">
@@ -146,6 +148,15 @@ async function refresh() {
   document.getElementById("credPath").textContent = state.credentialFile;
   const banner = document.getElementById("fileOff");
   if (banner) banner.style.display = state.fileEnabled === false ? "block" : "none";
+  // A file the page cannot parse is shown, not silently replaced: saving over it
+  // used to write one entry and lose every other machine in it.
+  const bad = document.getElementById("fileBad");
+  if (bad) {
+    bad.style.display = state.fileProblem ? "block" : "none";
+    if (state.fileProblem) {
+      bad.textContent = "凭据文件读不了，本页已停止写入（避免覆盖）：" + state.fileProblem;
+    }
+  }
   document.getElementById("envNote").innerHTML = state.envAliases.length
     ? "另有环境变量提供的机器：<b>" + state.envAliases.map(esc).join(", ") + "</b>（本页可覆盖，优先级见下方说明）"
     : "环境变量未提供任何机器。";

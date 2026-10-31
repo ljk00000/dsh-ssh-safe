@@ -171,6 +171,55 @@ test('a saved machine shows up without its password', async () => {
   }
 })
 
+
+test('a credential file that does not parse is reported and never overwritten', async () => {
+  // readStore() answers {} for a file it cannot parse, and a save then wrote the
+  // page's single entry over the whole file: one missing comma cost every machine
+  // in it, silently.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const dir = path.join(home, 'dsh-ssh-safe')
+  mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, 'credentials.json')
+  const broken = '{ this is not json with machines: { keep: { host: "keep.example" } }'
+  writeFileSync(file, broken, 'utf8')
+  const { child, base, token } = await start(home)
+  try {
+    const state = await call(base, token, '/api/state')
+    assert.equal(state.status, 200, 'the page still loads')
+    assert.match(String(state.body.fileProblem), /无法解析/, 'the state names the problem')
+    const saved = await call(base, token, '/api/save', {
+      alias: 'new', host: 'h.example', user: 'u', password: 'p',
+    })
+    assert.equal(saved.status, 409, 'the save is refused')
+    assert.match(String(saved.body.error), /不会写入/)
+    assert.equal(readFileSync(file, 'utf8'), broken, 'the file is untouched, byte for byte')
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a slack credential file still saves and keeps its other entries', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const dir = path.join(home, 'dsh-ssh-safe')
+  mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, 'credentials.json')
+  writeFileSync(file, JSON.stringify({ keep: { host: 'keep.example', user: 'k' } }, null, 2), 'utf8')
+  const { child, base, token } = await start(home)
+  try {
+    const saved = await call(base, token, '/api/save', {
+      alias: 'new', host: 'h.example', user: 'u', password: 'p',
+    })
+    assert.equal(saved.status, 200)
+    const after = JSON.parse(readFileSync(file, 'utf8'))
+    assert.deepEqual(Object.keys(after).sort(), ['keep', 'new'])
+    assert.equal(after.keep.host, 'keep.example')
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('a password is stored encrypted and never returned', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
   const { child, base, token } = await start(home)

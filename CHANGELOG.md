@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.196 — 2026-10-31
+
+### Fixed
+- **A credential file the page could not parse was silently replaced.** `readStore()` answers
+  `{}` for an unparseable file, and the next save wrote the page's one entry over the whole
+  file: a missing comma cost every machine in it, with no warning. Now:
+  ```
+  /api/state  → fileProblem: "…credentials.json 现在无法解析（Expected property name or '}' in JSON at position 2）"
+  /api/save   → 409 "……——为避免把它整个覆盖掉，本页不会写入。请先修正语法，或把文件移走再回来。"
+  ```
+  The file is left byte-for-byte untouched (measured), and the page shows the problem in a red
+  banner instead of an empty machine list. A valid file still saves and keeps its other entries.
+
+### Verified, no change needed
+- `ssh_write` path errors name the offending component: "cannot create the parent directories of
+  this path: /p/file.txt already exists and is a file, not a directory", "not a file: /p/ok (it is
+  a directory; use ssh_list)", "path ends with \"/\" — that names a directory, not a file".
+- The page's test-connection stages: configuration → TCP → host key → auth → command channel,
+  stopping at the first failure ("已停止：主机不可达，无法测试认证") and only claiming success after
+  a command actually returned.
+
+### My mistake
+- The first version of the new test had `assert.equal(state.status, 200) 'the page still loads'`
+  — a missing comma, so the whole file failed to parse. Caught by `node --check` before committing.
+
 ## 0.7.195 — 2026-10-31
 
 ### Fixed
