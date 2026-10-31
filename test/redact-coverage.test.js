@@ -128,7 +128,7 @@ test('a URL with no user part still has its password masked', () => {
 
 test('a passphrase written as prose is masked too', () => {
   assert.equal(redact('the key passphrase is hunter2'), 'the key passphrase is <redacted>')
-  assert.equal(redact('PASSWORD was hunter2'), 'PASSWORD is <redacted>')
+  assert.equal(redact('PASSWORD was hunter2'), 'PASSWORD was <redacted>')
   // Over-redaction is the accepted direction: a sentence that names no secret
   // loses a word rather than a password leaking.
   assert.equal(redact('the passphrase is required'), 'the passphrase is <redacted>')
@@ -399,4 +399,26 @@ test('a password inside a URL, a connection string or an auth header is masked',
   }
   // The URL path must survive: masking the whole line made the output useless.
   assert.doesNotMatch(String(redact('postgres://user:hunter2@db.example:5432/app')), /hunter2/)
+})
+
+test('redaction keeps the verb, and the plugin\'s own warnings survive it', () => {
+  // The prose rule printed 'IS <redacted>' for both tenses, so 'the password was
+  // hunter2' came back as 'the password is <redacted>'.
+  assert.equal(redact('the password was hunter2'), 'the password was <redacted>')
+  assert.equal(redact('the password is hunter2'), 'the password is <redacted>')
+
+  // The same rule ate the first word after the verb in the plugin's own
+  // diagnostics: 'the stored password is not DPAPI output' became 'the stored
+  // password is <redacted> a DPAPI blob', which reads as the opposite. Every
+  // message the plugin writes must survive the masker it applies to its replies.
+  const diagnostics = [
+    'the stored password does not look like DPAPI output; re-run scripts/set-password.mjs on this account',
+    'the stored key passphrase does not look like DPAPI output; re-run scripts/set-password.mjs on this account',
+    'the settings-form password — set, but ignored because allowPlaintextPassword is off',
+    'a session password came with this call, but a stored credential was used instead (session passwords are the last resort).',
+    'Passing a password in conversation is disabled for this profile — set allowSessionPassword to true in the plugin config to allow it.',
+  ]
+  for (const message of diagnostics) {
+    assert.equal(redact(message), message, 'the masker rewrote the plugin\'s own sentence: ' + redact(message))
+  }
 })

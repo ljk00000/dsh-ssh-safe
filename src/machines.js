@@ -202,7 +202,7 @@ function fileKeyPassphraseProblem(file) {
   const blob = file && typeof file === 'object' ? file.keyPassphraseDpapi : undefined
   if (typeof blob !== 'string' || blob.length === 0) return ''
   if (!looksLikeDpapi(blob)) {
-    return 'the stored key passphrase is not a DPAPI blob; re-run scripts/set-password.mjs on this account'
+    return 'the stored key passphrase does not look like DPAPI output; re-run scripts/set-password.mjs on this account'
   }
   try {
     const plain = decryptDpapi(blob)
@@ -287,7 +287,7 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
   // A blob that is not DPAPI output can never be decrypted here. Saying so is
   // cheaper and truer than letting the listing promise a password that fails.
   const blobProblem = filled(file.passwordDpapi) && !looksLikeDpapi(file.passwordDpapi)
-    ? 'the stored password is not a DPAPI blob; re-run scripts/set-password.mjs on this account'
+    ? 'the stored password does not look like DPAPI output; re-run scripts/set-password.mjs on this account'
     : ''
   // Same question for the key passphrase: a blob from another Windows account or
   // machine cannot be decrypted here, and the failure then surfaced as "the key is
@@ -441,7 +441,7 @@ export function credentialFor(alias, {
   const warnShadowedSession = () => {
     if (!sessionOffered) return
     warnings.push(
-      'a session password was supplied, but a stored credential was used instead ' +
+      'a session password came with this call, but a stored credential was used instead ' +
       '(session passwords are the last resort). Update or remove the stored credential ' +
       'to use the one supplied with this call.'
     )
@@ -462,7 +462,7 @@ export function credentialFor(alias, {
   // The same check the definition makes: a value that is not DPAPI output can
   // never be decrypted, and the warning says which of the two it is.
   const blobProblem = filled(file.passwordDpapi) && !looksLikeDpapi(file.passwordDpapi)
-    ? 'the stored password is not a DPAPI blob; re-run scripts/set-password.mjs on this account'
+    ? 'the stored password does not look like DPAPI output; re-run scripts/set-password.mjs on this account'
     : ''
 
   // 2. encrypted secret in the credential file

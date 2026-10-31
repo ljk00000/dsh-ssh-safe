@@ -1755,7 +1755,7 @@ test('a refused session password names the setting that allows it', async () => 
     })
     const message = await own.ssh_connect.execute({ machine: 's', password: 'secret' }, {})
       .then(() => '', (err) => String(err.message))
-    assert.match(message, /allowSessionPassword: true/)
+    assert.match(message, /allowSessionPassword to true/)
     assert.match(message, /disabled for this profile/)
   } finally {
     if (previous === undefined) delete process.env.DSH_HOME

@@ -939,8 +939,12 @@ export class SshPool {
           // The user just passed one; saying only 'disabled' left them with no idea
           // which setting to change. Every other refusal in this plugin names its
           // setting.
+          // 'allowSessionPassword: true' was masked by redact() as a key/value
+          // pair, so the one sentence that says how to fix the problem arrived as
+          // 'allowSessionPassword: <redacted>'. The setting is named without the
+          // colon form instead.
           : ' Passing a password in conversation is disabled for this profile — set' +
-            ' allowSessionPassword: true in the plugin config to allow it.') +
+            ' allowSessionPassword to true in the plugin config to allow it.') +
         // A credential file that exists but cannot be read is the likeliest
         // reason for "no credentials" right after editing it, and the message
         // above pointed at the environment instead.

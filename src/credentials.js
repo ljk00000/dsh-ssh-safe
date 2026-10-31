@@ -335,7 +335,9 @@ export function redact(text) {
   // Prose, as in a note or a shell comment: 'the key passphrase is hunter2'.
   // A sentence that ends in a non-secret ('the passphrase is required') is
   // over-redacted rather than leaked; that is the right way to be wrong.
-  s = s.replace(/\b(passphrase|passwd|password|pwd)\s+(?:is|was)\s+(\S+)/gi, '$1 is <redacted>')
+  // The verb is kept: 'the password was hunter2' became 'the password IS <redacted>',
+  // which rewrote the sentence it was defending and made a tense lie out of prose.
+  s = s.replace(/\b(passphrase|passwd|password|pwd)\s+(is|was)\s+(\S+)/gi, '$1 $2 <redacted>')
   // bare long secrets are left alone on purpose: guessing wrong shreds output.
   return s
 }

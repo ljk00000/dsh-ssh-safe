@@ -892,7 +892,7 @@ test('ssh_machines does not present an ignored password as the auth source', asy
   const plain = capture({ machines: { p: { host: 'h', user: 'u', password: 'pw' } } })
   try {
     const text = String((await plain.tools['ssh_machines'].execute({}, {})).text)
-    assert.match(text, /auth: NONE \(a plaintext settings-form password is set but ignored/)
+    assert.match(text, /auth: NONE \(a plaintext settings-form password — set, but ignored/)
     assert.doesNotMatch(text, /auth: password \(config\)/)
   } finally { plain.restore() }
 
@@ -1207,7 +1207,7 @@ test('ssh_credentials shows where the key passphrase comes from and flags a plai
     assert.match(text, /passphrase file \(plaintext — re-run scripts\/set-password\.mjs to store it encrypted\)/)
     // A blob that cannot be used says so rather than reading as 'none'.
     assert.match(text, /passphrase none \(UNUSABLE\)/)
-    assert.match(text, /not a DPAPI blob/)
+    assert.match(text, /does not look like DPAPI output/)
     // A machine without a passphrase gets no row at all.
     const blocks = text.split('\n\n• ')
     const noneBlock = blocks.find((block) => block.startsWith('none '))

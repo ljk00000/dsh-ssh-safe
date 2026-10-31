@@ -328,7 +328,7 @@ test('a key passphrase is stored DPAPI encrypted, and an unusable blob says so',
     writeFileSync(file, JSON.stringify(broken, null, 2))
     const bad = machineDefinition('k', { machines: {}, dshHome: home })
     assert.equal(bad.keyPassphrase, '')
-    assert.match(bad.keyPassphraseProblem, /DPAPI blob|cannot be decrypted/)
+    assert.match(bad.keyPassphraseProblem, /does not look like DPAPI output|cannot be decrypted/)
   } finally {
     rmSync(home, { recursive: true, force: true })
   }

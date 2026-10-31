@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.7.303 — 2026-11-01
+
+### Fixed — the plugin's own diagnostics were mangled by its own redaction
+`redact()` masks the token after "password is/was" (right for prose: `the password is hunter2`).
+Four of the plugin's own sentences have that shape, so the replies rewrote them — and the worst one
+inverted its meaning by eating "not":
+```
+before  the stored password is <redacted> a DPAPI blob; re-run scripts/set-password.mjs …
+before  the settings-form password is <redacted> but ignored; allowPlaintextPassword is off
+before  a session password is <redacted> but a stored credential was used instead
+before  … set allowSessionPassword: <redacted>                    ← the remedy itself, masked
+
+after   the stored password does not look like DPAPI output; re-run scripts/set-password.mjs …
+after   the settings-form password — set, but ignored because allowPlaintextPassword is off
+after   a session password came with this call, but a stored credential was used instead
+after   … set allowSessionPassword to true in the plugin config to allow it
+```
+Two changes: the prose rule keeps the verb (`was` stayed `is`), and every plugin-authored sentence that
+had the `KEY is/was WORD` or `KEY: value` shape was rewritten so the masker has nothing to eat. Masking
+itself stays aggressive — over-redaction is still the safer error.
+
+### Verified this round (no defect found)
+- `allowSessionPassword: false` plus a supplied password: the connection fails **and names the setting**
+  ("Passing a password in conversation is disabled for this profile — set allowSessionPassword to true …"),
+  rather than failing with a bare "no credentials".
+- With a stored credential and `allowSessionPassword: true`, the supplied password is ignored and said to be
+  ignored.
+
+### My own mistakes
+- Five existing tests pinned the old wordings; I updated them, but the string `not a DPAPI blob` existed in
+  **three** places in `machines.js` and I had replaced only two — the suite failed twice before I grepped
+  for the phrase instead of trusting my edit list.
+- My first diagnostic-survival list included a sentence containing `allowSessionPassword: true`, which the
+  key/value rule masks by design. The test caught the mismatch; the sentence was reworded, and the rule
+  kept.
+
+### Tests
+- One new case: the prose rule keeps the verb, and five plugin messages come back from `redact()`
+  unchanged.
+  Suite 890 / 885 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.302 — 2026-11-01
 
 ### Hardened — closing a connection mid-command is pinned

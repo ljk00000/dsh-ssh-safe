@@ -89,13 +89,13 @@ test('a stored blob that is not DPAPI output is reported as unusable, not as a p
       good: { host: 'h.example', user: 'u', passwordDpapi: 'a'.repeat(64) },
     }), 'utf8')
     const bad = machineDefinition('bad', { machines: {}, dshHome: home })
-    assert.match(bad.passwordBlobProblem, /not a DPAPI blob/)
+    assert.match(bad.passwordBlobProblem, /does not look like DPAPI output/)
     const good = machineDefinition('good', { machines: {}, dshHome: home })
     assert.equal(good.passwordBlobProblem, '')
     // The resolver says the same thing instead of a PowerShell error alone.
     const auth = credentialFor('bad', { machines: {}, dshHome: home })
     assert.equal(auth.kind, 'none')
-    assert.ok(auth.warnings.some((w) => /not a DPAPI blob/.test(w)), JSON.stringify(auth.warnings))
+    assert.ok(auth.warnings.some((w) => /does not look like DPAPI output/.test(w)), JSON.stringify(auth.warnings))
   } finally {
     rmSync(home, { recursive: true, force: true })
   }

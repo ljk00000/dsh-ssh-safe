@@ -984,7 +984,7 @@ function assertKnownArgs(args, known, toolName) {
               ? 'NONE (' + blobProblem + ')'
               : plaintextIgnored
                 ? 'NONE (a plaintext ' + (pwSource === 'config' ? 'settings-form' : 'credential-file') +
-                  ' password is set but ignored; allowPlaintextPassword is off)'
+                  ' password — set, but ignored because allowPlaintextPassword is off)'
                 : 'NONE'
         // A port that cannot be dialled is shown as configured, not as the 22
         // fallback: showing 22 hid the value the user has to fix.
