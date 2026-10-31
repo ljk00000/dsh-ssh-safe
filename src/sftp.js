@@ -115,7 +115,15 @@ function remoteError(err, target) {
 async function kindMismatch(sftp, target, expected) {
   if (typeof sftp.stat !== 'function') return null
   let attrs
-  try { attrs = await callSftp(sftp, 'stat', target) } catch { return null }
+  try {
+    attrs = await callSftp(sftp, 'stat', target)
+  } catch (statError) {
+    // The path is gone -- but a path that is a symlink to nothing is a different
+    // situation from a path that never existed, and only LSTAT can tell. The
+    // server's answer for both is "No such file", which leaves the caller
+    // wondering why the file they just created is not there.
+    return await danglingLink(sftp, target, statError)
+  }
   if (!attrs || typeof attrs.isDirectory !== 'function') return null
   const isDir = attrs.isDirectory()
   if (expected === 'file' && isDir) {
@@ -129,6 +137,40 @@ async function kindMismatch(sftp, target, expected) {
     return e
   }
   return null
+}
+
+/**
+ * Explain a path that is a symlink whose target does not exist.
+ *
+ * @param {any} sftp
+ * @param {string} target
+ * @param {any} original the stat/read error to keep when this is not a link
+ * @returns {Promise<Error|null>} null to keep the original error
+ */
+async function danglingLink(sftp, target, original) {
+  if (typeof sftp.lstat !== 'function') return null
+  let attrs
+  try { attrs = await callSftp(sftp, 'lstat', target) } catch { return null }
+  if (!attrs || typeof attrs.isSymbolicLink !== 'function' || !attrs.isSymbolicLink()) return null
+  // A cycle is a link that IS there, pointing at another that points back: it is
+  // not a missing target, and 'the target does not exist' sends the user looking
+  // for a file that was never the problem.
+  const originalMessage = String(original && original.message || '')
+  if (/too many levels|ELOOP/i.test(originalMessage)) {
+    return new Error(
+      'symbolic link loop at ' + target + ' — the links point at each other, so there is no ' +
+      'file behind them; replace or remove one of the links'
+    )
+  }
+  let points = ''
+  if (typeof sftp.readlink === 'function') {
+    try { points = String(await callSftp(sftp, 'readlink', target)) } catch { /* the link may be gone again */ }
+  }
+  return new Error(
+    'no such file: ' + target + ' — that path is a symbolic link' +
+    (points ? ' to ' + points : '') +
+    ', but the target does not exist'
+  )
 }
 
 /** Promisify an ssh2 sftp method's node-style callback. */

@@ -14,6 +14,9 @@ const FXP = {
   INIT: 1, VERSION: 2, OPEN: 3, CLOSE: 4, READ: 5, WRITE: 6, LSTAT: 7, FSTAT: 8,
   SETSTAT: 9, FSETSTAT: 10, OPENDIR: 11, READDIR: 12, REMOVE: 13, MKDIR: 14,
   RMDIR: 15, REALPATH: 16, STAT: 17, RENAME: 18,
+  // ssh2 numbers these differently from the RFC draft: READLINK is 19 and
+  // SYMLINK is 20 (OpenSSH uses 21 and 20). The client is ssh2, so match ssh2.
+  READLINK: 19, SYMLINK: 20,
   STATUS: 101, HANDLE: 102, DATA: 103, NAME: 104, ATTRS: 105,
 }
 
@@ -68,6 +71,10 @@ class Reader {
 export function createVfs() {
   const files = new Map()
   const dirs = new Set(['/'])
+  // path -> link target. Kept apart from files/dirs so STAT (which follows) and
+  // LSTAT (which does not) can answer differently, the way a real server does.
+  const links = new Map()
+  const MAX_LINK_DEPTH = 8
   const now = () => Math.floor(Date.now() / 1000)
 
   const normalize = (value) => {
@@ -77,10 +84,32 @@ export function createVfs() {
     return p
   }
 
+  const statLocal = (target) => {
+    if (dirs.has(target)) return { dir: true, size: 4096, mode: 0o040755, mtime: now() }
+    const buf = files.get(target)
+    if (buf) return { dir: false, size: buf.length, mode: 0o100644, mtime: now() }
+    return null
+  }
+
   const mkdirp = (p) => {
     const parts = normalize(p).split('/').filter(Boolean)
     let current = ''
     for (const part of parts) { current += '/' + part; dirs.add(current) }
+  }
+
+  /**
+   * Follow a chain of links, the way the server does for STAT and OPEN.
+   * A relative target resolves against the link's own directory.
+   * @returns {{path: string, cycle?: boolean}}
+   */
+  const follow = (value) => {
+    let p = normalize(value)
+    for (let depth = 0; depth < MAX_LINK_DEPTH; depth++) {
+      const target = links.get(p)
+      if (target === undefined) return { path: p }
+      p = normalize(target.startsWith('/') ? target : path.posix.join(path.posix.dirname(p), target))
+    }
+    return { path: p, cycle: true }
   }
 
   const control = {
@@ -103,9 +132,18 @@ export function createVfs() {
       files.set(target, Buffer.isBuffer(content) ? Buffer.from(content) : Buffer.from(String(content), 'utf8'))
     },
     putDir(p) { mkdirp(p) },
-    getFile(p) { return files.get(normalize(p)) },
+    putLink(p, target) {
+      const link = normalize(p)
+      mkdirp(path.posix.dirname(link))
+      links.set(link, String(target))
+    },
+    readLink(p) { return links.get(normalize(p)) },
+    resolve(p) { return follow(p) },
+    getFile(p) { return files.get(follow(p).path) },
     list(p) {
-      const target = normalize(p)
+      const followed = follow(p)
+      if (followed.cycle) return null
+      const target = followed.path
       if (dirs.has(target)) {
         const prefix = target === '/' ? '/' : target + '/'
         const names = new Set()
@@ -115,20 +153,31 @@ export function createVfs() {
       }
       return null
     },
+    // POSIX stat(): a link resolves to whatever it points at.
     stat(p) {
-      const target = normalize(p)
-      if (dirs.has(target)) return { dir: true, size: 4096, mode: 0o040755, mtime: now() }
-      const buf = files.get(target)
-      if (buf) return { dir: false, size: buf.length, mode: 0o100644, mtime: now() }
+      const followed = follow(p)
+      if (followed.cycle) return { cycle: true }
+      if (statLocal(followed.path)) return statLocal(followed.path)
+      // A dangling link still exists as a link; STAT on it is ENOENT on a real
+      // server, which is exactly the confusing answer this plugin has to explain.
+      if (links.has(normalize(p))) return null
       return null
     },
+    // lstat(): the link itself, never followed.
+    lstat(p) {
+      const target = normalize(p)
+      if (links.has(target)) return { dir: false, size: 0, mode: 0o120777, mtime: now(), link: true }
+      const followed = follow(target)
+      if (followed.cycle) return { cycle: true }
+      return statLocal(followed.path)
+    },
     read(p, offset, length) {
-      const buf = files.get(normalize(p))
+      const buf = files.get(follow(p).path)
       if (!buf || offset >= buf.length) return null
       return buf.subarray(offset, Math.min(buf.length, offset + length))
     },
     write(p, offset, data) {
-      const target = normalize(p)
+      const target = follow(p).path
       const existing = files.get(target) || Buffer.alloc(0)
       const end = offset + data.length
       const next = Buffer.alloc(Math.max(existing.length, end))
@@ -137,7 +186,9 @@ export function createVfs() {
       files.set(target, next)
       return next.length
     },
-    truncate(p) { const target = normalize(p); files.set(target, Buffer.alloc(0)) },
+    // Truncate resolves the link: writing through a symlink on a real server
+    // empties the target, not the link's own name.
+    truncate(p) { files.set(follow(p).path, Buffer.alloc(0)) },
     remove(p) {
       const target = normalize(p)
       if (files.delete(target)) return true
@@ -186,6 +237,8 @@ export function attachSftp(stream, vfs) {
       const pflags = reader.u32()
       reader.skipAttrs()
       const existing = vfs.stat(target)
+      // A link cycle is ELOOP on a real server, not an empty file.
+      if (existing && existing.cycle) return status(id, STATUS.FAILURE, 'Too many levels of symbolic links')
       if (existing && existing.dir) return status(id, STATUS.FAILURE, 'is a directory')
       if (!existing) {
         if (!(pflags & PFLAG.CREAT)) return status(id, STATUS.NO_SUCH_FILE, 'no such file')
@@ -231,9 +284,27 @@ export function attachSftp(stream, vfs) {
 
     if (type === FXP.STAT || type === FXP.LSTAT) {
       const target = vfs.normalize(reader.path())
-      const stat = vfs.stat(target)
+      // STAT follows a link, LSTAT answers about the link itself.
+      const stat = type === FXP.STAT ? vfs.stat(target) : vfs.lstat(target)
+      if (stat && stat.cycle) return status(id, STATUS.FAILURE, 'Too many levels of symbolic links')
       if (!stat) return status(id, STATUS.NO_SUCH_FILE, 'no such file')
       return send(FXP.ATTRS, id, attrsOf(stat))
+    }
+
+    if (type === FXP.SYMLINK) {
+      // SSH_FXP_SYMLINK carries linkpath then targetpath.
+      const linkPath = reader.path()
+      const targetPath = reader.path()
+      vfs.putLink(linkPath, targetPath)
+      return status(id, STATUS.OK)
+    }
+
+    if (type === FXP.READLINK) {
+      const target = vfs.normalize(reader.path())
+      const value = vfs.readLink(target)
+      if (value === undefined) return status(id, STATUS.NO_SUCH_FILE, 'no such file')
+      // OpenSSH answers with a one-entry NAME packet holding the target.
+      return send(FXP.NAME, id, u32(1), Buffer.concat([str(value), str(value), u32(0)]))
     }
 
     if (type === FXP.FSTAT) {

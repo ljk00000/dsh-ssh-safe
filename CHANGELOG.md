@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.63 — 2026-10-31
+
+### Fixed
+- **A symlink whose target is missing was reported as `no such file`.** That is
+  also what a path that never existed says, so a link created one step earlier
+  looked like it had vanished. It now LSTATs the path on the error and says:
+  `no such file: /etc/dangling.conf — that path is a symbolic link to
+  /etc/vanished.conf, but the target does not exist`.
+- **A symlink loop claimed the target did not exist.** The links exist; they point
+  at each other. Now: `symbolic link loop at /etc/loop-a — the links point at each
+  other, so there is no file behind them; replace or remove one of the links`.
+
+### Test infrastructure
+- The in-memory SFTP server speaks symlinks now: SYMLINK, READLINK, LSTAT vs STAT
+  (follow vs not), link-aware truncate and listing, and ELOOP on a cycle. ssh2
+  numbers READLINK `19`, not the RFC draft's 21 — the first attempt used 21 and
+  the request was silently ignored.
+- Five tests: read through a link, write through a link (the target is truncated,
+  the link survives), a dangling link, a loop, and a link to a directory for both
+  read and list.
+
+### Verified, no change needed
+- Writing through a symlink replaces the target and leaves the link alone; writing
+  to a dangling link creates the target, as a real server does.
+
 ## 0.7.62 — 2026-10-31
 
 ### Fixed
