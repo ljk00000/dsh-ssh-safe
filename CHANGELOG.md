@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.275 — 2026-11-01
+
+### Fixed — the page stopped silently, exactly like the doctor did
+```
+before  [ok] 配置: u@127.0.0.1:8389          before  [FAIL] 配置: 缺少主机或用户，请在上方填写后保存
+        [ok] TCP: port 8389 accepts connections
+        [FAIL] 凭据: 找不到私钥文件：C:/nope/id
+        ← nothing said that 主机密钥 / 认证 / 命令通道 were never tried
+
+after   …
+        已停止：凭据不能用，后面的检查没有进行。
+```
+Every early return in the page's test flow now ends with a sentence saying the remaining checks did not
+run: an unknown alias, a missing host or user, an invalid port, an unusable credential, a missing ssh2
+module. Stage listing and stop sentence now match what `ssh_doctor` does since 0.7.274.
+
+### A regression I introduced and caught in the same round
+Two of my replacements swallowed the line they were meant to accompany: the 凭据 FAIL line and then the
+three 配置 FAIL lines disappeared, because I replaced a `say(...) + return` pair with just the new
+`return`. The suite failed on `the test button honours useCredentialFile: false` and on the unknown-alias
+test; both branches were rewritten by hand and the full suite re-run. The correct move when adding a line
+before a `return` is to edit the `return` only.
+
+### Tests
+- One new GUI case: a machine with a missing key ends with `[FAIL] 凭据` **and** the stop sentence, and a
+  machine with no user ends with `[FAIL] 配置` **and** its stop sentence; both report `ok: false`.
+  Suite 861 / 856 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.274 — 2026-11-01
 
 ### Fixed — a stage that was never reached looked exactly like a stage that passed

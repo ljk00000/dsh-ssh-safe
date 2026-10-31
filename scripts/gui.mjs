@@ -613,6 +613,12 @@ async function testConnection(alias) {
   const say = (stage, verdict, detail) =>
     lines.push('[' + verdict + '] ' + stage + (detail ? ': ' + detail : ''))
   const finish = (ok) => ({ ok, lines })
+    // Absent stages read like passed stages: a run that stopped at 凭据 printed no
+    // 主机密钥 or 认证 line at all. Every early return now says that it stopped.
+    const stopped = (why) => {
+      lines.push('', '已停止：' + why + '，后面的检查没有进行。')
+      return finish(false)
+    }
   if (!fileEnabled) {
     say('凭据文件', 'warn', '设置里 useCredentialFile 为 false，本页保存的密码/主机不会被插件读取')
   }
@@ -623,17 +629,18 @@ async function testConnection(alias) {
   const known = state().machines.some((machine) => machine.alias === alias)
   if (!known) {
     say('配置', 'FAIL', '没有名为 "' + alias + '" 的机器：设置界面、凭据文件和环境变量里都没有它')
-    return finish(false)
+    return stopped('没有这台机器')
   }
   if (!m.host || !m.username) {
     say('配置', 'FAIL', '缺少主机或用户，请在上方填写后保存')
-    return finish(false)
+    return stopped('缺少主机或用户')
   }
   if (m.portProblem) {
     // Report the value the plugin will use for the connection, which is not the
     // one in the settings form: a '[ok] 配置' line here claims a working setup.
     say('配置', 'FAIL', '端口无效：' + m.portProblem + '（设置界面里写的是 ' + String(m.portRaw ?? '') + '）— 正式连接会失败')
-    return finish(false)
+    say('配置', 'FAIL', '端口无效：' + m.portProblem + '（设置界面里写的是 ' + String(m.portRaw ?? '') + '）— 正式连接会失败')
+    return stopped('端口无效')
   }
   say('配置', 'ok', m.username + '@' + m.host + ':' + m.port)
 
@@ -660,8 +667,7 @@ async function testConnection(alias) {
 
   const ssh2 = loadSsh2()
   if (!ssh2) {
-    say('认证', 'FAIL', '找不到 ssh2 模块，无法做完整测试（请先安装插件依赖）')
-    return finish(false)
+    return stopped('缺少 ssh2 模块')
   }
 
   // One resolver, shared with the plugin: the page must not disagree with the
@@ -734,16 +740,14 @@ async function testConnection(alias) {
       config = connectOptions(m, auth, { readyTimeout: connectTimeoutMs, keepaliveInterval: 0 })
     } catch (err) {
       clearTimeout(timer)
-      // connectOptions throws for a missing key, a directory, a passphrase and
-      // an unsupported format alike; calling all of them 私钥读取失败 buried the
-      // one that was actually true, and slice(0, 100) cut the path mid-quote
-      // (open 'C:\nope\id_) so it read like a corrupted message.
       say('凭据', 'FAIL', explainCredentialError(err))
+      lines.push('', '已停止：凭据不能用，后面的检查没有进行。')
       return done(false)
     }
     if (!config.password && !config.privateKey && !config.agent) {
       clearTimeout(timer)
       say('凭据', 'FAIL', '没有可用的密码或私钥，请在上方填写密码后保存')
+      lines.push('', '已停止：凭据不能用，后面的检查没有进行。')
       return done(false)
     }
     config.hostVerifier = (key) => {

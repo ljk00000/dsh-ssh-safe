@@ -1508,3 +1508,32 @@ test('the page can clear a stored key passphrase', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the page says when it stopped instead of leaving stages out', async () => {
+  // A run that failed at 凭据 printed no 主机密钥 or 认证 line at all, and an absent
+  // stage reads like a stage that passed.
+  const srv2 = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-guistop-'))
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+    nokey: { host: '127.0.0.1', port: srv2.port, user: 'u', keyPath: 'C:/nope/id' },
+    nowhere: { host: '127.0.0.1', port: srv2.port, user: '' },
+  }, null, 2))
+  const { child, base, token } = await start(home)
+  try {
+    const nokey = await call(base, token, '/api/test', { alias: 'nokey' })
+    const text = (nokey.body.lines || []).join('\n')
+    assert.match(text, /\[FAIL\] 凭据: 找不到私钥文件/)
+    assert.match(text, /已停止：凭据不能用，后面的检查没有进行。/)
+    assert.equal(nokey.body.ok, false)
+
+    const nowhere = await call(base, token, '/api/test', { alias: 'nowhere' })
+    const text2 = (nowhere.body.lines || []).join('\n')
+    assert.match(text2, /\[FAIL\] 配置: 缺少主机或用户/)
+    assert.match(text2, /已停止：缺少主机或用户，后面的检查没有进行。/)
+  } finally {
+    child.kill()
+    await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1200))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})
