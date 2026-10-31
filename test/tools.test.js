@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 // These tests drive the registered tools through a fake ctx -- no network, no
 // ssh2 -- and assert on the shape of their output.
 
-import { apply } from '../src/index.js'
+import { apply, keyModeWarning } from '../src/index.js'
 
 function capture(config = {}, env = {}) {
   const saved = { ...process.env }
@@ -701,4 +701,14 @@ test('ssh_audit says the log could not be read instead of claiming it is empty',
     else process.env.DSH_HOME = previous
     rmSync(home, { recursive: true, force: true })
   }
+})
+
+test('a private key anyone can read is called out', () => {
+  // OpenSSH refuses such a key outright; this plugin was silent about it while
+  // being careful about its own files.
+  assert.equal(keyModeWarning(0o600), '')
+  assert.equal(keyModeWarning(0o400), '')
+  assert.match(keyModeWarning(0o644), /readable by group\/others \(mode 0644\)/)
+  assert.match(keyModeWarning(0o644), /OpenSSH would refuse it/)
+  assert.match(keyModeWarning(0o666), /mode 0666/)
 })

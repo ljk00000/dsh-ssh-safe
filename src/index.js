@@ -216,6 +216,24 @@ function resolveDshHome() {
   return homedir() + (process.platform === 'win32' ? '\\' : '/') + '.dsh'
 }
 
+/**
+ * A warning when a private key is readable by anyone but its owner.
+ *
+ * OpenSSH refuses such a key outright ("UNPROTECTED PRIVATE KEY FILE"), and this
+ * plugin said nothing about it while being careful about its own files. Windows
+ * ignores POSIX permission bits, so the platform check belongs to the caller;
+ * this function only judges a mode.
+ *
+ * @param {number} mode
+ * @returns {string} empty when only the owner can read it
+ */
+export function keyModeWarning(mode) {
+  const bits = Number(mode) & 0o777
+  if ((bits & 0o077) === 0) return ''
+  return 'the key file is readable by group/others (mode ' + bits.toString(8).padStart(4, '0') +
+    '); OpenSSH would refuse it'
+}
+
 export async function apply(ctx, config) {
   // Validate through the schema instead of spreading defaults and overwriting
   // them. The spread form let any value through: execGuard: "yes" stayed at
@@ -358,6 +376,23 @@ export async function apply(ctx, config) {
    * @param {unknown} value
    * @returns {number|undefined} the numeric mode, e.g. 0o600
    */
+  /**
+   * The warning for a key that others can read, with the chmod that fixes it.
+   *
+   * @param {{kind?: string, keyPath?: string}} auth
+   * @returns {string}
+   */
+  const keyPermissionProblem = (auth) => {
+    if (!String(auth && auth.kind || '').endsWith('-key')) return ''
+    if (process.platform === 'win32') return ''
+    const keyPath = expandHome(auth.keyPath)
+    try {
+      const warning = keyModeWarning(statSync(keyPath).mode)
+      return warning ? warning + ' — chmod 600 "' + keyPath + '"' : ''
+    } catch {
+      return ''
+    }
+  }
   const parseMode = (value) => {
     if (value === undefined || value === null || value === '') return undefined
     const text = String(value).trim().replace(/^0o/i, '')
@@ -1859,6 +1894,12 @@ function assertKnownArgs(args, known, toolName) {
         say('credentials', 'FAIL', credentialProblem)
       } else {
         say('credentials', 'ok', auth.kind)
+        // A private key anyone on the box can read is OpenSSH's own reason to
+        // refuse a key ("UNPROTECTED PRIVATE KEY FILE"), and it says nothing here
+        // otherwise: the plugin is careful about its own files and was silent
+        // about this one.
+        const keyMode = keyPermissionProblem(auth)
+        if (keyMode) say('credentials', 'warn', keyMode)
       }
 
       // Refused or unreadable sources are reported rather than silently skipped:

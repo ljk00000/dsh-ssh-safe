@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.113 — 2026-10-31
+
+### Added
+- **A private key that anyone on the machine can read is called out.** OpenSSH
+  refuses such a key outright ("UNPROTECTED PRIVATE KEY FILE"); this plugin used it
+  without a word while being careful about its own files. `ssh_doctor` now adds a
+  line after the credentials step:
+  ```
+  [ok] credentials: private key (config)
+  [warn] credentials: the key file is readable by group/others (mode 0644);
+         OpenSSH would refuse it — chmod 600 "/home/u/.ssh/id_ed25519"
+  ```
+  POSIX only: Windows reports 0666 for a file guarded by an ACL, so the check stays
+  silent there rather than warning on every Windows machine. The judgement is a pure
+  `keyModeWarning(mode)` and is tested directly.
+
+### Verified, no change needed
+- `ssh_doctor` words the host-key step for all three policies: `off` says
+  "NOT verified: hostKeyPolicy is \"off\", so any key would be accepted (presented
+  SHA256:…)", `tofu` says "(first contact: recorded now)", and `strict` verifies
+  against the recorded key.
+- A key file that does not exist, is empty, is unreadable, or does not start with a
+  PEM header is each named as the reason credentials are unusable — before any
+  network step runs.
+
 ## 0.7.112 — 2026-10-31
 
 ### Fixed
