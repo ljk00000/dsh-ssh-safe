@@ -2020,6 +2020,14 @@ function assertKnownArgs(args, known, toolName) {
       for (const problem of machineFieldProblems(alias)) {
         say('configuration', 'warn', problem)
       }
+      // The audit trail is part of what this plugin promises; a log that cannot be
+      // written is a health problem, and the doctor is where health is checked.
+      if (cfg.auditLog === true && Number(audit.failures) > 0) {
+        say('audit', 'warn', audit.failures + ' record' + (audit.failures === 1 ? '' : 's') +
+          ' could not be written since the plugin started' +
+          (audit.lastError ? ' (' + audit.lastError + ')' : '') +
+          ' — check that ' + credentialsPath(dshHome).replace(/credentials\.json$/, 'audit.ndjson') + ' is writable')
+      }
       // Cheque the credential's usability, not just its declared kind: an
       // env-key pointing at a missing file reported ok and then failed the
       // connection, which is the opposite of what a diagnostic should do.

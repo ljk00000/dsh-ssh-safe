@@ -1439,3 +1439,55 @@ test('a failed audit write is reported instead of leaving a quiet hole', async (
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the doctor warns about audit records that were lost', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-auddoc-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const dir = path.join(home, 'dsh-ssh-safe')
+  mkdirSync(dir, { recursive: true })
+  mkdirSync(path.join(dir, 'audit.ndjson'))
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, auditLog: true,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    await own.ssh_exec.execute({ machine: 't', command: 'echo x' }, {})
+    const text = String((await own.ssh_doctor.execute({ machine: 't' }, {})).text)
+    assert.match(text, /\[warn\] audit: 1 record could not be written/)
+    assert.match(text, /is writable/)
+  } finally {
+    await own.ssh_close?.execute?.({}, {}).catch(() => {})
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('the pool reports an exceeded ceiling only while it is exceeded for a reason', async () => {
+  // overLimit came from the flag the last eviction set, so it stayed true after
+  // the protected command finished and ssh_config explained a state that was gone.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-overfit-'))
+  const srv2 = await startServer()
+  const pool = new SshPool({
+    hostKeyPolicy: 'tofu', allowPlaintextPassword: true, connectTimeoutMs: 4000,
+    commandTimeoutMs: 4000, reconnectCooldownMs: 0, maxConnections: 1,
+    machines: { a: machineFor('a', srv2.port), b: machineFor('b', srv2.port) },
+  }, { dshHome: home })
+  try {
+    const slow = pool.exec('a', 'sleep 0.5', {})
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    await pool.exec('b', 'echo b', {})
+    assert.equal(pool.connectionStats().overLimit, true, 'busy connection justifies the excess')
+    await slow
+    assert.equal(pool.connectionStats().overLimit, false, 'nothing is busy any more')
+  } finally {
+    await pool.closeAll({ force: true })
+    await srv2.close()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

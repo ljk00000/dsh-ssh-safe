@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.146 — 2026-10-31
+
+### Fixed
+- **`ssh_doctor` did not check the audit trail.** A log that cannot be written is a
+  health problem, and the doctor — the tool you run to check health — said nothing:
+  ```
+  [ok] configuration: tester@…:13966
+  [warn] audit: 1 record could not be written since the plugin started
+         (EISDIR: illegal operation on a directory, write) — check that
+         …\dsh-ssh-safe\audit.ndjson is writable
+  ```
+  Only shown when `auditLog` is on and a write actually failed.
+- **The pool explained an exceeded ceiling that no longer had a reason.** `overLimit`
+  came from the flag the last eviction set, so after the protected command finished
+  `ssh_config` still said "the extra ones are running a command" with nothing busy:
+  ```
+  while a is busy : live 2 / limit 1, overLimit true    (correct)
+  after a finished: live 2 / limit 1, overLimit false   (was: true)
+  ```
+  The flag is now derived from the live connections and `isBusy` at query time.
+
 ## 0.7.145 — 2026-10-31
 
 ### Fixed

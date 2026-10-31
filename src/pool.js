@@ -509,9 +509,11 @@ export class SshPool {
     return {
       live: aliases.length,
       limit: Number.isFinite(limit) ? limit : 0,
-      // True while the cap is exceeded because the connections that would have
-      // been evicted are running something.
-      overLimit: aliases.length > (Number.isFinite(limit) ? limit : 0) && Boolean(this.overLimit),
+      // Whether the cap is exceeded *because* a connection that would have been
+      // evicted is busy. Computed now rather than read from the flag the last
+      // eviction set: that flag goes stale as soon as the command it protected
+      // finishes, so the report explained a state that no longer existed.
+      overLimit: aliases.length > (Number.isFinite(limit) ? limit : 0) && aliases.some((alias) => this.isBusy(alias)),
       aliases,
     }
   }
