@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -112,4 +112,63 @@ test('an unknown option is reported instead of ignored', () => {
     assert.match(result.stderr, /Unknown option --pasword/)
     assert.match(result.stderr, /--key-passphrase/)
   } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
+test('a store that cannot be parsed is left alone, not replaced', { skip: !dpapiAvailable() && 'DPAPI unavailable' }, () => {
+  // This used to warn and then overwrite: every other machine's entry was thrown
+  // away, and a truncated file (the usual shape of the damage) is repairable.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-swp-'))
+  try {
+    const dir = path.join(home, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, 'credentials.json')
+    const broken = '{ "gpu": { "host": "10.0.0.1" }, oops'
+    writeFileSync(file, broken, 'utf8')
+    const result = runSetPassword(home, ['--alias', 'prod', '--password', 'secretpw'])
+    assert.equal(result.status, 2, 'it must refuse: ' + result.stdout)
+    assert.match(result.stderr, /could not be parsed, so nothing was written/)
+    assert.match(result.stderr, /still in that file/)
+    assert.equal(readFileSync(file, 'utf8'), broken, 'the file must be byte-identical afterwards')
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('an array-shaped store is refused instead of silently written back', { skip: !dpapiAvailable() && 'DPAPI unavailable' }, () => {
+  // '[{...}]' passed the old typeof check; adding store[alias] to an array makes
+  // JSON.stringify drop it, so the file stayed '[]' while the script printed
+  // 'Stored for "prod"'.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-swp-'))
+  try {
+    const dir = path.join(home, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, 'credentials.json')
+    writeFileSync(file, '[]', 'utf8')
+    const result = runSetPassword(home, ['--alias', 'prod', '--password', 'secretpw'])
+    assert.equal(result.status, 2, 'it must refuse: ' + result.stdout)
+    assert.match(result.stderr, /is not an object of machines \(it holds an array\)/)
+    assert.equal(readFileSync(file, 'utf8'), '[]', 'nothing may be written over it')
+    assert.doesNotMatch(result.stdout, /Stored for/)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a store saved with a BOM is still read, and other entries survive', { skip: !dpapiAvailable() && 'DPAPI unavailable' }, () => {
+  // Notepad saves 'UTF-8 with BOM'; JSON.parse rejects it, so the file read as
+  // corrupt when it had only been opened and saved.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-swp-'))
+  try {
+    const dir = path.join(home, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, 'credentials.json')
+    writeFileSync(file, '\uFEFF' + JSON.stringify({ gpu: { host: '10.0.0.1', user: 'root' } }, null, 2), 'utf8')
+    const result = runSetPassword(home, ['--alias', 'prod', '--password', 'secretpw'])
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    const store = JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''))
+    assert.deepEqual(Object.keys(store).sort(), ['gpu', 'prod'], 'both entries must be there')
+    assert.equal(store.gpu.host, '10.0.0.1')
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
 })

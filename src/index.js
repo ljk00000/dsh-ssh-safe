@@ -38,7 +38,7 @@ import {
 } from './machines.js'
 import { looksLikeOpenSshKnownHosts, openSshTrustLine, storePath } from './hostkey.js'
 import { parsePrivateKey } from './connect.js'
-import { printable , clipText, printableText } from './format.js'
+import { stripBom, printable , clipText, printableText } from './format.js'
 import { DEFAULT_DENY_RULES, checkCommand, describeRule, invalidPatterns } from './guard.js'
 import { exitLine, formatListing, plural } from './format.js'
 import { AuditLog, summarize } from './audit.js'
@@ -856,7 +856,7 @@ function assertKnownArgs(args, known, toolName) {
     }
     let raw
     try {
-      raw = JSON.parse(text)
+      raw = JSON.parse(stripBom(text))
     } catch {
       return 'known-hosts store unreadable (parse error): ' + file
     }

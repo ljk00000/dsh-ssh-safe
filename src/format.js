@@ -58,6 +58,19 @@ export function printableText(value) {
     })
 }
 
+/**
+ * Drop a leading UTF-8 BOM before parsing a JSON file a human may have edited.
+ *
+ * Notepad and several editors save "UTF-8 with BOM" by default, and JSON.parse
+ * rejects it: the store then read as "could not be parsed", every credential in it
+ * was ignored, and the file looked corrupt when it was only opened and saved.
+ *
+ * @param {unknown} text
+ * @returns {string}
+ */
+export function stripBom(text) {
+  return String(text ?? '').replace(/^\uFEFF/, '')
+}
 export function printable(name) {
   return String(name ?? '')
     .replace(/\\/g, '\\\\')

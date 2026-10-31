@@ -15,6 +15,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync, existsSync } from 'node:fs'
 import path from 'node:path'
+import { stripBom } from './format.js'
 
 const STORE_VERSION = 1
 
@@ -48,7 +49,7 @@ function readStore(file) {
     }
   }
   try {
-    const raw = JSON.parse(text)
+    const raw = JSON.parse(stripBom(text))
     if (raw && raw.version === STORE_VERSION && raw.hosts && typeof raw.hosts === 'object') {
       return { store: raw, problem: '' }
     }
@@ -472,7 +473,7 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
     // A JSON document is this plugin's own store (a caller may point knownHostsFile
     // at one); readStore below explains whatever is wrong with it.
     let looksJson = false
-    try { JSON.parse(text); looksJson = true } catch { looksJson = false }
+    try { JSON.parse(stripBom(text)); looksJson = true } catch { looksJson = false }
     if (text !== null && !looksJson) {
       const firstLine = String(text).split(/\r?\n/).find((line) => line.trim() && !line.trim().startsWith('#')) || ''
       return {

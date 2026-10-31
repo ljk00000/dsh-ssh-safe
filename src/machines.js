@@ -24,6 +24,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { agentSocket, machineFromEnv } from './credentials.js'
 import { decryptDpapi, looksLikeDpapi } from './dpapi.js'
+import { stripBom } from './format.js'
 
 /** Where the hot-reloadable credential file lives. */
 export function credentialsPath(dshHome) {
@@ -89,7 +90,8 @@ export function readCredentialFile(dshHome) {
     }
   }
   try {
-    const parsed = JSON.parse(text)
+    // A BOM is what "UTF-8 with BOM" leaves behind; JSON.parse rejects it.
+    const parsed = JSON.parse(stripBom(text))
     const data = {}
     // A JSON array is an object to typeof, and its indices became machines:
     // '[{"host":...}]' produced a machine named "0" that looked connectable.

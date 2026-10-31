@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.212 — 2026-11-01
+
+### Fixed
+- **A `credentials.json` saved with a UTF-8 BOM was rejected as corrupt.** Notepad and several
+  editors write "UTF-8 with BOM" by default, and `JSON.parse` refuses it:
+  ```
+  credentials.json could not be parsed (Unexpected token '\ufeff', "\ufeff{\n  \"gpu\""... is not valid JSON)
+  ```
+  Every credential in the file was ignored, so connections fell back to other sources and the file
+  the user had merely opened and saved looked broken. New `stripBom()` is applied to every JSON
+  store this plugin reads: `credentials.json`, the host key store, the inventory trust line and the
+  CLI. A host that was known stays known with a BOM in front of its store — a test pins that,
+  including the changed-key refusal after the re-save.
+
+- **`scripts/set-password.mjs` reported success while storing nothing, on an array-shaped store.**
+  `[]` passed the `typeof === "object"` check, then `store[alias] = entry` added a property
+  `JSON.stringify` drops from an array:
+  ```
+  before: []        after: []        printed: Stored for "prod"
+  ```
+  Now refused (exit 2) with the file left byte-identical, like every other store this plugin
+  cannot read.
+
+- **The same script overwrote a store it could not parse.** It warned and replaced, throwing away
+  every other machine's entry in a file whose whole purpose is holding them — and a truncated file,
+  the usual shape of that damage, is repairable. The GUI was fixed to refuse in 0.7.196; the CLI
+  now does the same, naming the file and saying the other machines are still in it.
+
+### Tests
+- 5 new: BOM-tolerant credential load, BOM-tolerant host key store (including the changed-key
+  refusal), CLI refuses an unparseable store byte-for-byte, CLI refuses an array store, CLI keeps
+  other entries when the store had a BOM. Suite 789 / 784 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.211 — 2026-10-31
 
 ### Documented (no behaviour change)

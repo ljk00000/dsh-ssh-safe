@@ -344,3 +344,19 @@ test('a plain known_hosts entry covers port 22 and no other port', () => {
   assert.equal(check(22).ok, false)
   rmSync(home, { recursive: true, force: true })
 })
+
+test('the host key store is read when it was saved with a BOM', () => {
+  const home = freshHome()
+  try {
+    const first = checkHostKey({ dshHome: home, host: 'h', port: 22, keyBlob: keyA, policy: 'strict', trustHostKey: true })
+    assert.equal(first.ok, true)
+    // Re-save the store the way Notepad would.
+    const file = storePath(home)
+    writeFileSync(file, '\uFEFF' + readFileSync(file, 'utf8'), 'utf8')
+    const again = checkHostKey({ dshHome: home, host: 'h', port: 22, keyBlob: keyA, policy: 'strict' })
+    assert.equal(again.ok, true, 'a known host must stay known: ' + again.reason)
+    const changed = checkHostKey({ dshHome: home, host: 'h', port: 22, keyBlob: keyB, policy: 'strict' })
+    assert.equal(changed.ok, false)
+    assert.match(changed.reason, /HOST KEY CHANGED/)
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})

@@ -125,14 +125,46 @@ const dir = path.join(dshHome, 'dsh-ssh-safe')
 const file = path.join(dir, 'credentials.json')
 
 // Read-modify-write so other machines survive.
+//
+// A file that cannot be read is NOT replaced. It used to warn and overwrite, which
+// threw away every other machine's entry in a store whose whole point is holding
+// them -- and a truncated or BOM-prefixed file is usually repairable. The GUI was
+// fixed to refuse for the same reason; this follows it.
 let store = {}
 if (existsSync(file)) {
+  let text
   try {
-    const parsed = JSON.parse(readFileSync(file, 'utf8'))
-    if (parsed && typeof parsed === 'object') store = parsed
+    text = readFileSync(file, 'utf8')
   } catch (err) {
-    console.warn('Existing credentials.json could not be parsed and will be replaced: ' + err.message)
+    console.error('Existing credentials.json could not be read, so nothing was written:')
+    console.error('  ' + file)
+    console.error('  ' + (err && err.message ? err.message : String(err)))
+    process.exit(2)
   }
+  let parsed
+  try {
+    // Notepad saves 'UTF-8 with BOM', and JSON.parse rejects it: the store then
+    // read as corrupt when it had only been opened and saved.
+    parsed = JSON.parse(text.replace(/^\uFEFF/, ''))
+  } catch (err) {
+    console.error('Existing credentials.json could not be parsed, so nothing was written:')
+    console.error('  ' + file)
+    console.error('  ' + String(err && err.message ? err.message : err).slice(0, 160))
+    console.error('The other machines are still in that file: repair it, or move it aside, then run this again.')
+    process.exit(2)
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    // '[{...}]' was accepted as an object, then store[alias] = entry added a
+    // property JSON.stringify drops from an array: the file stayed '[]' while
+    // this script printed 'Stored for ...'.
+    console.error('Existing credentials.json is not an object of machines (it holds ' +
+      (Array.isArray(parsed) ? 'an array' : JSON.stringify(parsed === null ? null : typeof parsed)) +
+      '), so nothing was written:')
+    console.error('  ' + file)
+    console.error('Fix or move that file aside, then run this again.')
+    process.exit(2)
+  }
+  store = parsed
 }
 
 const entry = { ...(store[alias] && typeof store[alias] === 'object' ? store[alias] : {}) }

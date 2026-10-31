@@ -37,6 +37,18 @@ test('a file that cannot be parsed says so instead of looking empty', () => {
   assert.match(arrayState.problem, /it holds an array/)
 })
 
+
+test('a store saved with a BOM is read, not called corrupt', () => {
+  // Notepad and several editors save 'UTF-8 with BOM', and JSON.parse rejects it:
+  // the file read as corrupt when it had only been opened and saved, and every
+  // credential in it was ignored.
+  write('\uFEFF' + JSON.stringify({ gpu: { host: '10.0.0.1', user: 'root' } }))
+  const state = readCredentialFile(home)
+  assert.equal(state.problem, '')
+  assert.deepEqual(Object.keys(state.data), ['gpu'])
+  assert.equal(state.data.gpu.host, '10.0.0.1')
+})
+
 test('a missing file is not a problem, an unreadable one is', () => {
   const missing = readCredentialFile(path.join(home, 'nothing-here'))
   assert.equal(missing.problem, '')
