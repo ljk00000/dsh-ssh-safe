@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.222 — 2026-11-01
+
+### Fixed
+- **Reading through a symlink loop said only "no such file".** The server answers "No such file"
+  for the whole path when a component is a loop, and `blockedByFile()` gave up at the first
+  component whose `stat` failed:
+  ```
+  read /w/self/x.txt    before: ERR: no such file: /w/self/x.txt
+                        after : ERR: cannot reach /w/self/x.txt: /w/self is a symbolic link loop
+                                (the links point at each other), so nothing below it can be reached;
+                                replace or remove one of the links
+  read /w/gone/x.txt    before: ERR: no such file: /w/gone/x.txt
+                        after : ERR: cannot reach /w/gone/x.txt: /w/gone is a symbolic link to
+                                /w/nowhere.txt, and that target does not exist
+  ```
+  `/w/self` on its own was already explained properly — only paths *through* a link were not.
+  The same helper serves `ssh_list`, which now names the broken component too.
+
+### Verified, no change needed
+- Two `ssh_workspace create` calls for one alias, run concurrently: one answers 已创建, the other
+  已刷新, and AGENTS.md plus the marker stay intact.
+
+### Tests
+- One new case: a self-referential link, a two-hop cycle and a dangling link each name the exact
+  component, for both `ssh_read` and `ssh_list`. Suite 802 / 797 pass / 5 skipped / 0 fail.
+
 ## 0.7.221 — 2026-11-01
 
 ### Fixed

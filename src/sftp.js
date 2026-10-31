@@ -180,9 +180,32 @@ async function blockedByFile(sftp, target) {
     let attrs
     try {
       attrs = await callSftp(sftp, 'stat', prefix)
-    } catch {
-      // A missing component above is the ordinary "no such file"; only a file in
-      // the way needs a different sentence.
+    } catch (err) {
+      const why = String(err && err.message ? err.message : err)
+      // A missing component above is the ordinary "no such file". A component
+      // that is a symlink loop answers exactly the same thing for the whole
+      // path, so reading /w/loop/x.txt said only "no such file: /w/loop/x.txt"
+      // while /w/loop itself was explained properly.
+      if (/too many levels|ELOOP/i.test(why)) {
+        return new Error(
+          'cannot reach ' + printable(target) + ': ' + printable(prefix) + ' is a symbolic link loop ' +
+          '(the links point at each other), so nothing below it can be reached; replace or remove ' +
+          'one of the links'
+        )
+      }
+      if (typeof sftp.lstat === 'function') {
+        try {
+          const linkAttrs = await callSftp(sftp, 'lstat', prefix)
+          if (linkAttrs && typeof linkAttrs.isSymbolicLink === 'function' && linkAttrs.isSymbolicLink()) {
+            let points = ''
+            try { points = String(await callSftp(sftp, 'readlink', prefix)) } catch { /* gone again */ }
+            return new Error(
+              'cannot reach ' + printable(target) + ': ' + printable(prefix) + ' is a symbolic link' +
+              (points ? ' to ' + points : '') + ', and that target does not exist'
+            )
+          }
+        } catch { /* the component is gone again */ }
+      }
       return null
     }
     if (attrs && typeof attrs.isDirectory === 'function' && !attrs.isDirectory()) {

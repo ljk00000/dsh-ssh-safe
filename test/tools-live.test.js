@@ -2125,3 +2125,28 @@ test('a symlink loop on the way is not reported as a missing directory', async (
   // Without createDirs the server says only 'No such file'; the loop surfaces when
   // createDirs makes the plugin look at the components, which is covered above.
 })
+
+test('reading through a symlink loop names the loop, not just "no such file"', async () => {
+  // The server answers 'No such file' for the whole path when a component is a
+  // loop, so /w/self/x.txt said only 'no such file: /w/self/x.txt' while
+  // /w/self itself was explained properly.
+  srv.vfs.putDir('/links')
+  srv.vfs.putLink('/links/self', '/links/self')
+  srv.vfs.putLink('/links/x', '/links/y')
+  srv.vfs.putLink('/links/y', '/links/x')
+  srv.vfs.putLink('/links/gone', '/links/nowhere.txt')
+  const attempt = async (name, args) => {
+    try { return await run(name, args) } catch (err) { return 'ERR: ' + err.message }
+  }
+  const loop = await attempt('ssh_read', { path: '/links/self/f.txt' })
+  assert.match(loop, /is a symbolic link loop/)
+  assert.match(loop, /nothing below it can be reached/)
+  assert.doesNotMatch(loop, /^ERR: no such file:/)
+  const cycle = await attempt('ssh_read', { path: '/links/x/f.txt' })
+  assert.match(cycle, /\/links\/x is a symbolic link loop/)
+  const broken = await attempt('ssh_read', { path: '/links/gone/deep/f.txt' })
+  assert.match(broken, /\/links\/gone is a symbolic link to \/links\/nowhere\.txt/)
+  assert.match(broken, /that target does not exist/)
+  const listed = await attempt('ssh_list', { path: '/links/gone/x' })
+  assert.match(listed, /is a symbolic link to \/links\/nowhere\.txt/)
+})
