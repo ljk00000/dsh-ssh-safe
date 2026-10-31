@@ -627,3 +627,27 @@ test('a blank argument says it is blank, not missing', async () => {
   // A truly missing argument still says required.
   await assert.rejects(() => tools.ssh_exec.execute({ machine: 't', command: '' }, {}), /command is required/)
 })
+
+test('a write through a symlinked directory lands where the server put it', async () => {
+  // The fake server created the entry at the literal path, so a write through
+  // '/linkdir/new.txt' reported success and then nothing could read the bytes:
+  // follow() sent every later read to /real/dir/new.txt. A real server resolves
+  // the intermediate link, so the file has to land there.
+  srv.vfs.putDir('/realdir/sub')
+  srv.vfs.putLink('/dirlink', '/realdir')
+
+  const wrote = await tools.ssh_write.execute({ machine: 't', path: '/dirlink/new.txt', content: 'hello' }, {})
+  assert.match(String(wrote.text), /Wrote 5 bytes/)
+  assert.equal(srv.vfs.getFile('/realdir/new.txt').toString(), 'hello')
+
+  // Readable through either path afterwards.
+  const viaLink = await tools.ssh_read.execute({ machine: 't', path: '/dirlink/new.txt' }, {})
+  assert.match(String(viaLink.text), /hello/)
+  const viaReal = await tools.ssh_read.execute({ machine: 't', path: '/realdir/new.txt' }, {})
+  assert.match(String(viaReal.text), /hello/)
+
+  // createDirs through the link creates the directory at the target too.
+  const nested = await tools.ssh_write.execute({ machine: 't', path: '/dirlink/sub/deep.txt', content: 'x', createDirs: true }, {})
+  assert.match(String(nested.text), /Wrote 1 byte/)
+  assert.equal(srv.vfs.getFile('/realdir/sub/deep.txt').toString(), 'x')
+})

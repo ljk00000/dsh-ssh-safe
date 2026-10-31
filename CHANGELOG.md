@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.87 — 2026-10-31
+
+### Fixed — test infrastructure
+- **The fake SFTP server lost every write made through a symlinked directory.**
+  Opening `/linkdir/new.txt` where `/linkdir` is a symlink to `/real/dir` created
+  the entry at the literal path, and every later read resolved to
+  `/real/dir/new.txt` — so the bytes were unreachable while the client was told
+  the write succeeded. A real server resolves the intermediate link. Path
+  resolution now walks the directory components for open, lstat, stat, readdir,
+  mkdir and truncate, while still leaving the *final* component alone (which is
+  what LSTAT and `linkTarget` reporting depend on).
+
+### Added — tests
+- Writing through a symlinked directory: the bytes land at the target, the file
+  reads back through both paths, and `createDirs` through the link creates the
+  directory at the target.
+
 ## 0.7.86 — 2026-10-31
 
 ### Fixed

@@ -116,7 +116,9 @@ export function createVfs() {
   }
 
   const mkdirp = (p) => {
-    const parts = normalize(p).split('/').filter(Boolean)
+    // Resolve links in the path first: 'mkdir /linkdir/sub' creates
+    // '/real/dir/sub' on a real server, not a directory under the alias.
+    const parts = resolveParent(p).split('/').filter(Boolean)
     let current = ''
     for (const part of parts) {
       current += '/' + part
@@ -140,6 +142,41 @@ export function createVfs() {
       p = normalize(target.startsWith('/') ? target : path.posix.join(path.posix.dirname(p), target))
     }
     return { path: p, cycle: true }
+  }
+
+  /**
+   * Resolve the directory part of a path and keep the last component.
+   *
+   * A real server resolves every intermediate link, so opening
+   * '/linkdir/new.txt' where linkdir is a symlink to '/real/dir' CREATES
+   * '/real/dir/new.txt'. This VFS created an entry at the literal path instead,
+   * which then existed nowhere a reader could reach: follow() sends reads to
+   * /real/dir/new.txt, so the bytes written through the link were lost while the
+   * client was told the write succeeded.
+   *
+   * @param {string} value
+   * @returns {string}
+   */
+  const resolveParent = (value, depth = 0) => {
+    const p = normalize(value)
+    if (p === '/') return p
+    if (depth > MAX_LINK_DEPTH) return p
+    const parts = p.split('/').filter(Boolean)
+    let current = ''
+    // Only the components ABOVE the last one: resolving the final component is
+    // what LSTAT must not do, and doing it here made every link look like its
+    // target in every listing.
+    for (let i = 0; i < parts.length - 1; i++) {
+      current += '/' + parts[i]
+      const target = links.get(current)
+      if (target === undefined) continue
+      const resolved = target.startsWith('/')
+        ? normalize(target)
+        : normalize(path.posix.join(path.posix.dirname(current), target))
+      const rest = parts.slice(i + 1)
+      return resolveParent(path.posix.join(resolved, ...rest), depth + 1)
+    }
+    return p
   }
 
   /** True when the path, or any directory above it, is denied. */
@@ -168,12 +205,12 @@ export function createVfs() {
     control,
     normalize,
     putFile(p, content, mode) {
-      const target = normalize(p)
+      const target = resolveParent(p)
       mkdirp(path.posix.dirname(target))
       files.set(target, Buffer.isBuffer(content) ? Buffer.from(content) : Buffer.from(String(content), 'utf8'))
       if (typeof mode === 'number') modes.set(target, mode)
     },
-    modeOf(p) { return modes.get(follow(p).path) },
+    modeOf(p) { return modes.get(follow(resolveParent(p)).path) },
     /**
      * Add an entry that is not a regular file: 'p' FIFO, 's' socket, 'c' char
      * device. It exists for listings and stats; reading it stalls.
@@ -195,11 +232,12 @@ export function createVfs() {
     },
     readLink(p) { return links.get(normalize(p)) },
     resolve(p) { return follow(p) },
+    resolveParent(p) { return resolveParent(p) },
     deniedBy,
-    isSpecial(p) { return specials.has(follow(p).path) },
-    getFile(p) { return files.get(follow(p).path) },
+    isSpecial(p) { return specials.has(follow(resolveParent(p)).path) },
+    getFile(p) { return files.get(follow(resolveParent(p)).path) },
     list(p) {
-      const followed = follow(p)
+      const followed = follow(resolveParent(p))
       if (followed.cycle) return null
       const target = followed.path
       if (dirs.has(target)) {
@@ -216,7 +254,7 @@ export function createVfs() {
     },
     // POSIX stat(): a link resolves to whatever it points at.
     stat(p) {
-      const followed = follow(p)
+      const followed = follow(resolveParent(p))
       if (followed.cycle) return { cycle: true }
       if (statLocal(followed.path)) return statLocal(followed.path)
       // A dangling link still exists as a link; STAT on it is ENOENT on a real
@@ -226,19 +264,19 @@ export function createVfs() {
     },
     // lstat(): the link itself, never followed.
     lstat(p) {
-      const target = normalize(p)
+      const target = resolveParent(p)
       if (links.has(target)) return { dir: false, size: 0, mode: 0o120777, mtime: now(), link: true }
       const followed = follow(target)
       if (followed.cycle) return { cycle: true }
       return statLocal(followed.path)
     },
     read(p, offset, length) {
-      const buf = files.get(follow(p).path)
+      const buf = files.get(follow(resolveParent(p)).path)
       if (!buf || offset >= buf.length) return null
       return buf.subarray(offset, Math.min(buf.length, offset + length))
     },
     write(p, offset, data) {
-      const target = follow(p).path
+      const target = follow(resolveParent(p)).path
       const existing = files.get(target) || Buffer.alloc(0)
       const end = offset + data.length
       const next = Buffer.alloc(Math.max(existing.length, end))
@@ -249,7 +287,8 @@ export function createVfs() {
     },
     // Truncate resolves the link: writing through a symlink on a real server
     // empties the target, not the link's own name.
-    truncate(p) { files.set(follow(p).path, Buffer.alloc(0)) },
+    // Truncation writes through the final link, the way O_TRUNC does.
+    truncate(p) { files.set(follow(resolveParent(p)).path, Buffer.alloc(0)) },
     remove(p) {
       const target = normalize(p)
       if (files.delete(target)) return true
@@ -320,7 +359,9 @@ export function attachSftp(stream, vfs) {
       } else if (pflags & PFLAG.TRUNC) {
         vfs.truncate(target)
       }
-      return send(FXP.HANDLE, id, str(Buffer.from(String(newHandle({ kind: 'file', path: target })))))
+      // The handle carries the resolved path: writes through a symlinked
+      // directory have to land where the server put the file, not at the alias.
+      return send(FXP.HANDLE, id, str(Buffer.from(String(newHandle({ kind: 'file', path: vfs.normalize(vfs.resolveParent(target)) })))))
     }
 
     if (type === FXP.CLOSE) {
@@ -432,7 +473,7 @@ export function attachSftp(stream, vfs) {
     }
 
     if (type === FXP.MKDIR) {
-      const target = vfs.normalize(reader.path())
+      const target = vfs.resolveParent(vfs.normalize(reader.path()))
       // A directory cannot be created inside one the account may not write.
       if (vfs.deniedBy(target)) return status(id, STATUS.PERMISSION_DENIED, 'Permission denied')
       if (vfs.stat(target)) return status(id, STATUS.FAILURE, 'already exists')
