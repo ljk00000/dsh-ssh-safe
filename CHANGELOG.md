@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.308 — 2026-11-01
+
+### Added — a server without the SFTP subsystem is now covered end to end
+A server whose `sshd_config` has `Subsystem sftp` commented out (or a chroot/ForceCommand that blocks it)
+still runs commands, so the failure has to be attributed to the subsystem rather than to the connection. The
+test helper can now refuse the subsystem, and one live case pins the whole path:
+```
+[ok]   authentication: command channel works
+[FAIL] sftp: the server did not start the SFTP subsystem (Unable to start subsystem: sftp); ssh_read,
+            ssh_list and ssh_write need it — check that sshd_config has Subsystem sftp enabled and that no
+            ForceCommand or chroot rule blocks it
+
+ssh_exec                      ran: echo hi  [exit 0]        ← the shell is fine
+ssh_read / ssh_list / ssh_write  reject with the same sentence within 1 ms
+```
+No product change was needed: the behaviour was already right, it had simply never been exercised.
+
+### My own mistakes
+1. My first probe called the tools **without a catch** and let the top-level `await` reject. Node printed the
+   rejection with the stack of the `Error` created inside `openSftp`, which reads exactly like an uncaught
+   exception from a callback — I spent several probes chasing a crash that was my script. With an
+   `unhandledRejection` handler attached, the same run reports nothing and survives.
+2. The new test asserted `/ran: echo hi \[exit 0\]/` while the status is printed on its own line — the same
+   newline trap that cost a round earlier (0.7.302).
+3. The first version of the test forgot `allowPlaintextPassword: true`, so the doctor stopped at credentials
+   before reaching the network.
+
+### Tests
+- The helper gained an `sftp: false` option; one live case covers doctor FAIL, the three file tools and a
+  working shell.
+  Suite 895 / 890 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.307 — 2026-11-01
 
 ### Fixed — `find ~ -delete` deleted every file under home and was allowed

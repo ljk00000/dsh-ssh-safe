@@ -57,7 +57,7 @@ export function alternateHostKey() {
 }
 let cachedAltKey = null
 
-export function startServer({ port = 0, user = 'tester', password = 'test-pass', key = null } = {}) {
+export function startServer({ port = 0, user = 'tester', password = 'test-pass', key = null, sftp = true } = {}) {
   const hostKey = key || hostKeyOnce()
   const vfs = createVfs()
   const clients = new Set()
@@ -77,7 +77,13 @@ export function startServer({ port = 0, user = 'tester', password = 'test-pass',
         // Listen for the subsystem rather than the 'sftp' event: the latter
         // hands back ssh2's own SFTP parser, while a plain subsystem channel is
         // a raw stream this helper can speak the protocol on.
-        session.on('subsystem', (acceptSubsystem, _reject, info) => {
+        session.on('subsystem', (acceptSubsystem, rejectSubsystem, info) => {
+          // Some servers simply do not offer sftp (or the administrator removed the
+          // subsystem). Refusing proves the plugin says something useful about it.
+          if (info && info.name === 'sftp' && !sftp) {
+            rejectSubsystem()
+            return
+          }
           if (info && info.name === 'sftp') attachSftp(acceptSubsystem(), vfs)
         })
         session.on('exec', (acceptExec, _rejectExec, info) => {
