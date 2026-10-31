@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.187 — 2026-10-31
+
+### Fixed
+- **The README said `denyPatterns` had 9 rules; the code ships 13.** The count drifted
+  twice now (9 while the list held 11, then 13 after the fork-bomb-with-blanks,
+  fetched-and-run and block-device rules). The defaults test skipped that cell because it is
+  a display form (`9 条`), so nothing caught it. The row now says 13, and a test compares the
+  number in the table with `DEFAULT_DENY_RULES.length`.
+
+### Documented
+- `auditLog` now says where the log goes and that it is bounded:
+  `~/.dsh/dsh-ssh-safe/audit.ndjson`, 4 MB per file, four rotated generations, and
+  `ssh_audit` reads the live file. Measured: 200 records at `maxBytes: 2000` produced
+  `audit.ndjson` (12 records) plus `.1`…`.4` (17 each), 9600 bytes total, `recent(3)` still
+  returned the newest three.
+
+### Verified, no change needed
+- `ssh_workspace create` against broken registries: `create` throwing → "目录已就绪，但注册失败：…";
+  `create` returning `{}` → "注册请求已发出，但工作区服务没有返回可用的工作区（注册表里查不到这个目录）";
+  no `create` method → "当前 profile 没有 workspace 服务……手动选择它"。
+- The page with a DPAPI blob it cannot decrypt says which way it failed
+  ("the stored password could not be decrypted … Re-run scripts/set-password.mjs") instead of
+  "no credentials".
+- `scripts/gui.mjs` exits cleanly on SIGTERM and through `POST /api/shutdown` (exit code 0, no
+  stray output). An earlier libuv assertion in a probe was the probe process exiting with open
+  fetch handles, not the page.
+
 ## 0.7.186 — 2026-10-31
 
 ### Fixed

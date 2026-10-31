@@ -476,7 +476,7 @@ loopback 服务端不执行命令、不碰磁盘，只按脚本回包——它�
 | `allowSessionPassword` | `false` | 是否允许在会话里传密码 |
 | `allowPlaintextPassword` | `false` | 是否接受凭据文件或设置界面里的明文密码（默认只认 DPAPI 加密值） |
 | `machineInventory` | `full` | `alias` 时隐藏 host/port/私钥路径 |
-| `auditLog` | `false` | 是否记录操作到 NDJSON |
+| `auditLog` | `false` | 是否记录操作到 `~/.dsh/dsh-ssh-safe/audit.ndjson`（单文件 4 MB 上限，滚动保留 4 代；`ssh_audit` 读当前文件） |
 | `maxConnections` | `8` | 常驻连接上限，LRU 淘汰，`0` 不限制 |
 | `commandTimeoutMs` | `30000` | 单条命令超时 |
 | `sftpTimeoutMs` | `30000` | 单次传输超时 |
@@ -493,7 +493,7 @@ loopback 服务端不执行命令、不碰磁盘，只按脚本回包——它�
 | `useCredentialFile` | `true` | 每次连接读取凭据文件，改密码免重启 |
 | `healthCheckTimeoutMs` | `3000` | 探活探测的截止时间 |
 | `pipeToShell` | `refuse` | `refuse` 拦截管道进解释器；`allow` 放行 |
-| `denyPatterns` | 9 条 | 危险命令拦截（安全带，不是边界） |
+| `denyPatterns` | 13 条 | 危险命令拦截（安全带，不是边界） |
 
 ### 它不做什么
 

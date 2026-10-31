@@ -490,6 +490,12 @@ test('the defaults in the README table match the defaults in the code', async ()
       checked++
     }
     assert.ok(checked >= 15, 'expected to compare most settings, compared ' + checked)
+    // The rule count is a display form the loop above skips, and it drifted
+    // twice already (9 while the list had 11, then 13).
+    const countRow = readme.match(/^\|\s*`denyPatterns`\s*\|\s*(\d+)\s*条\s*\|/m)
+    assert.ok(countRow, 'the denyPatterns row must carry a rule count')
+    assert.equal(Number(countRow[1]), DEFAULT_DENY_RULES.length,
+      'README says ' + countRow[1] + ' rules, the list has ' + DEFAULT_DENY_RULES.length)
   } finally { restore() }
 })
 test('a gated read says read, not write', async () => {
