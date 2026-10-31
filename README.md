@@ -247,7 +247,7 @@ DSH_SSH_PROD_KNOWN_HOSTS=~/.ssh/known_hosts.json
 | --- | --- |
 | `ssh_machines` | 列出已配置的机器、认证方式、指纹信任状态（**不显示任何密钥**） |
 | `ssh_connect` | 建立或复用连接，返回主机指纹与远端 `uname` |
-| `ssh_exec` | 在远端执行命令，返回 stdout / stderr / 退出码 |
+| `ssh_exec` | 在远端执行命令，返回 stdout / stderr / 退出码（输出里的密钥样式文本默认打码，见下文「脱敏」） |
 | `ssh_read` | 读远端文件（UTF-8，按字节上限截断；默认对疑似密钥打码，`raw: true` 关闭） |
 | `ssh_write` | 写远端文件（覆盖）；父目录不存在时报错，`createDirs: true` 自动创建；新建文件的权限用 `mode: "600"` 指定（写私钥、`.env` 时务必指定），回执里会报出实际权限 |
 | `ssh_list` | 列远端目录（超过 `maxListEntries` 截断并说明略过多少条） |
@@ -343,12 +343,22 @@ ssh_list { machine: "prod", path: "/var/log", offset: 2000 } → 接着的 2000 
 
 排序是「目录在前，然后按名字」，`offset` 作用在排序之后，所以同一时间两次调用看到的顺序一致。
 
-### 可选：`ssh_read` 的脱敏
+### 可选：密钥样式文本的脱敏
 
-`ssh_read` 默认会把你读到的内容里的密钥样式文本替换成 `<redacted>`——
-因为读 `.env` 或配置文件正是密码最容易流进对话记录的路径。
+`ssh_read` 与 `ssh_exec` 都会把**看起来像密钥的文本**替换掉再返回——因为读 `.env`、
+配置文件，或用命令打印它们，正是密码最容易流进对话记录的路径。三种占位符：
 
-需要看原文时传 `raw: true`：
+| 占位符 | 命中的内容 |
+| --- | --- |
+| `<redacted>` | `PASSWORD=` / `SECRET=` / `TOKEN=` 等键值、`.env` 行、`Authorization:` 头、`-p` / `--pass` / `redis-cli -a` 后的密码、URL 里的 `user:pass@` |
+| `<redacted-pem>` | `-----BEGIN … -----END …` 的 PEM 私钥；被读取上限截断、没有 END 的也算 |
+| `<redacted-ppk>` | PuTTY `.ppk` 私钥（从 `PuTTY-User-Key-File-N:` 起） |
+
+**这不是保证，而是尽力而为**：脱敏按「形状」匹配，一句 `echo 某某 > /tmp/pw`
+里的任意单词没有任何标记可依，不会被认出来；二进制或压缩内容里的密钥同样认不出。
+真正的边界是：不要把密码放进对话，也不要为了看密码而读文件。
+
+需要看原文时传 `raw: true`（只对 `ssh_read` 生效）：
 
 ```
 ssh_read { machine: "prod", path: "/opt/app/.env", raw: true }
@@ -568,7 +578,7 @@ Restart DeepSeek Harness — environment variables are read at process start.
 | --- | --- |
 | `ssh_machines` | Configured machines, auth kind, fingerprint trust (never shows key material) |
 | `ssh_connect` | Open/reuse a connection; reports fingerprint and remote `uname` |
-| `ssh_exec` | Run a command; returns stdout, stderr, exit code |
+| `ssh_exec` | Run a command; returns stdout, stderr, exit code (secret-shaped text in the output is masked; see below) |
 | `ssh_read` | Read a remote file (UTF-8, byte-capped; secret-shaped text masked unless `raw: true`) |
 | `ssh_write` | Write a remote file (overwrite); `createDirs: true` creates missing parents; `mode: "600"` sets the permissions of a new file (always do this for keys and `.env`), and the reply reports the mode that resulted |
 | `ssh_list` | List a remote directory (capped by `maxListEntries`) |

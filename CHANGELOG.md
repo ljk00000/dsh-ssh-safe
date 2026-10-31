@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.168 — 2026-10-31
+
+### Changed (documentation only)
+- **The masking section described less than the code does.** It mentioned only
+  `ssh_read` and only one placeholder, while `ssh_exec` output is masked too and three
+  markers exist. The README now has a table of what each marker covers
+  (`<redacted>`, `<redacted-pem>`, `<redacted-ppk>`) and, more importantly, says what it
+  cannot do:
+  ```
+  **这不是保证，而是尽力而为**：脱敏按「形状」匹配，一句 echo 某某 > /tmp/pw
+  里的任意单词没有任何标记可依，不会被认出来；二进制或压缩内容里的密钥同样认不出。
+  ```
+  The `ssh_exec` row in both tables now says its output is masked as well.
+
+### Verified, no change needed
+- `ssh_write` never echoes content: the reply is `Wrote 37 bytes to /tmp/.env (mode
+  0666)` and the audit record is `{kind: write, path, outcome, bytes, mode}` — a file full
+  of `DB_PASSWORD=hunter2` leaves no trace in either.
+- Redaction around multi-byte text: emoji and CJK adjacent to a secret produce no lone
+  surrogate in the output (`😀 PASSWORD=<redacted> 😀`, `密码=秘密值 PASSWORD=<redacted>`).
+
 ## 0.7.167 — 2026-10-31
 
 ### Fixed
