@@ -315,6 +315,14 @@ export const DEFAULT_DENY_RULES = [
     pattern: '(?:\\bwipefs\\b[^\\n]*\\s/dev/(?:sd|nvme|hd|vd|mmcblk|disk/)|\\bshred\\b[^\\n]*\\s/dev/(?:sd|nvme|hd|vd|mmcblk|disk/)|\\d?>>?\\s*/dev/(?:sd|nvme|hd|vd|mmcblk|disk/))',
     why: 'it overwrites a block device (redirect into /dev/sd*, wipefs, shred)',
   },
+  {
+    // The same act as 'curl … | bash', spelled without a pipe. A downloaded script
+    // must be readable before it runs, and this is the shape that skips that.
+    // Only an interpreter (or eval/source) with a substitution or process
+    // substitution counts: 'cat <(curl -s x)' reads the text and stays allowed.
+    pattern: '(?:\\b(?:bash|sh|zsh|ksh|dash|eval|source)\\b[^\\n]*(?:\\$\\(|<\\()\\s*(?:curl|wget|fetch)\\b|(?:^|[;&|]\\s*)\\.\\s+<\\(\\s*(?:curl|wget|fetch)\\b)',
+    why: 'it runs a script fetched from the network (bash -c "$(curl …)", source <(curl …))',
+  },
 ]
 
 /**

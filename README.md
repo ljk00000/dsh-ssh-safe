@@ -421,7 +421,7 @@ ssh_read { machine: "prod", path: "/opt/app/.env", raw: true }
 
 ### 危险命令拦截
 
-默认拒绝这些模式（可配置，共 12 条）：
+默认拒绝这些模式（可配置，共 13 条）：
 
 - `rm -rf /` 及其变体：`//`、`/*`、`/.`、`/..`
 - `rm -rf ~` / `rm -rf $HOME`（家目录顶层）
@@ -429,6 +429,7 @@ ssh_read { machine: "prod", path: "/opt/app/.env", raw: true }
 - `find /` 配合 `-delete` 或 `-exec rm`；`find / | xargs rm`、`xargs rm -rf`（`find . | xargs rm` 不带递归时仍放行）
 - `mkfs.*`、`dd if=... of=/dev/sd*`、往块设备重定向（`>: /dev/sda`）、`wipefs`、`shred`、fork 炸弹
 - `shutdown` / `reboot` / `halt` / `poweroff`，且只在**命令位置**匹配（`grep -c shutdown 日志` 不再被误拦）
+- 下载即执行，不经过管道也算：`bash -c "$(curl …)"`、`source <(curl …)`、`. <(wget …)`（`cat <(curl …)` 只读文本，仍放行）
 
 **注意**：这是防手滑的安全带，不是安全边界。shell 总有别的路径可达。
 默认规则只匹配命令的开头与结尾各 8 KB，避免病态超长输入把检查拖成平方级；
