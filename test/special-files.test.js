@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import { SshPool } from '../src/pool.js'
-import { typeChar } from '../src/sftp.js'
+import { looksBinary, typeChar } from '../src/sftp.js'
 import { formatListing } from '../src/format.js'
 import { startServer, machineFor } from './helpers/local-ssh-server.js'
+import { findLoneSurrogate } from '../src/index.js'
 
 // A listing showed everything that is not a directory as '-', so a symlink and a
 // FIFO looked like ordinary files -- and a socket, whose mode has the directory
@@ -140,4 +141,22 @@ test('a read or listing that times out says what to look at next', async () => {
     await pool.closeAll({ force: true })
     await srv.close()
   }
+})
+
+test('a tiny binary file is called binary, and a lone surrogate is refused', () => {
+  // 4 bytes with 2 invalid ones used to pass the 2% floor and read as text.
+  assert.equal(looksBinary('A\uFFFD\uFFFDB').binary, true)
+  assert.equal(looksBinary('\uFFFD'.repeat(2)).binary, true)
+  // A single stray replacement character in a longer text stays text.
+  const longText = 'a'.repeat(199) + '\uFFFD'
+  assert.equal(looksBinary(longText).binary, false)
+  assert.equal(looksBinary('plain text').binary, false)
+})
+
+test('findLoneSurrogate names the index of a string that cannot be encoded', () => {
+  assert.equal(findLoneSurrogate('plain'), -1)
+  assert.equal(findLoneSurrogate('ok \u{1F600}'), -1, 'a valid pair is fine')
+  assert.equal(findLoneSurrogate('ab\uD800cd'), 2)
+  assert.equal(findLoneSurrogate('ab\uDC00cd'), 2)
+  assert.equal(findLoneSurrogate('\uD800'), 0)
 })

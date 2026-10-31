@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.122 — 2026-10-31
+
+### Fixed
+- **A write silently replaced an unpaired surrogate with U+FFFD.** A string holding
+  half of a surrogate pair cannot be encoded as UTF-8; `Buffer.from` substitutes the
+  replacement character, and the call reported success:
+  ```
+  content: "before" + U+D800 + "after"   (12 code units)
+  before: Wrote 14 bytes …   → the file holds 6265666f7265 efbfbd 6166746572
+  after : content has an unpaired UTF-16 surrogate at index 6 (code unit 0xd800),
+          which cannot be written as UTF-8: it would be stored as U+FFFD instead.
+  ```
+- **A tiny binary file was read as text.** The "looks binary" rule needed more than
+  two invalid bytes, so a 4-byte file with two of them (`A\xFF\xFE B`) came back as
+  `A��B` with no note, and a 3-byte non-UTF-8 header looked like text too. Files
+  shorter than 10 characters are judged by their bytes now; longer text keeps the
+  2% allowance, so one stray replacement character in a paragraph is still text.
+
+### Verified, no change needed
+- `knownHosts` pointing at a directory fails with
+  `Host key verification failed: the known_hosts file … could not be read (EISDIR).`
+- Unknown machine fields are named, with a suggestion for a near miss:
+  `machine "t" … has an unknown field "keeyPath" (did you mean "keyPath"?) — it is ignored`.
+- Hostile file names survive a listing: a name containing a newline, tab, ESC, DEL,
+  a bidi override or a backslash is escaped (`\n`, `\t`, `\x1b`, `\x7f`, `\u202e`,
+  `\\`) and the row count stays one per file.
+
 ## 0.7.121 — 2026-10-31
 
 ### Fixed

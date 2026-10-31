@@ -243,8 +243,13 @@ export function looksBinary(text) {
   const invalidBytes = (value.match(/\uFFFD/g) || []).length
   const nul = value.includes('\u0000')
   // 2% is comfortably above the rate a stray replacement character reaches in
-  // text that is merely mangled in one place.
-  const binary = nul || invalidBytes > Math.max(2, value.length * 0.02)
+  // text that is merely mangled in one place. The floor of 2 made a tiny file
+  // look like text ('A<FFFD><FFFD>B' is 50% invalid), so files shorter than 10
+  // characters are judged by their bytes: one invalid byte there is a binary
+  // header, not a typo in a sentence.
+  const tiny = value.length < 10
+  const binary = nul || (tiny && invalidBytes > 0) ||
+    invalidBytes > Math.max(2, value.length * 0.02)
   return { binary, invalidBytes }
 }
 

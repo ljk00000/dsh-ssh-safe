@@ -235,6 +235,31 @@ export function keyModeWarning(mode) {
     '); OpenSSH would refuse it'
 }
 
+/**
+ * The index of an unpaired UTF-16 surrogate, or -1 when the string is encodable.
+ *
+ * Buffer.from(text, utf8) turns a lone surrogate into U+FFFD, so a write
+ * "succeeded" with 14 bytes while the file held a replacement character where the
+ * caller put real data.
+ *
+ * @param {string} text
+ * @returns {number}
+ */
+export function findLoneSurrogate(text) {
+  const value = String(text ?? '')
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(i + 1)
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return i
+      i += 1
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return i
+    }
+  }
+  return -1
+}
+
 export async function apply(ctx, config) {
   // Validate through the schema instead of spreading defaults and overwriting
   // them. The spread form let any value through: execGuard: "yes" stayed at
@@ -1223,6 +1248,18 @@ function assertKnownArgs(args, known, toolName) {
         throw new Error('content must be a string (received ' + (args.content === null ? 'null' : typeof args.content) + ')')
       }
       const content = args.content
+      // A lone UTF-16 surrogate cannot be encoded: Buffer.from() writes U+FFFD
+      // instead, so the call reported success while the file held a replacement
+      // character where the caller put data.
+      const lone = findLoneSurrogate(content)
+      if (lone >= 0) {
+        throw new Error(
+          'content has an unpaired UTF-16 surrogate at index ' + lone + ' (code unit 0x' +
+          content.charCodeAt(lone).toString(16) + '), which cannot be written as UTF-8: it would be ' +
+          'stored as U+FFFD instead. Fix the string (it is often a truncated emoji or a cut-off ' +
+          'surrogate pair) and try again.'
+        )
+      }
       const bytes = Buffer.byteLength(content)
       if (bytes > cfg.maxFileBytes) {
         throw new Error(
