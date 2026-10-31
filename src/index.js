@@ -898,7 +898,11 @@ function assertKnownArgs(args, known, toolName) {
       // machine, so the inventory lists all of them.
       for (const alias of knownAliases({ machines: cfg.machines, dshHome: credentialHome })) aliases.add(alias)
       if (aliases.size === 0) {
+        // A file with a trailing comma answers exactly like no file at all: the
+        // inventory must name the file it could not read, or the fix is a guess.
+        const brokenFile = credentialHome ? readCredentialFile(credentialHome).problem : ''
         return { text:
+          (brokenFile ? 'WARNING: ' + brokenFile + '\n\n' : '') +
           'No machines configured. Any one of these works:\n' +
           '\n' +
           ' 1. Settings form (recommended): add an entry under machines, e.g.\n' +
@@ -914,6 +918,13 @@ function assertKnownArgs(args, known, toolName) {
           '      DSH_SSH_PROD_KEY_PATH=~/.ssh/id_ed25519' }
       }
       const out = []
+      // Machines from the settings form or the environment can still be listed
+      // while the credential file is unreadable, and that file is where the
+      // passwords are: a silent list reads as "nothing is wrong with it".
+      const fileProblem = credentialHome ? readCredentialFile(credentialHome).problem : ''
+      if (fileProblem) {
+        out.push('WARNING: the credential file could not be read, so its entries are ignored: ' + fileProblem, '')
+      }
       const lean = cfg.machineInventory === 'alias'
       const defaultAlias = cfg.defaultMachine ? normalizeAlias(cfg.defaultMachine) : ''
       for (const alias of aliases) {
@@ -2248,6 +2259,10 @@ function passphraseLine(st) {
           state = '(mode ' + shown + (mode & 0o077 ? ' — readable by group/others, which the plugin never does' : '') + ')'
         }
         lines.push('', 'Credential file: ' + credFile + '  ' + state)
+        // "exists" is not "usable": a file with a trailing comma answered every
+        // connection with "no credentials" and this report said nothing about it.
+        const fileState = readCredentialFile(dshHome)
+        if (fileState.problem) lines.push('  WARNING: ' + fileState.problem)
       }
       const defined = Object.keys(cfg.machines || {})
       if (defined.length > 0) lines.push('Machines in the settings form: ' + defined.join(', '))

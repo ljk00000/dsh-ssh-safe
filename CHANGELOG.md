@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.277 — 2026-11-01
+
+### Fixed — a credential file that cannot be parsed looked like an empty one
+A trailing comma in `credentials.json` answers exactly like no file at all, and only `ssh_credentials`
+said so:
+```
+ssh_machines  before  • prod … (from the environment), and nothing about the file
+              after   WARNING: credentials.json could not be parsed (Expected property name or '}'
+                      in JSON at position 2 (line 1 column 3)); no credential was used from it
+
+ssh_config    before  Credential file: …\credentials.json  (exists; access is governed by …)
+              after   … + WARNING: credentials.json could not be parsed (…)
+```
+`ssh_config` printed "exists", which reads as healthy, and `ssh_machines` listed the environment
+machines with no hint that the file holding every password was being ignored. Both now repeat the
+reader’s own wording from `readCredentialFile().problem`, so the three tools cannot disagree.
+
+### Verified this round (no change needed)
+- The other empty states already distinguish "nothing yet" from "cannot read": `ssh_credentials` →
+  `No machines defined yet.`, `ssh_workspace list` → 没有配置任何机器, `ssh_audit` → `Audit logging is
+  off. Set auditLog: true …` (and a separate message for an unreadable log, fixed in an earlier round).
+
+### My own mistakes
+- My probe decided "SILENT" with a regex that lacked "could not be parsed", so it reported the fixed
+  `ssh_machines` as silent; printing the first lines instead of the last three showed the warning. The
+  probe, not the tool, was wrong.
+- Two anchors failed first (the machines block is CRLF, the branch beside it LF) — the third attempt
+  located the line and matched its own newline style, which is the rule I wrote down in round 65.
+
+### Tests
+- One new case: with `{ broken` on disk, `ssh_machines`, `ssh_config` and `ssh_credentials` all name the
+  parse problem.
+  Suite 862 / 857 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.276 — 2026-11-01
 
 ### Hardened — `machineInventory: "alias"` is now checked against every tool

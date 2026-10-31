@@ -1221,3 +1221,32 @@ test('ssh_credentials shows where the key passphrase comes from and flags a plai
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a credential file that cannot be parsed is named by every tool that reads it', async () => {
+  // A trailing comma answered exactly like an empty file: ssh_machines listed the
+  // environment machines and said nothing, ssh_config printed the path and
+  // 'exists'. Only ssh_credentials admitted the problem.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-brokenfile-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), '{ broken')
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', useCredentialFile: true, machines: {},
+    })
+    const text = async (name, args = {}) => String((await own[name].execute(args, {})).text)
+    const machines = await text('ssh_machines')
+    assert.match(machines, /WARNING: credentials\.json could not be parsed/)
+    assert.match(machines, /no credential was used from it/)
+    const config = await text('ssh_config')
+    assert.match(config, /WARNING: credentials\.json could not be parsed/)
+    const credentials = await text('ssh_credentials')
+    assert.match(credentials, /could not be parsed/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
