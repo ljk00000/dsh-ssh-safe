@@ -1719,3 +1719,42 @@ test('a host with a control character is refused before dialling, and named as s
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('every audit record carries an outcome, and the README lists them all', () => {
+  // A refused record had no outcome at all, so filtering the trail by outcome skipped
+  // exactly the operations that were stopped on purpose. The README table had also
+  // missed 'none' (nothing to close) until a probe produced it.
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8')
+  for (const outcome of ['ok', 'error', 'timeout', 'cancel', 'incomplete', 'blocked', 'none', 'pending', 'busy', 'unconfirmed']) {
+    assert.ok(readme.includes('`' + outcome + '`'), 'the README must document the outcome ' + outcome)
+  }
+  for (const kind of ['connect', 'exec', 'read', 'write', 'list', 'close', 'doctor', 'refused']) {
+    assert.ok(readme.includes('`' + kind + '`'), 'the README must name the kind ' + kind)
+  }
+})
+
+test('a refused command is recorded with an outcome and a reason', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-refusedfit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, auditLog: true,
+      execGuard: 'confirm', connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    await own.ssh_exec.execute({ machine: 't', command: 'echo needs-confirm' }, {}).catch(() => {})
+    const record = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'), 'utf8').trim().split('\n').pop())
+    assert.equal(record.kind, 'refused')
+    assert.equal(record.outcome, 'blocked')
+    assert.match(String(record.reason || ''), /execGuard/)
+  } finally {
+    await own.ssh_close?.execute?.({}, {}).catch(() => {})
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

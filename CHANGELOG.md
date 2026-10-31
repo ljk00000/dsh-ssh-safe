@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.159 — 2026-10-31
+
+### Fixed
+- **`refused` records had no `outcome` at all.** A command stopped by `execGuard` or
+  `denyPatterns` was logged with a `reason` but no outcome, so filtering the trail by
+  outcome silently skipped exactly the operations that were stopped on purpose:
+  ```
+  before: {"kind":"refused","command":"rm -rf /tmp/x","reason":"execGuard is \"confirm\" …"}
+  after : {"kind":"refused","outcome":"blocked","command":"rm -rf /tmp/x","reason":"…"}
+  ```
+- **The README table was incomplete.** It listed the outcomes I had found, and missed
+  `none` (nothing to close) — discovered by closing a connection the server had dropped —
+  and now `blocked`. A test keeps the table and the code in step, and the `kind` values
+  (`connect`/`exec`/`read`/`write`/`list`/`close`/`doctor`/`refused`) are documented too.
+
+### Verified, no change needed
+- `ssh_close` behaviour in its three situations:
+  - command running, no force: `Not closing t: a command is still running on it. Wait for
+    it to finish, or pass force: true to cut it off.`
+  - command running, force: `Closed: t`, and the command settles with
+    `[connection closed before the command reported an exit status …]`.
+  - still connecting: `A connection to u is still being established. Pass force: true to
+    have it closed on arrival.` — and the connect itself still reports its result.
+  - connection already dropped by the server: `No live connection for t` (the pool had
+    noticed the socket die).
+
 ## 0.7.158 — 2026-10-31
 
 ### Fixed

@@ -717,6 +717,9 @@ function assertKnownArgs(args, known, toolName) {
       // by the confirmation gate.
       audit.write({
         kind: 'refused',
+        // Every record carries an outcome; a refusal had none, so filtering the log
+        // by outcome silently skipped the operations that were stopped on purpose.
+        outcome: 'blocked',
         machine,
         command: summarize(command),
         reason: 'execGuard is "confirm" and confirm was not passed',
@@ -729,6 +732,9 @@ function assertKnownArgs(args, known, toolName) {
     if (verdict.blocked) {
       audit.write({
         kind: 'refused',
+        // Every record carries an outcome; a refusal had none, so filtering the log
+        // by outcome silently skipped the operations that were stopped on purpose.
+        outcome: 'blocked',
         // Which machine it was aimed at is the first thing an operator asks
         // about a refused command; the record used to leave it out.
         machine,
@@ -763,6 +769,9 @@ function assertKnownArgs(args, known, toolName) {
       // no trace of a write or read that the confirmation gate stopped.
       audit.write({
         kind: 'refused',
+        // Every record carries an outcome; a refusal had none, so filtering the log
+        // by outcome silently skipped the operations that were stopped on purpose.
+        outcome: 'blocked',
         machine,
         path: subject,
         direction,
