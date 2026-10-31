@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.81 — 2026-10-31
+
+### Fixed
+- **"No such file" pointed at the wrong part of the path.** `ssh_list
+  "/tmp/afile.txt/sub"` answered `no such file: /tmp/afile.txt/sub` — true, and it
+  sends the caller looking for the sub path when the real problem is one component
+  above it. The error path now walks the ancestors and names the file in the way:
+  `cannot reach /tmp/afile.txt/sub: /tmp/afile.txt is a file, not a directory`.
+  One `stat` per component, only after a failure; a genuinely missing path still
+  says "no such file" and a symlink to nothing still gets its own message.
+
+### Added — tests
+- The blocked-by-file message through both `list` and `read`, plus the two
+  neighbouring cases that must keep their old wording.
+
 ## 0.7.80 — 2026-10-31
 
 ### Fixed

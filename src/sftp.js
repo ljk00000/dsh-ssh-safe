@@ -138,7 +138,12 @@ async function kindMismatch(sftp, target, expected) {
     // situation from a path that never existed, and only LSTAT can tell. The
     // server's answer for both is "No such file", which leaves the caller
     // wondering why the file they just created is not there.
-    return await danglingLink(sftp, target, statError)
+    const dangling = await danglingLink(sftp, target, statError)
+    if (dangling) return dangling
+    // '/tmp/afile.txt/sub' fails with "no such file", but the sub path is not
+    // what is missing: a component above it is a file. One stat per component,
+    // only on the error path.
+    return await blockedByFile(sftp, target)
   }
   if (!attrs || typeof attrs.isDirectory !== 'function') return null
   const isDir = attrs.isDirectory()
@@ -151,6 +156,39 @@ async function kindMismatch(sftp, target, expected) {
     const e = /** @type {Error & {code?: string}} */ (new Error('not a directory: ' + target + ' (it is a file; use ssh_read)'))
     e.code = 'ENOTDIR'
     return e
+  }
+  return null
+}
+
+/**
+ * Find a component above the target that is a file.
+ *
+ * '/tmp/afile.txt/sub' cannot exist, and the server says "No such file" for the
+ * whole path -- true, and it points at the wrong part of it. One stat per
+ * component, only on the error path.
+ *
+ * @param {any} sftp session
+ * @param {string} target normalised remote path
+ * @returns {Promise<Error|null>}
+ */
+async function blockedByFile(sftp, target) {
+  const parts = String(target).split('/').filter(Boolean)
+  let prefix = ''
+  for (let i = 0; i < parts.length - 1; i++) {
+    prefix += '/' + parts[i]
+    let attrs
+    try {
+      attrs = await callSftp(sftp, 'stat', prefix)
+    } catch {
+      // A missing component above is the ordinary "no such file"; only a file in
+      // the way needs a different sentence.
+      return null
+    }
+    if (attrs && typeof attrs.isDirectory === 'function' && !attrs.isDirectory()) {
+      return new Error(
+        'cannot reach ' + target + ': ' + prefix + ' is a file, not a directory'
+      )
+    }
   }
   return null
 }
