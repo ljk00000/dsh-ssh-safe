@@ -1689,7 +1689,22 @@ function assertKnownArgs(args, known, toolName) {
         let files
         if (args.deleteFiles === true) {
           const gone = !existsSync(dir)
-          removeRemoteDir(dshHome, alias)
+          try {
+            removeRemoteDir(dshHome, alias)
+          } catch (err) {
+            const code = err && /** @type {{code?: string}} */ (err).code
+            if (code === 'DSH_WORKSPACE_DIRTY') {
+              const foreign = /** @type {{foreign?: string[]}} */ (err).foreign || []
+              throw new Error(
+                '没有删除「' + alias + '」的占位目录：里面有你放进去的文件，删了就找不回来了。\n' +
+                '  目录：' + dir + '\n' +
+                '  文件（前几个）：' + foreign.slice(0, 5).map((n) => printable(n)).join('、') +
+                (foreign.length > 5 ? ' 等 ' + foreign.length + ' 个' : '') + '\n' +
+                '  把它们移走或删掉，再执行一次 remove；远端主机上的文件不受影响。'
+              )
+            }
+            throw err
+          }
           files = gone ? '占位目录本来就不存在' : '占位目录已删除'
         } else {
           files = existsSync(dir) ? '占位目录保留：' + dir : '占位目录本来就不存在：' + dir

@@ -326,6 +326,22 @@ export function removeRemoteDir(dshHome, alias) {
     err.owner = owner
     throw err
   }
+  // Files the user put in this directory are theirs. The create side already
+  // refuses to adopt such a directory, and the delete side used to remove it
+  // without a word — measured: 'important.txt' disappeared with the workspace.
+  const foreign = readdirSync(dir).filter((name) => name !== MARKER && name !== 'AGENTS.md')
+  if (foreign.length > 0) {
+    const err = new Error(
+      'refusing to delete ' + dir + ': it holds ' + foreign.length + ' entr' +
+      (foreign.length === 1 ? 'y' : 'ies') + ' this plugin did not create (first: ' +
+      foreign[0] + '). Those files are yours; move or delete them, then remove the workspace again.'
+    )
+    // @ts-expect-error -- marking the error so the tool can say it in the user's language
+    err.code = 'DSH_WORKSPACE_DIRTY'
+    // @ts-expect-error -- same
+    err.foreign = foreign
+    throw err
+  }
   rmSync(dir, { recursive: true, force: true })
   return dir
 }

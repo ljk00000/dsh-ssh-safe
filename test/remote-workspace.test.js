@@ -584,3 +584,21 @@ test('the instructions file cannot be given a new heading by a machine definitio
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('removing a workspace does not delete files the user put there', () => {
+  // deleteFiles: true used to remove the whole directory, including anything the
+  // user had added. The create side already refuses to adopt such a directory;
+  // the delete side now refuses to destroy it.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-rmfit-'))
+  try {
+    const { dir } = writeRemoteWorkspace(home, 'box', { host: 'h.example', username: 'u' }, 'tofu')
+    writeFileSync(path.join(dir, 'important.txt'), 'user data', 'utf8')
+    assert.throws(() => removeRemoteDir(home, 'box'), /refusing to delete/)
+    assert.ok(existsSync(path.join(dir, 'important.txt')), 'the user file must survive the refusal')
+    rmSync(path.join(dir, 'important.txt'))
+    assert.equal(removeRemoteDir(home, 'box'), dir)
+    assert.equal(existsSync(dir), false, 'an untouched placeholder is still removable')
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})

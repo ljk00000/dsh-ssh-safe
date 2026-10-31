@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.163 — 2026-10-31
+
+### Fixed
+- **`ssh_workspace remove deleteFiles: true` deleted the user's own files.** The create
+  side refuses to adopt a directory that holds anything it did not write, and says so:
+  "remove deleteFiles: true would then delete them". Once the placeholder existed,
+  anything added later went with it without a word:
+  ```
+  before: placeholder with important.txt → removed, important.txt gone
+  after : ERR: 没有删除「box」的占位目录：里面有你放进去的文件，删了就找不回来了。
+            目录：…\remotes\box
+            文件（前几个）：important.txt
+            把它们移走或删掉，再执行一次 remove；远端主机上的文件不受影响。
+  ```
+  An untouched placeholder still removes normally. The refusal names the files, so the
+  next step is obvious.
+
+### Verified, no change needed
+- `remoteTitle` handles spaces, CJK and long aliases.
+- A hand-corrupted `.dsh-remote-workspace.json` reads as "not a placeholder", the listing
+  says so, and `create` rebuilds it.
+- A placeholder owned by another alias is reported on both sides with the owner named
+  and the way out spelled out.
+- `safeAlias` refuses `.`, `..`, path separators and control characters; trailing spaces
+  and dots create distinct directories on this Windows build, so two aliases cannot
+  collapse into one placeholder.
+- `scripts/ci-annotations.mjs` escapes `%`, CR and LF for GitHub workflow commands.
+
 ## 0.7.162 — 2026-10-31
 
 ### Fixed
