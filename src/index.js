@@ -1106,7 +1106,13 @@ function assertKnownArgs(args, known, toolName) {
           ' — what is shown is the beginning of the output. Raise maxOutputChars, or send the ' +
           'output to a file and read it with ssh_read]')
       }
-      if (r.timedOut) parts.push('[timed out after ' + (budget || cfg.commandTimeoutMs) + 'ms]')
+      if (r.timedOut) {
+        // The cancel path says a TERM was sent; the deadline path said only
+        // 'timed out', leaving the caller to assume the remote process stopped.
+        parts.push('[timed out after ' + (budget || cfg.commandTimeoutMs) + 'ms — the remote command was ' +
+          'sent SIGTERM and the channel was closed; the output above is what arrived first. ' +
+          'A process that ignores SIGTERM can still be running]')
+      }
       if (r.cancelled) {
         parts.push('[cancelled at the caller request — the remote command was sent SIGTERM; the output above is what arrived first]')
       }

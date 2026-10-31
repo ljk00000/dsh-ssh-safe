@@ -65,7 +65,7 @@ test('ssh_exec names the signal for a killed command', async () => {
 
 test('ssh_exec reports the deadline in the result', async () => {
   const text = await run('ssh_exec', { command: 'sleep 5', timeoutMs: 250 })
-  assert.match(text, /\[timed out after 250ms\]/)
+  assert.match(text, /timed out after 250ms/)
 })
 
 test('ssh_exec keeps stderr labelled', async () => {
@@ -273,7 +273,7 @@ test('a command killed at the deadline keeps what it had already printed', async
   assert.match(text, /started/, 'stdout produced before the deadline must survive')
   assert.match(text, /\[stderr\]\nwarming up/, 'so must stderr')
   assert.doesNotMatch(text, /finished/, 'the tail never arrived')
-  assert.match(text, /\[timed out after 250ms\]/)
+  assert.match(text, /timed out after 250ms/)
 })
 test('two commands on one machine run at the same time, not one after the other', async () => {
   const started = Date.now()
@@ -1014,6 +1014,36 @@ test('every refused call is in the audit log, and the row names the rule', async
       assert.match(shown, /write to/)
       assert.match(shown, /read from/)
     } finally {
+      await srv2.close()
+    }
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a timeout says the command was TERMed and may still be running', async () => {
+  // The cancel path said so; the deadline path said only 'timed out', which reads
+  // as 'the remote process stopped'.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-tonote-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const srv2 = await startServer()
+    const own = {}
+    try {
+      await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+        defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+        connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+        machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+      })
+      const text = String((await own.ssh_exec.execute({ machine: 't', command: 'sleep 3', timeoutMs: 300 }, {})).text)
+      assert.match(text, /timed out after 300ms/)
+      assert.match(text, /was sent SIGTERM/)
+      assert.match(text, /ignores SIGTERM can still be running/)
+    } finally {
+      await own.ssh_close.execute({ machine: 't', force: true }, {}).catch(() => {})
       await srv2.close()
     }
   } finally {

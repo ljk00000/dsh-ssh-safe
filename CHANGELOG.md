@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.123 — 2026-10-31
+
+### Fixed
+- **A command that timed out said only "timed out", as if the remote process had
+  stopped.** The cancel path already said a SIGTERM was sent; the deadline path left
+  the caller assuming the command was over:
+  ```
+  before: [timed out after 300ms]
+  after : [timed out after 300ms — the remote command was sent SIGTERM and the
+          channel was closed; the output above is what arrived first. A process
+          that ignores SIGTERM can still be running]
+  ```
+
+### Verified, no change needed
+- Symlinks are named for what they are: reading a dangling link says "that path is a
+  symbolic link to … but the target does not exist", a self-loop or a two-link cycle
+  says "symbolic link loop … the links point at each other", and writing through a
+  dangling link creates the target and says where the bytes went.
+- A path of the wrong kind gets the right tool named: `ssh_list` on a file says "it
+  is a file; use ssh_read", `ssh_read`/`ssh_write` on a directory says "it is a
+  directory; use ssh_list".
+- Permission failures are tailored per operation: read ("check its owner and mode
+  (ls -l <path>)"), list ("ls -ld"), write ("check the owner and mode of the parent
+  directory").
+- `createDirs` through a file is named precisely: "…/file.txt already exists and is a
+  file, not a directory".
+- A command containing a NUL byte is refused with the reason: "A shell truncates the
+  command there, so what runs would not be what was sent."
+
 ## 0.7.122 — 2026-10-31
 
 ### Fixed
