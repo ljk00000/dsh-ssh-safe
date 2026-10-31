@@ -58,6 +58,8 @@ export function normalizeCommand(command) {
   // made 'cd /' + newline + 'rm -rf *' invisible to the rule that catches
   // 'cd / && rm -rf *'.
   s = s.replace(/\r?\n/g, ' ; ')
+  // $IFS is whitespace: 'rm${IFS}-rf${IFS}/' is 'rm -rf /' to the shell.
+  s = s.replace(/\$\{IFS\}|\$IFS/g, ' ')
   s = s.replace(/\s+/g, ' ').trim()
   // A command substitution may expand to the empty string: 'rm -rf /$(echo)' IS
   // 'rm -rf /'. Removing it makes the target visible to the deny rules; the
@@ -285,6 +287,15 @@ export const DEFAULT_DENY_RULES = [
     why: 'it is a named fork bomb (f(){ f|f& };f)',
   },
   {
+    // 'find / -exec rm' is refused; the same act spelled '| xargs rm' was not.
+    // Two shapes: a whole-filesystem find piped into xargs rm (dangerous whatever
+    // the flags), and 'xargs rm' carrying -r or -f (the recursive/forced form).
+    // 'find . -name x | xargs rm' without flags stays allowed: that is ordinary
+    // cleanup, and the rule above already covers 'find / -delete'.
+    pattern: '(?:\\bfind\\s+/+(?:\\s|$)[^\\n]*\\|[^\\n]*xargs\\b[^\\n]*\\brm\\b|\\bxargs\\b[^\\n]*\\brm\\b[^\\n]*\\s(?:-[a-zA-Z]*[rR][a-zA-Z]*\\b|--recursive\\b))',
+    why: 'it deletes through xargs (find / | xargs rm, xargs rm -rf); a plain xargs rm of named files is allowed',
+  },
+  {
     // Only at a command position. The bare word anywhere refused ordinary work:
     // 'grep -c shutdown /etc/hostname' and 'echo reboot' were both blocked.
     pattern: '(?:^|[;&|]+\\s*|\\(\\s*)(?:(?:sudo|doas|nohup|nice|setsid|command|exec|env|time)\\s+(?:-{1,2}\\S+(?:\\s+\\S+)?\\s+)*)*(?:timeout\\s+\\S+\\s+)?(?:systemctl\\s+(?:-\\S+\\s+)*)?(?:shutdown|reboot|halt|poweroff)\\b',
@@ -405,6 +416,20 @@ function blankQuoted(text) {
  * @param {string} command
  * @returns {string}
  */
+/**
+ * Expand one level of brace lists.
+ *
+ * '{rm,-rf,/}' is the three words 'rm -rf /' to the shell, and it matched no rule.
+ * Only groups holding a comma are expanded; '{print $1}' is left alone.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function expandBraces(text) {
+  return String(text ?? '').replace(/\{([^{}]*)\}/g, (match, inner) =>
+    String(inner).includes(',') ? String(inner).split(',').join(' ') : match)
+}
+
 export function expandAssignments(command) {
   const text = String(command ?? '')
   const values = new Map()
@@ -431,7 +456,12 @@ export function checkCommand(command, patterns, options = {}) {
   const normalized = normalizeCommand(raw)
   const canonical = canonicalizeRm(normalized)
 
-  for (const candidate of new Set([raw, expanded, normalized, canonicalizeRm(normalizeCommand(expanded))])) {
+  const braced = expandBraces(normalized)
+  for (const candidate of new Set([
+    raw, expanded, normalized, braced,
+    canonicalizeRm(normalizeCommand(expanded)),
+    canonicalizeRm(braced),
+  ])) {
     for (const window of scanWindows(candidate)) {
       for (const pattern of list) {
         let re

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { checkCommand, checkPipeline, canonicalizeRm, normalizeCommand } from '../src/guard.js'
+import { checkCommand, checkPipeline, canonicalizeRm, normalizeCommand, DEFAULT_DENY_RULES } from '../src/guard.js'
 
 // The deny list is a set of regular expressions, and a regular expression only
 // catches the spellings it was written for. These are the spellings that got
@@ -137,4 +137,19 @@ test('a newline is a command separator, and $(...) can expand to nothing', () =>
   // Ordinary work is not turned into a command by the change.
   assert.equal(checkCommand('echo one\necho two', patterns).blocked, false)
   assert.equal(checkCommand('rm -rf /tmp/build', patterns).blocked, false)
+})
+
+test('$IFS, brace expansion and xargs spellings are refused, cleanup is not', () => {
+  // Three shapes that reached the shell as destructive commands and matched nothing:
+  //   rm${IFS}-rf${IFS}/   (IFS is whitespace)
+  //   {rm,-rf,/}           (brace expansion is three words)
+  //   find / | xargs rm    (the same act as find / -exec rm)
+  const patterns = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
+  for (const command of ['rm${IFS}-rf${IFS}/', 'rm$IFS-rf$IFS/', '{rm,-rf,/}', 'find / | xargs rm -rf', 'xargs -0 rm -rf < list']) {
+    assert.equal(checkCommand(command, patterns).blocked, true, command)
+  }
+  // Ordinary cleanup stays allowed, including a forced delete of named files.
+  for (const command of ["find . -name '*.tmp' | xargs rm", "find /var/log -name '*.gz' | xargs rm -f", 'ls *.log | xargs -n 1 echo']) {
+    assert.equal(checkCommand(command, patterns).blocked, false, command)
+  }
 })

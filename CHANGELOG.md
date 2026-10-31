@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.173 — 2026-10-31
+
+### Fixed
+- **Three more spellings got past the deny list.** Measured against the built-in rules:
+  ```
+  rm${IFS}-rf${IFS}/        $IFS is whitespace, so this is rm -rf /
+  {rm,-rf,/}                brace expansion is the three words rm -rf /
+  find / | xargs rm -rf     the same act as find / -exec rm, which was refused
+  ```
+  `normalizeCommand` expands `$IFS`/`${IFS}` to a space; `expandBraces` turns a
+  comma-separated brace group into its words and is scanned as an extra candidate; and a
+  new built-in rule refuses `find / … | xargs rm` (any flags) and `xargs rm` carrying
+  `-r`/`--recursive`.
+  Ordinary cleanup is still allowed — `find . -name '*.tmp' | xargs rm`,
+  `find /var/log -name '*.gz' | xargs rm -f`, `ls *.log | xargs -n 1 echo` — because a
+  forced delete of named files is not the destructive act; recursion is.
+
+### Fixed (the count was already wrong)
+- The README said "共 9 条" for a list that held ten rules. It now says eleven, and the
+  `ssh_config` test derives the number from `DEFAULT_DENY_RULES.length` instead of
+  hardcoding it, so adding a rule cannot leave the message stale again.
+
+### Verified, no change needed
+- Real spellings of quoting and whitespace are refused: `r''m -rf /`, `r"m" -rf /`, a tab
+  between `rm` and `-rf`, four spaces, a non-breaking space. The earlier "misses" for
+  those were escapes inside my probe strings, not shell syntax.
+- `$(printf rm) -rf /` still slips: a substitution used as the command name is beyond a
+  pattern list, and the README says so ("不是安全边界").
+
 ## 0.7.172 — 2026-10-31
 
 ### Fixed

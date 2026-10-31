@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 // ssh2 -- and assert on the shape of their output.
 
 import { apply, keyModeWarning } from '../src/index.js'
+import { DEFAULT_DENY_RULES } from '../src/guard.js'
 import { AuditLog } from '../src/audit.js'
 
 function capture(config = {}, env = {}) {
@@ -677,7 +678,9 @@ test('ssh_config says when a custom deny list replaced the built-in rules', asyn
   }
 
   assert.match(await lineOf({}), /\(the built-in set\)/)
-  assert.match(await lineOf({ denyPatterns: ['^shutdown'] }), /replaces the 10 built-in rules/)
+  // Derived, not hardcoded: adding a built-in rule should not fail this test, and a
+  // stale number in the message should.
+  assert.match(await lineOf({ denyPatterns: ['^shutdown'] }), new RegExp('replaces the ' + DEFAULT_DENY_RULES.length + ' built-in rules'))
   assert.match(await lineOf({ denyPatterns: [] }), /the destructive-command guard is OFF/)
 })
 
