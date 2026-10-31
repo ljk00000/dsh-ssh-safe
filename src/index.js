@@ -1046,9 +1046,18 @@ function assertKnownArgs(args, known, toolName) {
       }
       audit.write({
         kind: 'write', machine: alias, path: r.path, outcome: 'ok', bytes: r.bytes,
+        // The link target is where the bytes actually went; an operator reading
+        // the log after 'why did /etc change?' needs it.
+        ...(r.linkTarget ? { linkTarget: r.linkTarget } : {}),
         ms: Date.now() - startedAt,
       })
-      return { text: 'Wrote ' + plural(r.bytes, 'byte') + ' to ' + r.path }
+      // A symlink means the bytes are somewhere the path did not name. Say where;
+      // the audit line records the real target too.
+      const viaLink = r.linkTarget
+        ? '\n[note] that path is a symbolic link to ' + r.linkTarget +
+          '; the content was written there, not to the link itself'
+        : ''
+      return { text: 'Wrote ' + plural(r.bytes, 'byte') + ' to ' + r.path + viaLink }
     },
   })
 

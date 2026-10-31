@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.64 — 2026-10-31
+
+### Fixed
+- **A write through a symlink did not say where the bytes went.** `/home/u/.ssh/
+  config` that is a link to `/etc/ssh/ssh_config` writes into `/etc`, and the
+  answer named only the path it was given. A successful write now adds:
+  `[note] that path is a symbolic link to /etc/ssh/ssh_config; the content was
+  written there, not to the link itself`, and the audit record carries the target
+  as `linkTarget` -- the first thing an operator asks after a file outside the
+  expected tree changes.
+- The check is a single LSTAT (+ READLINK) on the success path only; a plain
+  write is unchanged and pays nothing extra beyond that one request.
+
+### Added — tests
+- The link target on a successful write, and its absence on a normal one.
+
 ## 0.7.63 — 2026-10-31
 
 ### Fixed

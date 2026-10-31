@@ -329,7 +329,8 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, 
  * @param {string} remotePath
  * @param {string|Buffer} content
  * @param {{timeoutMs: number, createDirs?: boolean, signal?: AbortSignal}} options
- * @returns {Promise<{bytes: number, path: string}>}
+ * @returns {Promise<{bytes: number, path: string, linkTarget?: string}>} `linkTarget`
+ *   is set when the path was a symlink, so the caller can say where the bytes went
  */
 export async function writeRemoteFile(client, remotePath, content, { timeoutMs = 30000, createDirs = false, signal } = /** @type {any} */ ({})) {
   const target = normalizeRemotePath(remotePath, { file: true })
@@ -394,9 +395,26 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
     // Same race as in readRemoteFile: a failed write still emits 'close', so
     // the success path has to stand down while the error is being explained.
     let explain = null
-    const done = () => {
+    let finishing = false
+    const done = async () => {
+      if (explain || finishing) return
+      finishing = true
+      // Writing through a symlink puts the bytes somewhere else: '/home/u/.ssh/
+      // config' that is a link to '/etc/ssh/ssh_config' writes into /etc. The
+      // result used to say only the path it was given, so the caller never
+      // learned where the content actually landed.
+      let linkTarget
+      try {
+        if (typeof sftp.lstat === 'function') {
+          const attrs = await callSftp(sftp, 'lstat', target)
+          if (attrs && typeof attrs.isSymbolicLink === 'function' && attrs.isSymbolicLink() &&
+            typeof sftp.readlink === 'function') {
+            linkTarget = String(await callSftp(sftp, 'readlink', target))
+          }
+        }
+      } catch { /* the link may be gone again; the write itself succeeded */ }
       if (explain) return
-      settle({ bytes: payload.length, path: target })
+      settle({ bytes: payload.length, path: target, linkTarget })
     }
     stream.on('error', (e) => {
       if (explain) return

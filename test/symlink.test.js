@@ -91,3 +91,14 @@ test('a symlink to a directory is reported as a directory', async () => {
   const listed = await pool.list('t', '/tmp/dir-link', {})
   assert.ok(listed.items.some((entry) => entry.name === 'inside.txt'), JSON.stringify(listed.items))
 })
+test('a write through a link reports where the content landed', async () => {
+  // '/home/u/.ssh/config' that is a link to '/etc/ssh/ssh_config' writes into
+  // /etc: the answer used to name only the path it was given.
+  srv.vfs.putFile('/etc/ssh-config', 'old')
+  srv.vfs.putLink('/tmp/ssh-config-link', '/etc/ssh-config')
+  const result = await pool.writeFile('t', '/tmp/ssh-config-link', 'new')
+  assert.equal(result.bytes, 3)
+  assert.equal(result.linkTarget, '/etc/ssh-config')
+  const plain = await pool.writeFile('t', '/tmp/plain-write.txt', 'x')
+  assert.equal(plain.linkTarget, undefined, 'a normal write carries no link note')
+})
