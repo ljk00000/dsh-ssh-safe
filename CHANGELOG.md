@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.216 — 2026-11-01
+
+### Fixed
+- **The test button blamed the form for a machine that does not exist.** `/api/test` with an
+  alias nothing defines answered:
+  ```
+  before: [FAIL] 配置: 缺少主机或用户，请在上方填写后保存
+  after : [FAIL] 配置: 没有名为 "nosuchmachine" 的机器：设置界面、凭据文件和环境变量里都没有它
+  ```
+  "Fill in a host" is advice for a machine that exists and is incomplete; for an unknown alias it
+  sends the user looking for a field to fill. A machine that really is incomplete still gets the
+  original wording — both paths are asserted.
+
+### Verified, no change needed
+- `/api/test` uses the profile's `connectTimeoutMs`: with 2000 ms configured, an unroutable host
+  (192.0.2.1) is reported as `[FAIL] TCP: no answer within 2000ms` after 2034 ms, then
+  "已停止：主机不可达，无法测试认证。"
+- `/api/save` merges into the existing entry (`{ ...store[alias] }`), so `keyPath`,
+  `keyPassphrase` and a stored `passwordDpapi` survive an edit that does not mention them.
+
+### Tests
+- One new case covering both messages (unknown alias, and a saved machine with no host).
+  Suite 796 / 791 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.215 — 2026-11-01
 
 ### Fixed

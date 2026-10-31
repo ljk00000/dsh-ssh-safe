@@ -1163,3 +1163,26 @@ test('two plugin entries are read but reported as ambiguous', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('testing an alias nothing defines says so instead of blaming the form', async () => {
+  // It answered '缺少主机或用户，请在上方填写后保存' for a machine that does not exist:
+  // the page was asking the user to fill in a host for an alias nothing defines.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
+  const { child, base, token } = await start(home)
+  try {
+    const unknown = await call(base, token, '/api/test', { alias: 'nosuchmachine' })
+    assert.equal(unknown.status, 200)
+    assert.equal(unknown.body.ok, false)
+    const text = unknown.body.lines.join('\n')
+    assert.match(text, /没有名为 "nosuchmachine" 的机器/)
+    assert.doesNotMatch(text, /缺少主机或用户/, 'a missing machine is not an incomplete one')
+
+    // A machine that exists but has no host keeps the original wording.
+    await call(base, token, '/api/save', { alias: 'halfdone', user: 'root' })
+    const incomplete = await call(base, token, '/api/test', { alias: 'halfdone' })
+    assert.match(incomplete.body.lines.join('\n'), /缺少主机或用户/)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

@@ -532,6 +532,14 @@ async function testConnection(alias) {
     say('凭据文件', 'warn', '设置里 useCredentialFile 为 false，本页保存的密码/主机不会被插件读取')
   }
 
+  // An alias nothing defines used to answer "缺少主机或用户", which blames the
+  // form for a machine that does not exist: the page cannot say "add a host" for
+  // something it has never heard of.
+  const known = state().machines.some((machine) => machine.alias === alias)
+  if (!known) {
+    say('配置', 'FAIL', '没有名为 "' + alias + '" 的机器：设置界面、凭据文件和环境变量里都没有它')
+    return finish(false)
+  }
   if (!m.host || !m.username) {
     say('配置', 'FAIL', '缺少主机或用户，请在上方填写后保存')
     return finish(false)
