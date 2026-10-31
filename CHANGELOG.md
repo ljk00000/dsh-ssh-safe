@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.185 — 2026-10-31
+
+### Fixed
+- **An alias that cannot be written exactly named a workspace anyway.** AGENTS.md is built
+  with `safeField()` → `printable()`, which rewrites bidi overrides and line separators, so
+  the instructions named an alias that does not exist:
+  ```
+  alias: "prod\u202etxt"  (U+202E RIGHT-TO-LEFT OVERRIDE, raw in the name)
+  directory on disk : "prod<U+202E>txt"
+  AGENTS.md heading : prod\u202etxt
+  instruction       : … 显式带上 machine: "prod\u202etxt"   ← no such machine
+  ```
+  `safeAlias()` now refuses the characters `printable()` would rewrite (C1 controls, U+2028/
+  U+2029, U+202A–U+202E, U+2066–U+2069) with a reason, so a workspace can only be created
+  under a name the instructions can state and the directory can display truthfully.
+  Path separators, C0 controls, `..` and empty aliases were already refused.
+
+### Verified, no change needed
+- GUI saves: ten concurrent pairs wrote twenty entries with no loss; an entry added to
+  `credentials.json` by hand while the page was open survived the next save; deleting every
+  machine leaves `{}` and the page reports `machines: []`.
+- GUI HTTP: no token / wrong token → 403, wrong method → 404, bad JSON → 400, 100 KB body →
+  413, page and JSON both `cache-control: no-store`.
+
 ## 0.7.184 — 2026-10-31
 
 ### Fixed

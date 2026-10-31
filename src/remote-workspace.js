@@ -58,6 +58,18 @@ export function safeAlias(alias) {
       'so it cannot name a workspace directory'
     )
   }
+  // safeField() / printable() rewrite these for AGENTS.md, and the instructions
+  // have to name the alias exactly: with a right-to-left override the heading
+  // said 'prod\u202etxt' while the real alias holds the raw character, so the
+  // agent was told to use machine: "prod\u202etxt" -- an alias that does not
+  // exist. The directory name displays as something other than what it is too.
+  if (/[\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/.test(text)) {
+    throw new Error(
+      'the alias ' + JSON.stringify(text) + ' contains a character that cannot be shown or typed ' +
+      'exactly (a line separator or a right-to-left override), so the instructions could not ' +
+      'name it and the workspace directory would display as something it is not'
+    )
+  }
   return text
 }
 

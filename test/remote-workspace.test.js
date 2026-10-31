@@ -264,6 +264,23 @@ test('without a workspace service the listing does not promise a registration', 
     assert.doesNotMatch(text, /用 action: "create" 注册/, text)
   } finally { restore() }
 })
+
+test('an alias that cannot be named exactly cannot name a workspace', () => {
+  // AGENTS.md is written with safeField()/printable(), which rewrote the alias:
+  // the heading said prod\u202etxt while the directory was named prod<U+202E>txt,
+  // so the instructions told the agent to use an alias that does not exist.
+  const dshHome = home()
+  for (const alias of ['prod\u202etxt', 'a\u2028b', 'x\u009fy', 'a\u2066b']) {
+    assert.throws(() => remoteDir(dshHome, alias), (err) => {
+      assert.match(err.message, /cannot be shown or typed exactly/)
+      return true
+    }, JSON.stringify(alias))
+  }
+  // An ordinary alias is unchanged in both places.
+  assert.equal(remoteDir(dshHome, 'prod'), path.join(remoteRoot(dshHome), 'prod'))
+  const text = remoteInstructions('prod', { host: 'h.example', username: 'u' }, 'strict')
+  assert.match(text, /machine: "prod"/)
+})
 test('an alias cannot turn the placeholder path into another directory', () => {
   // 'ssh_workspace remove deleteFiles: true' with machine: ".." deleted
   // <dsh-home>/dsh-ssh-safe, because the alias was joined straight into the path.
