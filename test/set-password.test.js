@@ -172,3 +172,27 @@ test('a store saved with a BOM is still read, and other entries survive', { skip
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a prototype-named alias is refused instead of silently not stored', { skip: !dpapiAvailable() && 'DPAPI unavailable' }, () => {
+  // stderr said 'Stored for "__proto__"' and exited 0 while writing nothing:
+  // store['__proto__'] = entry sets the prototype, so JSON.stringify dropped it.
+  // The page already refused these three names.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-swp-proto-'))
+  try {
+    for (const alias of ['__proto__', 'constructor', 'prototype']) {
+      const result = runSetPassword(home, ['--alias', alias, '--password', 'secretpw'])
+      assert.equal(result.status, 2, alias + ' must be refused, got: ' + (result.stderr || result.stdout))
+      assert.match(result.stderr + result.stdout, /collides with a built-in JavaScript property/)
+      assert.match(result.stderr + result.stdout, /nothing was written/)
+      assert.doesNotMatch(result.stderr + result.stdout, /Stored for/)
+    }
+    const file = path.join(home, 'dsh-ssh-safe', 'credentials.json')
+    assert.equal(existsSync(file), false, 'nothing may be written for a refused alias')
+    // An ordinary name still works afterwards.
+    const ok = runSetPassword(home, ['--alias', 'ok', '--password', 'secretpw'])
+    assert.equal(ok.status, 0, ok.stderr || ok.stdout)
+    assert.ok(JSON.parse(readFileSync(file, 'utf8')).ok)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})

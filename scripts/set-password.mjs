@@ -114,6 +114,16 @@ if (rawAlias && !/^[a-z0-9._-]+$/.test(rawAlias)) {
   console.error('because the password would then be stored under a name nothing looks up.')
   process.exit(2)
 }
+// Names that collide with Object.prototype. stderr used to say 'Stored for
+// "__proto__"' and exit 0 while writing nothing at all: store["__proto__"] =
+// entry sets the prototype instead of a key, so JSON.stringify dropped it. The
+// page has refused these three names for a while; the CLI now agrees.
+const reserved = ['__proto__', 'prototype', 'constructor']
+if (reserved.includes(alias)) {
+  console.error('Alias "' + alias + '" collides with a built-in JavaScript property, so it cannot be stored.')
+  console.error('Pick another name -- nothing was written and the file is unchanged.')
+  process.exit(2)
+}
 if (!alias) {
   console.error('Usage: node scripts/set-password.mjs --alias <name> [--host h] [--port p] [--user u]')
   console.error('                                              [--key-path p] [--key-passphrase]')

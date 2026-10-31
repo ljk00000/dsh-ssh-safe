@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.224 — 2026-11-01
+
+### Fixed
+- **`set-password --alias __proto__` said "Stored for "__proto__"" and stored nothing.** The
+  assignment sets the prototype instead of a key, so `JSON.stringify` dropped the entry while the
+  script exited 0:
+  ```
+  before: exit 0,  Stored for "__proto__": passwordDpapi …      file keys: []
+  after : exit 2,  Alias "__proto__" collides with a built-in JavaScript property, so it cannot be
+                   stored. Pick another name -- nothing was written and the file is unchanged.
+  ```
+  The page has refused `__proto__`, `prototype` and `constructor` for a while (its own comment
+  records the same surprise); the CLI now refuses the same three, before anything is written.
+  `constructor` and `prototype` did land as keys, but the two front ends disagreed about which
+  names are usable, which is its own trap.
+
+### Verified, no change needed
+- `formatListing()` rows for a directory, a FIFO, a socket, a char device and a file: `d`, `p`, `s`,
+  `c`, `-` in the type column, real sizes, no `undefined`.
+- Reading and writing a FIFO say so after the timeout ("is a named pipe (FIFO) — a FIFO has no end
+  until something writes to it").
+- `format.js` edges: `plural(1)` → "1 byte", `clipText` never splits a surrogate pair, `exitLine`
+  handles a null code and a signal.
+
+### Tests
+- One new case: the three names exit 2 with that message, nothing is written, and an ordinary alias
+  still works afterwards. Suite 805 / 800 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.223 — 2026-11-01
 
 ### Fixed
