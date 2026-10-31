@@ -48,7 +48,7 @@ test('a machine with host+user but no credentials is refused', async () => {
     await assert.rejects(
       () => pool.connect('noauth'),
       (err) => {
-        assert.match(err.message, /no credentials/)
+        assert.match(err.message, /no (?:usable )?credentials/)
         assert.match(err.message, /disabled for this profile/, 'explains why a session password is refused')
         return true
       }

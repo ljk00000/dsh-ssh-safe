@@ -770,7 +770,10 @@ export class SshPool {
     }
     if (auth.kind === 'none') {
       throw noCooldown(new Error(
-        'Machine "' + alias + '" has no credentials. Set ' + envNames(alias).password +
+        // 'has no credentials' was printed even when one was stored but could not be
+        // decrypted, and the warning saying so came last. The leading sentence has to
+        // be true whatever the tail says.
+        'Machine "' + alias + '" has no usable credentials. Set ' + envNames(alias).password +
         ' or ' + envNames(alias).keyPath + '. Also checked: SSH_AUTH_SOCK for an agent,' +
         ' which none was found at.' +
         (this.config.allowSessionPassword
@@ -783,7 +786,10 @@ export class SshPool {
         // A credential file that exists but cannot be read is the likeliest
         // reason for "no credentials" right after editing it, and the message
         // above pointed at the environment instead.
-        ((auth.warnings || []).length > 0 ? ' ' + auth.warnings.join(' ') : '')
+        // One warning per line: capitalising the first letter renamed the file in
+        // 'credentials.json could not be parsed', which is worse than a lowercase
+        // sentence start.
+        ((auth.warnings || []).length > 0 ? '\n' + auth.warnings.join('\n') : '')
       ))
     }
 

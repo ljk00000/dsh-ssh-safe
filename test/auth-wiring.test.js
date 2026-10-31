@@ -140,7 +140,7 @@ test('a machine with no credentials at all is refused before connecting', async 
   })
   await assert.rejects(
     () => pool.connect('empty', {}),
-    (err) => { assert.match(err.message, /no credentials/i); return true }
+    (err) => { assert.match(err.message, /no (?:usable )?credentials/i); return true }
   )
   assert.equal(sink.length, 0, 'nothing must be dialled without a credential')
 })

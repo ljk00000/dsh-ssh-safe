@@ -59,7 +59,7 @@ test('the warning reaches the credential report and the connect failure', () => 
   return pool.exec('a', 'echo hi', {}).then(
     () => assert.fail('the connect should have been refused'),
     (err) => {
-      assert.match(err.message, /has no credentials/)
+      assert.match(err.message, /has no usable credentials/)
       assert.match(err.message, /credentials\.json could not be parsed/)
       return true
     },

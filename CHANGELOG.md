@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.180 — 2026-10-31
+
+### Fixed
+- **"has no credentials" was said about a credential that exists.** A password stored with
+  DPAPI and copied from another Windows account cannot be decrypted here, and the refusal
+  opened with a denial of its existence, then explained the opposite at the end:
+  ```
+  before: Machine "t" has no credentials. Set DSH_SSH_T_PASSWORD … to allow it. the stored
+          password could not be decrypted (…). Re-run scripts/set-password.mjs …
+  after : Machine "t" has no usable credentials. Set DSH_SSH_T_PASSWORD … to allow it.
+          the stored password could not be decrypted (…). Re-run scripts/set-password.mjs …
+  ```
+  The leading sentence is now true whichever the tail says, and each resolver warning sits
+  on its own line instead of being run into the sentence before it.
+
+### Verified, no change needed
+- `ssh_config` lists every one of the 23 configuration keys the schema accepts (compared key
+  by key).
+- The audit file survives outside interference: truncated to zero → "No operations recorded
+  yet", then new records append again; deleted mid-session → recreated on the next write; a
+  line that is not JSON → the renderer marks it rather than throwing; a 19 MB file is read in
+  43 ms and only the requested rows are shown.
+
+### Corrected while editing
+- My first attempt capitalised the first character of the appended warning, which renamed
+  the file in "credentials.json could not be parsed" to "Credentials.json" and failed three
+  tests. Warnings are separated by a line break instead; the file name is untouched and two
+  older assertions were widened to `/no (?:usable )?credentials/`.
+
 ## 0.7.179 — 2026-10-31
 
 ### Fixed
