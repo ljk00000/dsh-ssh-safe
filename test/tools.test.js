@@ -663,3 +663,19 @@ test('ssh_config describes the credential file that is actually there', async ()
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('ssh_config says when a custom deny list replaced the built-in rules', async () => {
+  // Writing ONE pattern replaces the whole built-in set, which is not what
+  // 'add a rule' looks like: it dropped rm -rf / protection without a word.
+  const lineOf = async (extra) => {
+    const { tools, restore } = capture({ machines: { box: { host: 'h', user: 'u' } }, ...extra })
+    try {
+      const text = String((await tools['ssh_config'].execute({}, {})).text)
+      return text.split('\n').find((line) => line.includes('denyPatterns')) || ''
+    } finally { restore() }
+  }
+
+  assert.match(await lineOf({}), /\(the built-in set\)/)
+  assert.match(await lineOf({ denyPatterns: ['^shutdown'] }), /replaces the 10 built-in rules/)
+  assert.match(await lineOf({ denyPatterns: [] }), /the destructive-command guard is OFF/)
+})

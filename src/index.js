@@ -463,6 +463,21 @@ function editDistance(a, b) {
  * @param {{signal?: unknown}} [execution]
  * @returns {AbortSignal|undefined}
  */
+/**
+ * How many deny patterns are in effect, and whether the built-in set survived.
+ *
+ * @param {unknown} configured
+ * @returns {string}
+ */
+function denyPatternsSummary(configured) {
+  const list = Array.isArray(configured) ? configured : []
+  const builtIn = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
+  if (list.length === 0) return '0 pattern(s) — the destructive-command guard is OFF'
+  const same = list.length === builtIn.length && list.every((pattern, index) => pattern === builtIn[index])
+  if (same) return list.length + ' pattern(s) (the built-in set)'
+  return list.length + ' pattern(s) — replaces the ' + builtIn.length + ' built-in rules'
+}
+
 /** Fields a machine entry in the settings form may use. */
 const MACHINE_FIELDS = ['host', 'port', 'user', 'password', 'keyPath', 'keyPassphrase', 'hostKeyPolicy', 'knownHosts']
 
@@ -1702,7 +1717,10 @@ function assertKnownArgs(args, known, toolName) {
         ['healthCheckIdleMs', cfg.healthCheckIdleMs, '0 disables the probe'],
         ['healthCheckTimeoutMs', cfg.healthCheckTimeoutMs, 'liveness probe deadline'],
         ['pipeToShell', cfg.pipeToShell, 'refuse | allow a pipe into an interpreter'],
-        ['denyPatterns', (cfg.denyPatterns || []).length + ' pattern(s)', 'safety rail, not a boundary'],
+        // A custom list REPLACES the built-in one, which is not what "add a rule"
+        // looks like: writing one pattern dropped 'rm -rf /' protection without a
+        // word. The count is qualified now.
+        ['denyPatterns', denyPatternsSummary(cfg.denyPatterns), 'safety rail, not a boundary'],
       ]
       const lines = ['Configuration in effect:']
       for (const [key, value, note] of rows) {

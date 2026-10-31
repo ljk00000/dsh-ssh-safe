@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.110 — 2026-10-31
+
+### Fixed
+- **`ssh_config` reported a custom `denyPatterns` list as if the built-ins were
+  still there.** A configured list REPLACES the built-in ten — writing one rule of
+  your own silently dropped the `rm -rf /` protection, and the report said only
+  "1 pattern(s)". The row now states which set is in effect:
+  ```
+  denyPatterns  "10 pattern(s) (the built-in set)"
+  denyPatterns  "1 pattern(s) — replaces the 10 built-in rules"
+  denyPatterns  "0 pattern(s) — the destructive-command guard is OFF"
+  ```
+
+### Verified, no change needed
+- A configuration value the schema cannot use is refused at load with the exact
+  path: `$.hostKeyPolicy expected "strict" | "tofu" | "off" but got "STRICT"`,
+  `$.pipeToShell expected "refuse" | "allow" but got "refuse "` (a trailing space).
+  No silent fallback to a default.
+- An invalid custom pattern is refused at load too:
+  `denyPatterns[0] is not a valid regular expression (Invalid regular expression …)`
+  rather than being skipped at run time, which would have left the rail silently
+  thinner than it looked.
+
 ## 0.7.109 — 2026-10-31
 
 ### Fixed
