@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.232 — 2026-11-01
+
+### Fixed
+- **`DSH_SSH_<ALIAS>_PORT=abc` was reported as `port null from the env`.** The variable was
+  converted with `Number()` before validation, `Number("abc")` is `NaN`, and `JSON.stringify(NaN)` is
+  `null` — so the message quoted a value nothing was configured with:
+  ```
+  before: port null from the env is not an integer between 1 and 65535
+  after : port "abc" from the env is not an integer between 1 and 65535
+  ```
+  The raw text is kept when it cannot be read as a number. `99999`, `0`, `22.5` and `-1` still report
+  their own value, and `" 22 "`, `"022"`, `"0x16"`, `"1e3"` keep behaving as before.
+
+### Verified, no change needed
+- Every numeric tool argument is already type-checked by the tool schema before the code sees it:
+  `maxBytes: true`, `maxBytes: [200]`, `maxBytes: "200"`, `offset: [1]`, `offset: "1"`,
+  `limit: true`, `limit: "2"` and `timeoutMs: true` all answer `invalid arguments: "…" must be an
+  integer`. I wrote a `numeric()` guard for the helpers, measured that it was unreachable from the
+  tool boundary, and removed it rather than ship code nothing can exercise.
+
+### Tests
+- One new case: `abc` is quoted and not shown as null, `2222` still works, `99999` still names itself.
+  Suite 813 / 808 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.231 — 2026-11-01
 
 ### Fixed

@@ -37,6 +37,21 @@ export function envNames(alias) {
  * Resolve a machine definition from the environment.
  * Returns only the fields that are actually present; never throws.
  */
+/**
+ * The port an environment variable asks for, as a number when it is one.
+ *
+ * Anything else stays as text so the validation message can quote it:
+ * Number("abc") is NaN, and JSON.stringify turns that into null.
+ *
+ * @param {string} text
+ * @returns {number|string}
+ */
+function portValue(text) {
+  if (!text) return 22
+  const n = Number(text)
+  return Number.isFinite(n) ? n : text
+}
+
 export function machineFromEnv(alias, env = process.env) {
   const names = envNames(alias)
   const get = (n) => {
@@ -46,7 +61,10 @@ export function machineFromEnv(alias, env = process.env) {
   return {
     alias,
     host: get(names.host),
-    port: get(names.port) ? Number(get(names.port)) : 22,
+    // A value that is not a number is kept as the text the caller typed: with
+    // Number("abc") the message was "port null from the env is not an integer …"
+    // (JSON.stringify(NaN) is null), naming a value nothing was configured with.
+    port: portValue(get(names.port)),
     username: get(names.user),
     password: get(names.password),
     keyPath: get(names.keyPath),

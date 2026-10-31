@@ -310,3 +310,37 @@ test('a usable password outranks a key, in the order the documentation states', 
     }
   } finally { rmSync(home, { recursive: true, force: true }) }
 })
+
+test('a port from the environment that is not a number is quoted, not shown as null', () => {
+  // Number('abc') is NaN and JSON.stringify(NaN) is null, so the message said 'port
+  // null from the env', naming a value nothing was configured with.
+  const previous = {}
+  const set = (vars) => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('DSH_SSH_QP_')) { previous[key] = process.env[key]; delete process.env[key] }
+    }
+    Object.assign(process.env, vars)
+  }
+  try {
+    set({ DSH_SSH_QP_HOST: '10.0.0.1', DSH_SSH_QP_USER: 'root', DSH_SSH_QP_PORT: 'abc' })
+    const broken = machineDefinition('qp', {})
+    assert.equal(broken.port, 22)
+    assert.match(broken.portProblem, /port "abc" from the env is not an integer between 1 and 65535/)
+    assert.doesNotMatch(broken.portProblem, /null/)
+    assert.equal(String(broken.portRaw), 'abc')
+
+    set({ DSH_SSH_QP_PORT: '2222' })
+    const fine = machineDefinition('qp', {})
+    assert.equal(fine.port, 2222)
+    assert.equal(fine.portProblem, '')
+
+    set({ DSH_SSH_QP_PORT: '99999' })
+    const outOfRange = machineDefinition('qp', {})
+    assert.match(outOfRange.portProblem, /port 99999 from the env/)
+  } finally {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('DSH_SSH_QP_')) delete process.env[key]
+    }
+    Object.assign(process.env, previous)
+  }
+})
