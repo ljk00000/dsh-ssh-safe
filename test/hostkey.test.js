@@ -296,3 +296,26 @@ test('a known_hosts file with no entries is unknown, not a broken format', () =>
   assert.match(garbage.reason, /not in a format this plugin can verify/)
   rmSync(home, { recursive: true, force: true })
 })
+
+test('a plain known_hosts entry covers port 22 and no other port', () => {
+  // OpenSSH looks up '[host]:port' off port 22, so a plain entry does not cover a
+  // custom port. Accepting it anyway extended trust from one port to all of them,
+  // and disagreed with this plugin's own store, which keys records by host:port.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-khport-'))
+  const blob = Buffer.from('known-hosts-port-key-0123456789')
+  const file = path.join(home, 'known_hosts')
+  writeFileSync(file, 'h.example ssh-ed25519 ' + blob.toString('base64') + '\n', 'utf8')
+  const check = (port) => checkHostKey({
+    dshHome: home, host: 'h.example', port, keyBlob: blob, policy: 'tofu',
+    trustHostKey: false, knownHostsFile: file,
+  })
+  assert.equal(check(22).ok, true, 'port 22 is what the plain entry covers')
+  const custom = check(2222)
+  assert.equal(custom.ok, false)
+  assert.match(custom.reason, /Unknown host h\.example:2222/)
+  // And the bracketed form covers exactly its own port.
+  writeFileSync(file, '[h.example]:2222 ssh-ed25519 ' + blob.toString('base64') + '\n', 'utf8')
+  assert.equal(check(2222).ok, true)
+  assert.equal(check(22).ok, false)
+  rmSync(home, { recursive: true, force: true })
+})

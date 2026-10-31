@@ -175,7 +175,11 @@ function hashedEntryMatches(field, host) {
  */
 function entryCoversHost(field, host, port) {
   const bracketed = '[' + host + ']:' + port
-  const candidates = port === 22 ? [host] : [bracketed, host]
+  // OpenSSH looks up 'host' on port 22 and '[host]:port' on every other port, so a
+  // plain entry does not cover a non-standard port. Accepting 'host' as well meant
+  // trust recorded for one port silently extended to every other one — and this
+  // plugin's own store keys records by host:port, so the two disagreed.
+  const candidates = port === 22 ? [host] : [bracketed]
   // A '!pattern' anywhere in the list takes the whole entry out of play, which
   // is what OpenSSH does. Ignoring the negation made '*.example.com,!bad.example.com'
   // cover bad.example.com: a key the user explicitly excluded was accepted.

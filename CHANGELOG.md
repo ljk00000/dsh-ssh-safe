@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.151 — 2026-10-31
+
+### Fixed
+- **A plain `known_hosts` entry covered every port.** OpenSSH looks up `host` on port 22
+  and `[host]:port` on every other port, so an entry written for one port must not
+  cover the rest. The matcher tried the bare host name as a second candidate, which
+  extended trust silently — and disagreed with this plugin's own store, which keys
+  records by `host:port`:
+  ```
+  known_hosts:  h.example ssh-ed25519 AAAA…
+        port 22   → accepted        (unchanged)
+        port 2222 → accepted        (now: Unknown host h.example:2222, with the
+                                     ssh-keyscan -p 2222 … advice)
+  known_hosts:  [h.example]:2222 ssh-ed25519 AAAA…
+        port 2222 → accepted, port 22 → unknown   (unchanged)
+  ```
+  Wildcard entries (`*.example.com`), hashed entries (`|1|salt|hash`, HashKnownHosts)
+  and `!negated` patterns were re-measured and behave as before.
+
 ## 0.7.150 — 2026-10-31
 
 ### Fixed
