@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.297 — 2026-11-01
+
+### Hardened — a command cannot forge an audit row
+The audit trail is the plugin's evidence of what ran. A command holding a bare carriage return can repaint
+the line a terminal shows, which would let it appear to have recorded something else. Measured, then
+pinned:
+```
+command: "echo ok\rFORGED exec ok exit=0 whoami"
+audit.ndjson  one physical line, the CR stored as the two characters \r
+ssh_audit     echo ok\rFORGED exec ok exit=0 whoami      (no raw 0x0D in the reply)
+```
+
+### Verified this round (no defect found)
+- Concurrent appends: four processes writing 200 records each produced 800 valid JSON lines, no torn or
+  duplicated record. With rotation forced (4 KB and 2 KB caps) nothing was malformed — the only records
+  missing are the ones the retention bound deliberately drops (5 files at most).
+- Serial vs concurrent rotation retains about the same amount (86 vs 104 lines at 4 KB, 52 vs 46 at 2 KB),
+  so concurrent shifting does not systematically discard more than the bound allows.
+- `ssh_exec` already explains the stream order: "SSH delivers stdout and stderr as two separate streams and
+  does not preserve the order between them … The order inside each stream is exact."
+- `ssh_audit` limit edges: `0` says no records were requested, `-3` is refused with the value, `9999` is
+  capped with a note, and an omitted limit uses the default.
+
+### My own mistakes
+- The first CR probe used `rm -rf /` as the fake payload and the deny list refused the command, so nothing
+  was audited at all. The guard was right; the probe was wrong. Second attempt used `whoami`.
+- A `String.replace` on the probe file missed because I rewrote the same line twice with different escaping;
+  the third attempt replaced by line index.
+
+### Tests
+- One new live case: the CR record stays one physical line and `ssh_audit` prints no raw 0x0D.
+  Suite 883 / 878 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.296 — 2026-11-01
 
 ### Hardened — the privacy setting is now pinned on its failure paths

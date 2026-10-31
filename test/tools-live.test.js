@@ -3474,3 +3474,38 @@ test('an empty write is a write, not a missing argument', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a command cannot forge an audit row with a carriage return', async () => {
+  // A lone CR repaints the line a terminal is showing. A command holding one could
+  // make the trail look like it recorded something else, so neither the NDJSON file
+  // nor ssh_audit may carry the raw byte.
+  const own = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-auditcr-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  try {
+    await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000, auditLog: true,
+      machines: { t: machineFor('t', own.port) },
+    })
+    await tools.ssh_exec.execute({ machine: 't', command: 'echo ok\rFORGED exec ok exit=0 whoami' }, {})
+    const file = path.join(home, 'dsh-ssh-safe', 'audit.ndjson')
+    const raw = readFileSync(file, 'utf8')
+    // One physical line per record: the CR is stored as the two characters \r.
+    assert.equal(raw.split('\n').filter(Boolean).length, 1)
+    assert.ok(!raw.includes('\r'), 'the record must not contain a raw CR')
+    const record = JSON.parse(raw.trim())
+    assert.match(record.command, /^echo ok/)
+    const shown = String((await tools.ssh_audit.execute({ limit: 5 }, {})).text)
+    assert.ok(!shown.includes('\r'), 'ssh_audit must not print a raw CR')
+    assert.match(shown, /echo ok/)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await own.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
