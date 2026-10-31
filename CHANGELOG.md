@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.230 — 2026-11-01
+
+### Fixed
+- **`ssh_close` on a machine whose last connection failed said "No live connection" and nothing
+  else — while also clearing the reconnect cooldown.** The effect was real, silent, and surprising:
+  ```
+  exec  → ERR: Refusing to retry dead for another 20s (last failure: … ECONNREFUSED …)
+  close → before: No live connection for dead
+          after : No live connection for dead; the 20s retry gate was cleared, so the next call
+                  connects right away
+  exec  → ERR: Could not connect … ECONNREFUSED   (it really does retry now)
+  ```
+  `closeOne()` reports `clearedCooldownMs`; the tool names it. `ssh_close` with no machine still
+  says "No live connections" — it drops the entries entirely, which is what "close everything" means.
+
+### Verified, no change needed
+- No background timers: `setInterval` appears nowhere in `src/`, and every timer belongs to an
+  operation or to a bounded close wait.
+- Unloading the plugin releases the sockets: `ctx.effect(() => () => pool.closeAll({ force: true }))`
+  is registered at the end of `apply()`.
+
+### Tests
+- One new live case: a failed connect, the refusal, the close that names the cleared gate, and the
+  attempt that actually happens afterwards. Suite 811 / 806 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.229 — 2026-11-01
 
 ### Added (a gap I found in myself)

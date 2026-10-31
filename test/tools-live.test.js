@@ -2367,3 +2367,48 @@ test('every operation settles when the turn is cancelled', async () => {
     srv.vfs.control.stallWrites = false
   }
 })
+
+test('close reports the retry gate it clears', async () => {
+  // 'No live connection for dead' was all it said, while the close also reset a 20s
+  // reconnect cooldown: the next call connected at once with nothing explaining why.
+  const net = await import('node:net')
+  const probe = net.createServer()
+  await new Promise((r) => probe.listen(0, '127.0.0.1', r))
+  const deadPort = probe.address().port
+  await new Promise((r) => probe.close(r))
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gate-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'dead', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      connectTimeoutMs: 2000, commandTimeoutMs: 3000, reconnectCooldownMs: 20000,
+      machines: {
+        good: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' },
+        dead: { host: '127.0.0.1', port: deadPort, user: 'tester', password: 'x' },
+      },
+    })
+    const attempt = async (promise) => {
+      try { return String((await promise).text) } catch (err) { return 'ERR: ' + err.message }
+    }
+    const first = await attempt(own.ssh_exec.execute({ machine: 'dead', command: 'echo hi' }, {}))
+    assert.match(first, /ECONNREFUSED/)
+    const second = await attempt(own.ssh_exec.execute({ machine: 'dead', command: 'echo hi' }, {}))
+    assert.match(second, /Refusing to retry dead/)
+    const closed = await attempt(own.ssh_close.execute({ machine: 'dead' }, {}))
+    assert.match(closed, /No live connection for dead/)
+    assert.match(closed, /retry gate was cleared/)
+    assert.match(closed, /connects right away/)
+    const third = await attempt(own.ssh_exec.execute({ machine: 'dead', command: 'echo hi' }, {}))
+    assert.doesNotMatch(third, /Refusing to retry/)
+    assert.match(third, /ECONNREFUSED/)
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

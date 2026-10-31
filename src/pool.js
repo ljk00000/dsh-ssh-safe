@@ -1394,8 +1394,12 @@ export class SshPool {
     e.ready = null
     e.fingerprint = null
     e.credentialIdentity = undefined
+    // Report the gate that was cleared: a close on a failed machine has an effect
+    // even though there is no socket, and "No live connection" hid it -- the next
+    // call then connected at once with nothing explaining why.
+    const clearedCooldownMs = Math.max(0, Number(e.nextAttemptAt) - Date.now())
     e.nextAttemptAt = 0
-    if (!client) return { closed: false, confirmed: false }
+    if (!client) return { closed: false, confirmed: false, clearedCooldownMs }
     const confirmed = await closeClient(client, pick(this.config.closeTimeoutMs, 1500))
     return { closed: true, confirmed }
   }

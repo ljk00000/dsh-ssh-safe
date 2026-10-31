@@ -2415,7 +2415,13 @@ function assertKnownArgs(args, known, toolName) {
             'Not closing ' + alias + ': a command is still running on it. ' +
             'Wait for it to finish, or pass force: true to cut it off.' }
         }
-        if (!result.closed) return { text: 'No live connection for ' + alias }
+        if (!result.closed) {
+          const gate = Number(result.clearedCooldownMs) || 0
+          const note = gate > 0
+            ? '; the ' + Math.ceil(gate / 1000) + 's retry gate was cleared, so the next call connects right away'
+            : ''
+          return { text: 'No live connection for ' + alias + note }
+        }
         return { text: result.confirmed
           ? 'Closed: ' + alias
           : 'Requested close for ' + alias + ' but the peer did not confirm; the entry was reset so the next call reconnects.' }
