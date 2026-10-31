@@ -712,3 +712,29 @@ test('a private key anyone can read is called out', () => {
   assert.match(keyModeWarning(0o644), /OpenSSH would refuse it/)
   assert.match(keyModeWarning(0o666), /mode 0666/)
 })
+
+test('ssh_machines does not present an ignored password as the auth source', async () => {
+  // It said 'auth: password (config)' while ssh_credentials said 'IGNORED:
+  // plaintext' and ssh_doctor said 'no password, key or agent available'.
+  const plain = capture({ machines: { p: { host: 'h', user: 'u', password: 'pw' } } })
+  try {
+    const text = String((await plain.tools['ssh_machines'].execute({}, {})).text)
+    assert.match(text, /auth: NONE \(a plaintext settings-form password is set but ignored/)
+    assert.doesNotMatch(text, /auth: password \(config\)/)
+  } finally { plain.restore() }
+
+  // With a key as well, the key is what authenticates.
+  const keyed = capture({ machines: { k: { host: 'h', user: 'u', password: 'pw', keyPath: '/k/id' } } })
+  try {
+    const text = String((await keyed.tools['ssh_machines'].execute({}, {})).text)
+    assert.match(text, /auth: key \/k\/id \(config\)/)
+    assert.doesNotMatch(text, /auth: password \(config\)/)
+  } finally { keyed.restore() }
+
+  // And when the profile allows plaintext, the password is the source again.
+  const allowed = capture({ allowPlaintextPassword: true, machines: { p: { host: 'h', user: 'u', password: 'pw' } } })
+  try {
+    const text = String((await allowed.tools['ssh_machines'].execute({}, {})).text)
+    assert.match(text, /auth: password \(config\)/)
+  } finally { allowed.restore() }
+})

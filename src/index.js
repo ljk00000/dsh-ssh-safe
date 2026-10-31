@@ -818,13 +818,22 @@ function assertKnownArgs(args, known, toolName) {
         // said "NONE" for a machine whose password was sitting in the
         // credential file.
         const pwSource = m.sources.password
-        const authKind = pwSource && pwSource !== 'none'
+        // A plaintext password the profile refuses is not a credential: this line
+        // said 'auth: password (config)' while ssh_credentials said 'IGNORED:
+        // plaintext' and ssh_doctor said 'no password, key or agent available'.
+        const plaintextIgnored = (pwSource === 'config' || pwSource === 'file-plaintext') &&
+          cfg.allowPlaintextPassword !== true
+        const usablePassword = Boolean(pwSource) && pwSource !== 'none' && !plaintextIgnored
+        const authKind = usablePassword
           ? 'password (' + pwSource + ')'
           : m.keyPath
             ? (lean
                 ? 'private key (' + m.sources.keyPath + ', path hidden)'
                 : 'key ' + m.keyPath + ' (' + m.sources.keyPath + ')')
-            : 'NONE'
+            : plaintextIgnored
+              ? 'NONE (a plaintext ' + (pwSource === 'config' ? 'settings-form' : 'credential-file') +
+                ' password is set but ignored; allowPlaintextPassword is off)'
+              : 'NONE'
         // A port that cannot be dialled is shown as configured, not as the 22
         // fallback: showing 22 hid the value the user has to fix.
         const shownPort = m.portProblem && m.portRaw !== '' ? m.portRaw : m.port

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.114 — 2026-10-31
+
+### Fixed
+- **`ssh_machines` presented an ignored password as the way in.** With
+  `allowPlaintextPassword` off (the default) and a password in the settings form,
+  the three tools disagreed about the same machine:
+  ```
+  ssh_machines     auth: password (config)
+  ssh_credentials  password  config (IGNORED: plaintext)
+  ssh_doctor       [FAIL] credentials: no password, key or agent available
+  ```
+  The machines listing says what the other two said:
+  ```
+  auth: NONE (a plaintext settings-form password is set but ignored; allowPlaintextPassword is off)
+  ```
+  With a key as well, the key is named as the auth source, which is what actually
+  authenticates. With `allowPlaintextPassword: true` the line is
+  `auth: password (config)` again.
+
+### Verified, no change needed
+- `ssh_credentials` names the source, the value never: `password env`, `key —`,
+  `host key (global)`, plus a WARNING line when a plaintext password is ignored.
+- A rejected password is reported by `ssh_doctor` as a failed authentication step
+  with the list of things to check, not as a connection error.
+
 ## 0.7.113 — 2026-10-31
 
 ### Added
