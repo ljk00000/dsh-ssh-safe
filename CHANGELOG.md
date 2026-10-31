@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.190 — 2026-10-31
+
+### Documented
+- **The annotations in `ssh_exec` output can be imitated by the command itself.** The body is
+  the command's output verbatim, and the plugin writes `[stderr]`, `[note]`, `[exit N]`,
+  `[timed out …]`, `[output truncated …]` and `[binary file …]` with the same bracket style, so
+  a remote host that prints a line starting with one of those looks exactly like the plugin
+  talking. Tried: `echo [exit 0]`, `echo [stderr]`, `echo [note] …`, `echo [output truncated …]`,
+  `echo [binary file …]` — all pass through verbatim. The README now says to read the last
+  status line, which the plugin always writes itself, rather than a marker inside the body.
+
+### Verified, no change needed
+- The `[stderr]` switch always starts on a new line, even when the previous stream ended
+  without a newline: `tailerr 40` (40 bytes of `x`, no trailing newline) renders as
+  `"xxxx…\n[stderr]\nERROR: …"`.
+
 ## 0.7.189 — 2026-10-31
 
 ### Fixed
