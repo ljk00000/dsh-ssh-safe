@@ -25,7 +25,7 @@
 
 import { spawnSync } from 'node:child_process'
 import { encryptDpapi, dpapiAvailable } from '../src/dpapi.js'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, statSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -234,8 +234,23 @@ if (Object.keys(entry).length === 0) {
 }
 
 store[alias] = entry
-mkdirSync(dir, { recursive: true })
-writeFileSync(file, JSON.stringify(store, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
+// A file where the directory belongs used to crash with a raw stack trace:
+// 'Error: EEXIST: file already exists, mkdir …' and nothing about what was
+// written. Nothing is written in that case, and saying so is the whole message.
+try {
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(file, JSON.stringify(store, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
+} catch (err) {
+  const code = err && err.code
+  if ((code === 'EEXIST' || code === 'ENOTDIR') && existsSync(dir) && statSync(dir).isFile()) {
+    console.error('Cannot write ' + file + ': ' + dir + ' is a file, not a directory.')
+    console.error('Remove or rename that file, then run this again. Nothing was written.')
+  } else {
+    console.error('Cannot write ' + file + ' (' + (code || (err && err.message) || 'unknown error') + ').')
+    console.error('Nothing was written. Fix the path or its permissions, then run this again.')
+  }
+  process.exit(2)
+}
 
 // On Windows an ACL is the equivalent of a file mode, and unlike chmod it is
 // enforced there.

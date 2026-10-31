@@ -2165,7 +2165,13 @@ function blockingFileAbove(dir) {
         const credFile = credentialsPath(dshHome)
         let state
         if (!existsSync(credFile)) {
-          state = '(not created yet — the settings page writes it on first save)'
+          // "not created yet" promised that a save would create it. With the
+          // parent a file it cannot be created at all, and the save fails with a
+          // bare EEXIST.
+          const blocker = blockingFileAbove(credFile)
+          state = blocker
+            ? '(cannot be created: ' + blocker + ' is a file)'
+            : '(not created yet — the settings page writes it on first save)'
         } else if (process.platform === 'win32') {
           // Windows ignores POSIX permission bits: stat() reports 0666 for a file
           // guarded by an ACL, so printing the mode there invented a warning on

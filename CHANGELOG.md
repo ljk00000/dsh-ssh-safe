@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.239 — 2026-11-01
+
+### Fixed
+- **`set-password.mjs` crashed with a raw Node stack trace when the credential directory could not
+  be created.** With `~/.dsh/dsh-ssh-safe` a regular file:
+  ```
+  before: exit 1
+          Error: EEXIST: file already exists, mkdir '…\dsh-ssh-safe'
+              at mkdirSync (node:fs:1349:26)
+              at file:///…/scripts/set-password.mjs:237:1
+  after : exit 2
+          Cannot write …\credentials.json: …\dsh-ssh-safe is a file, not a directory.
+          Remove or rename that file, then run this again. Nothing was written.
+  ```
+
+- **`ssh_config` promised a save it cannot do**: "not created yet — the settings page writes it on
+  first save". It now answers "cannot be created: …\dsh-ssh-safe is a file" when an ancestor is in
+  the way, using the same `blockingFileAbove()` walk as the workspace tool.
+
+### Verified, no change needed
+- With `dsh-ssh-safe` itself a file, `ssh_workspace create` and `list` already named it (the 0.7.238
+  walk covers any ancestor), and `ssh_machines` kept working from the settings.
+
+### Tests
+- Two new cases: the CLI exits 2 with the new sentence and no stack frame; `ssh_config` says the file
+  cannot be created. Suite 821 / 816 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.238 — 2026-11-01
 
 ### Fixed

@@ -196,3 +196,20 @@ test('a prototype-named alias is refused instead of silently not stored', { skip
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a blocked credential directory is reported, not a stack trace', { skip: !dpapiAvailable() && 'DPAPI unavailable' }, () => {
+  // mkdirSync threw EEXIST with a raw Node stack trace: no message, no statement
+  // that nothing had been written.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-swp-blocked-'))
+  try {
+    writeFileSync(path.join(home, 'dsh-ssh-safe'), 'blocked')
+    const result = runSetPassword(home, ['--alias', 't', '--password', 'secretpw'])
+    assert.equal(result.status, 2, result.stderr || result.stdout)
+    const output = String(result.stderr) + String(result.stdout)
+    assert.match(output, /is a file, not a directory/)
+    assert.match(output, /Nothing was written/)
+    assert.doesNotMatch(output, /at ModuleJob|node:fs:/)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})

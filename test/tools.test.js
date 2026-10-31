@@ -1091,3 +1091,25 @@ test('a file above the placeholder directory is named by both list and create', 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('ssh_config says when the credential file cannot be created', async () => {
+  // 'not created yet — the settings page writes it on first save' promised a save
+  // that fails with EEXIST because the parent is a file.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-cfgnocreate-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    writeFileSync(path.join(home, 'dsh-ssh-safe'), 'blocked')
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', machines: { t: { host: '127.0.0.1', port: 22, user: 'tester' } },
+    })
+    const text = String((await own.ssh_config.execute({}, {})).text)
+    assert.match(text, /Credential file: .*cannot be created: .*dsh-ssh-safe is a file/)
+    assert.doesNotMatch(text, /not created yet/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
