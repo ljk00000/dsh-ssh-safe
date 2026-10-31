@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, renameSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -116,5 +116,61 @@ test('two page instances saving at the same moment keep both machines', async ()
     b?.child.kill('SIGTERM')
     await new Promise((r) => setTimeout(r, 300))
     rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('the lock and its writes also work on a network share', async (t) => {
+  // DSH_HOME can point at a share, and a lock is only worth having if O_EXCL is
+  // atomic there. The SMB admin share of this machine is used when it exists; on
+  // a machine without it the case is skipped rather than faked.
+  const bs = String.fromCharCode(92, 92)
+  const shareRoot = bs + 'localhost' + String.fromCharCode(92) + 'C$'
+  if (!existsSync(shareRoot)) return t.skip('no \\\\localhost\\C$ share on this machine')
+  const base = mkdtempSync(path.join(shareRoot, 'Users', 'Public', 'dsh-lockshare-'))
+  const file = path.join(base, 'credentials.json')
+  try {
+    const first = acquireStoreLock(file)
+    assert.equal(first.timedOut, false)
+    const second = acquireStoreLock(file, { waitMs: 80 })
+    assert.equal(second.timedOut, true, 'O_EXCL must exclude a second holder over SMB')
+    first.release()
+    const third = acquireStoreLock(file, { waitMs: 80 })
+    assert.equal(third.timedOut, false)
+    third.release()
+
+    // Two child processes incrementing a counter through the lock.
+    const lockUrl = new URL('../scripts/lib/store-lock.mjs', import.meta.url).href
+    const script = [
+      "import { readFileSync, writeFileSync } from 'node:fs'",
+      'import { withStoreLock } from ' + JSON.stringify(lockUrl),
+      'const file = process.argv[2]',
+      'for (let i = 0; i < 10; i++) {',
+      '  withStoreLock(file, () => {',
+      '    const n = JSON.parse(readFileSync(file).toString()).n',
+      '    writeFileSync(file, JSON.stringify({ n: n + 1 }))',
+      '  })',
+      '}',
+    ].join('\n')
+    // The script itself must stay on the local disk: Node cannot load an ESM entry
+    // point from a UNC path (ERR_INVALID_FILE_URL_PATH). Only the data file is on
+    // the share, which is also how a real user has it.
+    const scriptPath = path.join(mkdtempSync(path.join(tmpdir(), 'dsh-smbsrc-')), 'count.mjs')
+    writeFileSync(file, '{"n":0}')
+    writeFileSync(scriptPath, script)
+    const run = () => new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [scriptPath, file], { cwd: root })
+      child.on('error', reject)
+      child.on('exit', (code) => (code === 0 ? resolve() : reject(new Error('child exit ' + code))))
+    })
+    await Promise.all([run(), run()])
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).n, 20, 'both children increments must survive over SMB')
+
+    // And the rename the page uses instead of writing in place.
+    const tmp = file + '.tmp-test'
+    writeFileSync(tmp, '{"n":"renamed"}')
+    renameSync(tmp, file)
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).n, 'renamed')
+  } finally {
+    rmSync(base, { recursive: true, force: true })
   }
 })

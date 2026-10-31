@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.298 — 2026-11-01
+
+### Hardened — the credential lock was verified on a network share
+`DSH_HOME` may live on a share, and a lock is only worth having if `O_EXCL` is atomic there. Measured over
+the SMB admin share of this machine (`\\localhost\\C$…`), with the data file on the share and the code on
+local disk:
+```
+second holder timed out: true          (exclusion holds)
+after release acquired: true
+counter after two children: 60 (expected 60)
+rename over SMB: ok
+two page instances, 20 concurrent saves: lost 0 / 20, both entries DPAPI-encrypted
+```
+The lock, the temp-file-then-rename write and DPAPI encryption all work on a network path. The test is
+skipped on a machine without the share instead of pretending.
+
+### My own mistakes
+- Node cannot load an ESM entry point from a UNC path (`ERR_INVALID_FILE_URL_PATH: must be absolute`).
+  Both the probe and the test wrote their child script onto the share; moving the script to local disk and
+  leaving only the data file on the share fixed it — which is also the realistic layout.
+- Escaping the UNC prefix in a generated file ate backslashes (`'\\\\localhost'` became `\localhost`).
+  The final versions build it from `String.fromCharCode(92, 92)`, which no layer can mangle.
+
+### Verified this round (no defect found)
+- `ssh_write` reports the mode it **measured** after the write, not the one requested: `mode: "4755"` on a
+  server that drops setuid says `asked for 4755 but the file ended up 0755 (the server applies its umask…)`;
+  `"7778"`, `"9999"` and `"abc"` are refused as not octal; a number is refused as not a string.
+- The parameter scan for declared-but-unread arguments finds only `machine`, which is read through a shared
+  helper rather than `args.machine` — no dead parameters.
+
+### Tests
+- One new case in `test/store-lock.test.js`: exclusion, two-process serialisation and a rename over SMB.
+  Suite 884 / 879 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.297 — 2026-11-01
 
 ### Hardened — a command cannot forge an audit row
