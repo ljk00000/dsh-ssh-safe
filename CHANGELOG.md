@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.165 — 2026-10-31
+
+### Fixed
+- **A PuTTY `.ppk` private key was returned verbatim.** That format has no PEM markers
+  (a header line plus base64 under `Private-Lines`), so nothing matched and `ssh_read`
+  handed the key to the caller — and `ssh_exec cat id.ppk` did the same:
+  ```
+  before: PuTTY-User-Key-File-2: ssh-rsa … Private-Lines: 2 PRIVATEKEYDATA1 …
+  after : <redacted-ppk>            (read) / masked output (exec)
+  ```
+  `raw: true` still returns the file verbatim.
+
+### Verified, no change needed
+- Redaction across shapes: CRLF PEM, mismatched BEGIN/END labels, two BEGINs with one
+  END, an openssh-format key, a JSON `"privateKey": "…"` and a body containing dashes are
+  all masked; prose that merely mentions the markers is left alone.
+- `ssh_exec` output goes through the same `redact` as `ssh_read` (it is the same promise,
+  and a command that prints an `.env` reaches the transcript otherwise).
+
 ## 0.7.164 — 2026-10-31
 
 ### Fixed

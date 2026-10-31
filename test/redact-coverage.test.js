@@ -150,3 +150,21 @@ test('a private key cut short by a read limit is still masked', () => {
   const prose = 'see the -----BEGIN marker in the docs'
   assert.equal(redact(prose), prose)
 })
+
+test('a PuTTY .ppk private key is masked too', () => {
+  // .ppk has no PEM markers: the header line plus base64 under Private-Lines. It
+  // reached ssh_read verbatim while the tool promised to mask secret-shaped text.
+  const ppk = [
+    'PuTTY-User-Key-File-2: ssh-rsa',
+    'Encryption: none',
+    'Private-Lines: 2',
+    'PRIVATEKEYDATA1',
+    'PRIVATEKEYDATA2',
+    'Private-MAC: abcdef',
+  ].join('\n')
+  const out = redact(ppk)
+  assert.equal(out, '<redacted-ppk>')
+  assert.doesNotMatch(out, /PRIVATEKEYDATA/)
+  // A mention of the format in prose is masked as well; that is the safe side.
+  assert.equal(redact('nothing to see here'), 'nothing to see here')
+})

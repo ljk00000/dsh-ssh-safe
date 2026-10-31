@@ -141,6 +141,10 @@ export function redact(text) {
   s = s.replace(/(^|[\s"'])(--?(?:password|passwd|passphrase|token|secret))(\s+|=)(\S+)/gi, '$1$2$3<redacted>')
   // PEM blocks
   s = s.replace(/-----BEGIN [\s\S]*?-----END [^-]*-----/g, '<redacted-pem>')
+  // PuTTY's .ppk format has no PEM markers at all: 'PuTTY-User-Key-File-2:' then
+  // base64 under 'Private-Lines'. A private key in that shape reached ssh_read
+  // verbatim while the tool promised to mask secret-shaped text.
+  s = s.replace(/PuTTY-User-Key-File-\d+:[\s\S]*$/i, '<redacted-ppk>')
   // A key whose END marker is beyond a read limit has none: the rule above needs
   // both markers, so a 1024-byte slice of a private key was returned verbatim —
   // exactly the material ssh_read promises to mask. Mask from BEGIN to the end.
