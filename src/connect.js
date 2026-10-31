@@ -56,9 +56,16 @@ export function connectOptions(machine, auth, timing = {}) {
       throw new Error('cannot read the private key ' + keyPath + ': ' +
         String(err && /** @type {any} */ (err).message ? /** @type {any} */ (err).message : err))
     }
-    const parsed = ssh2.utils.parseKey(keyText)
+    // The passphrase has to reach the parser: without it an encrypted key never
+    // parses, so setting keyPassphrase changed nothing and every attempt failed
+    // with 'Encrypted private OpenSSH key detected, but no passphrase given' —
+    // even with the right passphrase.
+    const parsed = ssh2.utils.parseKey(keyText, auth.passphrase || undefined)
     if (parsed instanceof Error) {
-      throw new Error('the private key ' + keyPath + ' could not be parsed: ' + parsed.message)
+      const passphraseHint = /passphrase/i.test(parsed.message)
+        ? ' — set keyPassphrase for this machine (or DSH_SSH_<ALIAS>_KEY_PASSPHRASE) if the key is protected'
+        : ''
+      throw new Error('the private key ' + keyPath + ' could not be parsed: ' + parsed.message + passphraseHint)
     }
     options.privateKey = keyText
     if (auth.passphrase) options.passphrase = auth.passphrase

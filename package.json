@@ -1,6 +1,6 @@
 {
   "name": "dsh-ssh-safe",
-  "version": "0.7.126",
+  "version": "0.7.127",
   "description": "Security-first SSH remote execution tools for DeepSeek Harness — no telemetry, no cloud, no auto-update; credentials from env by default.",
   "license": "MIT",
   "author": "ljk00000",

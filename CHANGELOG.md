@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.127 — 2026-10-31
+
+### Fixed — keyPassphrase did nothing
+- The private key was parsed **without** the passphrase, so an encrypted key never
+  parsed and every attempt failed the same way — with the right passphrase, the
+  wrong one, or none at all:
+  ```
+  before (all three): could not be parsed: Encrypted private OpenSSH key detected,
+                      but no passphrase given
+  after  (none)     : … no passphrase given — set keyPassphrase for this machine
+                      (or DSH_SSH_<ALIAS>_KEY_PASSPHRASE) if the key is protected
+         (wrong)    : … OpenSSH key integrity check failed -- bad passphrase?
+         (right)    : the key parses; authentication proceeds
+  ```
+  `parseKey()` takes the passphrase now, and a parse failure that mentions a
+  passphrase names the setting that supplies it.
+
+### Verified, no change needed
+- `ssh_config` reports live connections accurately: `1 / 8 max  [h]` while connected,
+  `0 / 8 max` after `ssh_close`.
+- `tofu` records the key on first contact and connects; `strict` then verifies against
+  the same record; when the server key changes, both refuse with
+  `HOST KEY CHANGED … recorded SHA256:…, presented SHA256:…` — tofu does not silently
+  accept a changed key.
+
 ## 0.7.126 — 2026-10-31
 
 ### Fixed

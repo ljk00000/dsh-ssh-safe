@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import ssh2 from 'ssh2'
@@ -89,4 +89,39 @@ test('a key file that cannot be read or parsed names itself', () => {
       return true
     },
   )
+})
+
+test('a passphrase-protected key parses when the passphrase is supplied', () => {
+  // parseKey() was called without the passphrase, so keyPassphrase changed nothing:
+  // every attempt failed with 'no passphrase given', even with the right one.
+  const key = ssh2.utils.generateKeyPairSync('rsa', { bits: 2048, passphrase: 'right-pass', cipher: 'aes256-cbc' })
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-keypass-'))
+  const keyPath = join(dir, 'id_encrypted')
+  writeFileSync(keyPath, key.private, { mode: 0o600 })
+  try {
+    const base2 = { host: 'h', port: 22, username: 'u' }
+
+    // No passphrase: named, with the setting to add.
+    assert.throws(
+      () => connectOptions(base2, { keyPath }),
+      (err) => {
+        assert.match(err.message, /no passphrase given/)
+        assert.match(err.message, /set keyPassphrase for this machine/)
+        return true
+      },
+    )
+
+    // Wrong passphrase: a different, accurate reason.
+    assert.throws(
+      () => connectOptions(base2, { keyPath, passphrase: 'wrong' }),
+      /integrity check failed|bad passphrase/i,
+    )
+
+    // Right passphrase: the key is usable and reaches ssh2 as an option.
+    const options = connectOptions(base2, { keyPath, passphrase: 'right-pass' })
+    assert.ok(options.privateKey.toString().includes('PRIVATE KEY'))
+    assert.equal(options.passphrase, 'right-pass')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
