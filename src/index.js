@@ -1827,7 +1827,11 @@ function assertKnownArgs(args, known, toolName) {
         if (!r || typeof r !== 'object' || r.malformed) {
           return '[unreadable record] ' + printable(r && r.line ? r.line : '')
         }
-        const when = printable(String(r.at || '').replace('T', ' ').slice(0, 19))
+        // 'at' is written with toISOString(), which is UTC, and the row showed the
+        // digits with no zone: 11:46:20 read as the reader's local 11:46 when their
+        // clock said 19:46. Mark a UTC stamp as UTC; leave anything else as it is.
+        const stamp = String(r.at || '')
+        const when = printable(stamp.replace('T', ' ').slice(0, 19)) + (/Z$/.test(stamp) ? 'Z' : '')
         // A command or path in the log is remote text: an escape sequence there
         // repainted the terminal of whoever was reading the audit trail.
         const machine = r.machine ? ' ' + printable(r.machine) : ''

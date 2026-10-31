@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.199 — 2026-10-31
+
+### Fixed
+- **Audit rows showed UTC timestamps with no zone.** `at` is written with `toISOString()`, and
+  the row printed the digits alone, so a reader in UTC+8 saw `11:46:20` while their clock said
+  `19:46:20` — an eight-hour lie in the one place a time must be exact:
+  ```
+  before: 2026-10-31 11:46:20 t exec ok exit=0 c
+  after : 2026-10-31 11:46:20Z t exec ok exit=0 c
+  ```
+  Only a stamp that actually ends in `Z` gets the marker; a hand-written record keeps its own
+  text. The log stays in UTC (stable across readers) instead of drifting with each timezone.
+
+### Verified, no change needed
+- Output cap boundary is exact: `maxOutputChars: 1024` keeps 1024 bytes with no note; 1025
+  reports "1 more character was dropped from the end"; 1026 says "2 more characters" (the
+  plural is handled).
+- `maxListEntries: 0` means no cap: 300 entries listed, no "more entries" note, and `offset`
+  still reports "… 290 entries above not shown".
+
+### My mistake
+- The first boundary probe used `/\[output truncated at maxOutputChars: (\d+) more characters were
+  dropped\]/` and reported "no note" at 1030 and 2000 bytes. The note was there — the wording
+  continues "from the end — …" and my pattern ended too early. Reading the raw tail corrected it.
+
 ## 0.7.198 — 2026-10-31
 
 ### Fixed

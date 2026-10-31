@@ -466,6 +466,27 @@ test('a plaintext settings password is shown as ignored, with what wins instead'
 
 
 
+
+test('an audit row marks a UTC timestamp as UTC', async () => {
+  // 'at' is written with toISOString(), which is UTC, and the row showed the
+  // digits with no zone: 11:46:20 read as the reader's local 11:46 while their
+  // clock said 19:46.
+  const { tools, restore } = capture({
+    defaultMachine: 't', hostKeyPolicy: 'tofu', auditLog: true,
+    machines: { t: { host: 'h.example', user: 'u' } },
+  })
+  try {
+    const dir = path.join(process.env.DSH_HOME, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, 'audit.ndjson'), JSON.stringify({
+      kind: 'exec', machine: 't', command: 'c', outcome: 'ok', exitCode: 0, ms: 1,
+      at: '2026-10-31T11:46:20.000Z',
+    }) + '\n', 'utf8')
+    const shown = textOf(await tools.ssh_audit.execute({}, {}))
+    assert.match(shown, /2026-10-31 11:46:20Z t exec ok exit=0 c/)
+  } finally { restore() }
+})
+
 test('a machine that is missing its host names the broken credential file', async () => {
   // The reply used to end with 'Nothing was read from disk.' even when the file
   // existed and could not be parsed: the parse problem was dropped by the pool,
