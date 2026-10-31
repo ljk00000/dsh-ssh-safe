@@ -3660,3 +3660,21 @@ test('ssh_write refuses content with an unpaired surrogate instead of writing a 
   assert.match(ok, /Wrote 6 bytes/)
   assert.equal(String((await tools.ssh_read.execute({ machine: 't', path: '/tmp/emoji.txt' }, {})).text), 'a\uD83D\uDE00b')
 })
+
+test('a read that asked for more than the config ceiling says it was clamped', async () => {
+  // maxBytes can only tighten maxFileBytes. Asking for 5000 with a 1024 ceiling used
+  // to report 1024 bytes and advise raising maxFileBytes, as if the 5000 had never
+  // been mentioned; the clamp is now named.
+  // This file's config keeps the default ceiling, 1 MiB, so the file has to be bigger.
+  srv.vfs.putFile('/tmp/large.txt', 'x'.repeat(1100000))
+  const clamped = String((await tools.ssh_read.execute({ machine: 't', path: '/tmp/large.txt', maxBytes: 2000000 }, {})).text)
+  assert.match(clamped, /\[truncated: the first 1048576 bytes of a larger file/)
+  assert.match(clamped, /this call asked for up to 2000000 bytes, but maxFileBytes is 1048576/)
+
+  // Exactly the ceiling is not a clamp, and a tighter call keeps its own advice.
+  const exact = String((await tools.ssh_read.execute({ machine: 't', path: '/tmp/large.txt', maxBytes: 1048576 }, {})).text)
+  assert.doesNotMatch(exact, /this call asked for up to/)
+  assert.match(exact, /raise maxFileBytes in the plugin config/)
+  const tighter = String((await tools.ssh_read.execute({ machine: 't', path: '/tmp/large.txt', maxBytes: 10 }, {})).text)
+  assert.match(tighter, /raise maxBytes in this call/)
+})

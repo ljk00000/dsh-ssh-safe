@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.312 — 2026-11-01
+
+### Fixed — a read that asked for more than the ceiling did not say it was clamped
+`maxBytes` can only tighten `maxFileBytes`, so `maxBytes: 2000` against a 1024 ceiling returned 1024 bytes
+and advised raising `maxFileBytes` — as if the 2000 had never been mentioned. The clamp is named now:
+```
+maxBytes: 2000  (maxFileBytes 1024)
+before  [truncated: the first 1024 bytes of a larger file — raise maxFileBytes in the plugin config to read more]
+after   [truncated: the first 1024 bytes of a larger file — this call asked for up to 2000 bytes, but
+        maxFileBytes is 1024; raise maxFileBytes in the plugin config to read more]
+```
+Exactly the ceiling is not a clamp and keeps the old sentence; a tighter `maxBytes` keeps its own advice.
+
+### Verified this round (no defect found)
+- A timed-out command does not poison the connection: `sleep 2` with `timeoutMs: 300` reports SIGTERM and a
+  closed channel at 304 ms, the next `echo` answers in 2 ms, `exit 3` renders `[exit 3]`, and one client is
+  left open.
+- Both stores unreadable at once: `ssh_credentials` warns (EISDIR), `ssh_machines` adds its own line,
+  `ssh_connect` refuses with the known_hosts sentence, and `ssh_doctor` shows `[warn] credentials` and
+  `[FAIL] host key` with the later stages skipped — no duplication and no contradiction.
+- Lean mode (`machineInventory: "alias"`) leaks nothing through `ssh_doctor`, `ssh_machines` or
+  `ssh_credentials`: no port, no `127.0.0.1`, no `tester@`; the unknown-machine error names only env vars.
+- A non-ASCII `DSH_HOME` (`测试 目录 ünïcode`) works end to end: connect, exec, known_hosts, two audit rows
+  all parse, and `scripts/set-password.mjs` stores a DPAPI blob through PowerShell with status 0.
+- Reconnect cooldown: the second attempt in the window says "Refusing to retry dead for another 4s (last
+  failure: …)", `ssh_doctor` still probes TCP and reports `[FAIL] tcp`, the cooldown survives the doctor, and
+  the first attempt after the window really connects.
+
+### My own mistakes
+1. The first version of this probe set `maxFileBytes: 4`, which the schema rejects (minimum 1024).
+2. The first version of the new test used a 4000-byte file against the default 1 MiB ceiling, so nothing was
+   truncated and the assertion failed on a wall of "x".
+3. I initially made "asked for exactly the ceiling" produce the clamp sentence too, which reads "asked for
+   up to 1024 bytes, but maxFileBytes is 1024"; it is strictly above now.
+
+### Tests
+- One new live case covering the clamped, exact and tighter branches.
+  Suite 899 / 894 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.311 — 2026-11-01
 
 ### Added — the unpaired-surrogate refusal is pinned
