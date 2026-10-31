@@ -52,7 +52,17 @@ function clampRecord(record) {
       // read back into the conversation by ssh_audit: the log is a leak surface
       // exactly like a tool result, and the plugin promises no secret reaches it.
       const safe = redact(value)
-      out[key] = safe.length > MAX_FIELD_CHARS ? safe.slice(0, MAX_FIELD_CHARS) + '…' : safe
+      if (safe.length > MAX_FIELD_CHARS) {
+        // Cutting between the halves of a surrogate pair leaves a lone code unit,
+        // and any reader renders it as U+FFFD — a corrupted character in the audit
+        // trail, which is the one place a record has to be exact. summarize()
+        // already guarded this; the field clamp did not.
+        let cut = safe.slice(0, MAX_FIELD_CHARS)
+        if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1)
+        out[key] = cut + '…'
+      } else {
+        out[key] = safe
+      }
     } else if (value === null || typeof value === 'number' || typeof value === 'boolean') {
       out[key] = value
     } else {

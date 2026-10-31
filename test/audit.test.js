@@ -147,3 +147,22 @@ test('a negative limit is not a request to drop the oldest records', () => {
     assert.equal(log.recent(3).length, 3)
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
+
+test('a long field is never cut between the halves of a surrogate pair', () => {
+  // The 300-character clamp sliced through an emoji at the boundary and left a lone
+  // high surrogate in the record: every reader shows U+FFFD where the log should be
+  // exact. summarize() guarded this; the field clamp did not.
+  const home = dir()
+  try {
+    const log2 = new AuditLog(home)
+    const straddling = 'a'.repeat(298) + '😀' + '.txt'
+    log2.write({ kind: 'list', path: straddling, outcome: 'ok' })
+    const line = readFileSync(path.join(home, 'audit.ndjson'), 'utf8').trim()
+    const stored = String(JSON.parse(line).path)
+    assert.ok(stored.length <= 301, 'got ' + stored.length)
+    assert.doesNotMatch(stored, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/, JSON.stringify(stored.slice(-6)))
+    assert.match(stored, /…$/)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})

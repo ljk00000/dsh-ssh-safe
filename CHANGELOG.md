@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.154 — 2026-10-31
+
+### Fixed
+- **A 300-character audit field could be cut through an emoji.** The clamp sliced at a
+  fixed offset, leaving a lone surrogate in the record — reproduced with a remote path
+  of 298 characters plus `😀`:
+  ```
+  before: path length 301, tail "aa\ud83d…"   (lone high surrogate; readers show U+FFFD)
+  after : path length 300, tail "aaa…"        (the pair is dropped whole)
+  ```
+  `summarize()` already guarded the command field against exactly this; the clamp that
+  applies to `path`, `pattern` and `error` did not. The audit trail is the one place a
+  record has to be exact.
+
+### Verified, no change needed
+- Two `known_hosts` entries for one host are both honoured: a key matching either is
+  accepted, a third key is `HOST KEY CHANGED`.
+- A bad port in the credential file (`0`, `-5`, `70000`, `"abc"`) is reported as
+  `BAD PORT: port … is not an integer between 1 and 65535`, refuses on connect with the
+  same sentence, and `ssh_doctor` shows `[FAIL] configuration: …`. The settings form
+  cannot produce one — its schema is `min(1).max(65535)` — so "from the file" is always
+  the right source.
+
 ## 0.7.153 — 2026-10-31
 
 ### Added
