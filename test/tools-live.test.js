@@ -935,7 +935,46 @@ test('stderr survives a budget that stdout already used up', async () => {
       assert.match(text, /ERROR: the reason it failed/)
       assert.match(text, /\[exit 2\]/)
       assert.match(text, /output truncated at maxOutputChars: \d+ more characters were dropped/)
-      assert.ok(text.length < 1400, 'the budget must hold: ' + text.length)
+      // The cap applies to the command output, not to the notes explaining it:
+      // count only the characters the command produced.
+      // The leading run only: the notes themselves contain letters 'x'.
+      const stderrKept = text.includes('ERROR: the reason it failed') ? 'ERROR: the reason it failed\n'.length : 0
+      const produced = (text.match(/^x+/) || [''])[0].length + stderrKept
+      assert.ok(produced <= 1024, 'the output itself must fit the budget: ' + produced)
+      assert.ok(produced > 900, 'the budget should be used, not wasted: ' + produced)
+    } finally {
+      await own.ssh_close.execute({ machine: 't', force: true }, {}).catch(() => {})
+      await srv2.close()
+    }
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('both streams present says the order between them is not guaranteed', async () => {
+  // ssh2 gives stdout and stderr as two Readables: 'echo one; echo two >&2; echo
+  // three' arrives as two blocks, so [stderr] can look like it came last.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-ordernote-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const srv2 = await startServer()
+    const own = {}
+    try {
+      await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+        defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+        connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+        machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+      })
+      const both = String((await own.ssh_exec.execute({ machine: 't', command: 'stderr' }, {})).text)
+      assert.match(both, /\[stderr\]/)
+      assert.match(both, /does not preserve the order between them/)
+
+      // One stream only: no note, nothing to qualify.
+      const one = String((await own.ssh_exec.execute({ machine: 't', command: 'echo hi' }, {})).text)
+      assert.doesNotMatch(one, /does not preserve the order/)
     } finally {
       await own.ssh_close.execute({ machine: 't', force: true }, {}).catch(() => {})
       await srv2.close()

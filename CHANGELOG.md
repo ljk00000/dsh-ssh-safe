@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.119 — 2026-10-31
+
+### Added
+- **An exec that produced both streams now says the blocks are not a transcript.**
+  ssh2 hands stdout and stderr over as two independent streams, so
+  `echo one; echo two >&2; echo three` arrives as two blocks and `[stderr]` can
+  look like it came last. The output now ends with:
+  ```
+  [note] SSH delivers stdout and stderr as two separate streams and does not
+  preserve the order between them: a [stderr] block was not necessarily printed
+  after the output above it. The order inside each stream is exact.
+  ```
+  Shown only when both streams have content, so a one-stream command is unchanged.
+
+### Verified, no change needed
+- `droppedChars` is exact, including the case where stderr takes room from stdout:
+  ```
+  big 5000     produced 5000  kept 1024  reported 3976  expected 3976  match
+  big 300      produced  300  kept  300  reported    0  expected    0  match
+  tailerr 5000 produced 5028  kept 1024  reported 4004  expected 4004  match
+  ```
+
 ## 0.7.118 — 2026-10-31
 
 ### Fixed

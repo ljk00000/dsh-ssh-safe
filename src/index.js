@@ -1036,6 +1036,21 @@ function assertKnownArgs(args, known, toolName) {
         if (r.stdout) parts.push(String(r.stdout).replace(/\s+$/, ''))
         if (r.stderr) parts.push('[stderr]\n' + String(r.stderr).replace(/\s+$/, ''))
       }
+      // Both streams present: say that the two blocks are not a transcript.
+      // Measured against a real host, 'echo one; echo two >&2; echo three' arrives
+      // as two separate Readables, so [stderr] can appear before or after the line
+      // that actually preceded it.
+      const sawOut = timeline.length > 0
+        ? timeline.some((entry) => entry.stream === 'out')
+        : Boolean(r.stdout)
+      const sawErr = timeline.length > 0
+        ? timeline.some((entry) => entry.stream === 'err')
+        : Boolean(r.stderr)
+      if (sawOut && sawErr) {
+        parts.push('[note] SSH delivers stdout and stderr as two separate streams and does not preserve ' +
+          'the order between them: a [stderr] block was not necessarily printed after the output above it. ' +
+          'The order inside each stream is exact.')
+      }
       if (r.truncated) {
         // "truncated" alone left the caller guessing whether one character or a
         // megabyte was lost, and what to do about it.
