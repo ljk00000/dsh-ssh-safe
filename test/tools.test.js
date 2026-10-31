@@ -467,6 +467,36 @@ test('a plaintext settings password is shown as ignored, with what wins instead'
 
 
 
+
+test('an OpenSSH knownHosts file is described, not called unreadable', async () => {
+  // ssh_machines parsed the override as this plugin's JSON store and answered
+  // 'known-hosts store unreadable (parse error)' for a file the connection path
+  // verifies happily -- including an empty one, which 'touch ~/.ssh/known_hosts'
+  // leaves behind.
+  const khDir = mkdtempSync(path.join(tmpdir(), 'dsh-khline-'))
+  const emptyFile = path.join(khDir, 'empty')
+  writeFileSync(emptyFile, '# nothing here yet\n', 'utf8')
+  const revokedFile = path.join(khDir, 'revoked')
+  writeFileSync(revokedFile, '@revoked [10.0.0.9]:2222 ssh-rsa AAAAB3NzaC1yc2E=\n', 'utf8')
+  const entryFile = path.join(khDir, 'entry')
+  writeFileSync(entryFile, '[10.0.0.9]:2222 ssh-rsa AAAAB3NzaC1yc2E=\n', 'utf8')
+  const machine = (knownHosts) => ({ host: '10.0.0.9', port: 2222, user: 'u', knownHosts })
+  const { tools, restore } = capture({
+    defaultMachine: 'ke', hostKeyPolicy: 'strict',
+    machines: { ke: machine(emptyFile), kr: machine(revokedFile), kt: machine(entryFile) },
+  })
+  try {
+    const shown = textOf(await tools.ssh_machines.execute({}))
+    assert.match(shown, /trust: OpenSSH known_hosts .*empty — no entry for 10\.0\.0\.9:2222 yet/)
+    assert.match(shown, /trust: REFUSED — 10\.0\.0\.9:2222 is marked @revoked in .*revoked/)
+    assert.match(shown, /trust: OpenSSH known_hosts .*entry — it has an entry for 10\.0\.0\.9:2222/)
+    assert.doesNotMatch(shown, /store unreadable/)
+  } finally {
+    restore()
+    rmSync(khDir, { recursive: true, force: true })
+  }
+})
+
 test('an audit row marks a UTC timestamp as UTC', async () => {
   // 'at' is written with toISOString(), which is UTC, and the row showed the
   // digits with no zone: 11:46:20 read as the reader's local 11:46 while their

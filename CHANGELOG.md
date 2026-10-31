@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.204 — 2026-10-31
+
+### Fixed
+- **`ssh_machines` called a valid OpenSSH `knownHosts` file unreadable.** The trust line parsed
+  whatever `knownHosts` pointed at as this plugin's JSON store, so a file the connection path
+  verifies happily came out as
+  ```
+  before: known-hosts store unreadable (parse error): C:\…\kh_ok
+  after : trust: OpenSSH known_hosts C:\…\kh_ok — it has an entry for 127.0.0.1:9134 (the key is
+          compared on connect)
+  ```
+  The mirror image of the bug fixed in 0.7.x for `knownHosts` pointing at JSON. Three states are
+  now described instead of guessed: an entry for the host, no entry yet (with the ssh-keyscan
+  remedy), and `@revoked`. An empty or comment-only file — what `touch ~/.ssh/known_hosts`
+  leaves — is the "no entry yet" case rather than a parse error, matching what the connection
+  path already did.
+
+### Changed
+- `ssh_doctor` now names the file that vouched for the key when a machine overrides `knownHosts`:
+  `[ok] host key: SHA256:… (against C:\…\kh_ok)`. "ok plus a fingerprint" did not say whether the
+  OpenSSH file or the plugin store had been consulted.
+
+### My mistake
+- The first version of that line passed the path through `printable()`, which escapes backslashes:
+  a Windows path came out as `C:\\Users\\…`, i.e. a different path. File paths in this codebase are
+  local config and are printed raw; the change now matches.
+
 ## 0.7.203 — 2026-10-31
 
 ### Fixed

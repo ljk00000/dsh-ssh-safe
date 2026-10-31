@@ -271,6 +271,35 @@ function storeState(file) {
 }
 
 /**
+ * One line for the machine inventory when the trust store is an OpenSSH file.
+ *
+ * ssh_machines parsed that file as this plugin's JSON store and answered
+ * "known-hosts store unreadable (parse error)" for a file the connection path
+ * verifies happily -- the mirror image of the knownHosts-points-at-JSON case.
+ *
+ * @param {string} text
+ * @param {string} file already printable
+ * @param {string} host
+ * @param {number} port
+ * @returns {string}
+ */
+export function openSshTrustLine(text, file, host, port) {
+  const parsed = parseOpenSshKnownHosts(text)
+  const id = hostLabel(host, port)
+  const revoked = parsed.revoked.filter((entry) => entryCoversHost(entry.hostField, host, port))
+  if (revoked.length > 0) {
+    return 'trust: REFUSED — ' + id + ' is marked @revoked in ' + file
+  }
+  const entries = parsed.entries.filter((entry) => entryCoversHost(entry.hostField, host, port))
+  if (entries.length === 0) {
+    return 'trust: OpenSSH known_hosts ' + file + ' — no entry for ' + id +
+      ' yet (add it with ssh-keyscan; this plugin verifies this file but does not write it)'
+  }
+  return 'trust: OpenSSH known_hosts ' + file + ' — it has an entry for ' + id +
+    ' (the key is compared on connect)'
+}
+
+/**
  * Verify a presented host key against an OpenSSH known_hosts file.
  *
  * Read-only on purpose: writing OpenSSH format back is a different promise, and

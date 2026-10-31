@@ -36,7 +36,7 @@ import {
   machineDefinition,
   readCredentialFile,
 } from './machines.js'
-import { storePath } from './hostkey.js'
+import { looksLikeOpenSshKnownHosts, openSshTrustLine, storePath } from './hostkey.js'
 import { parsePrivateKey } from './connect.js'
 import { printable , clipText } from './format.js'
 import { DEFAULT_DENY_RULES, checkCommand, describeRule, invalidPatterns } from './guard.js'
@@ -825,9 +825,9 @@ function assertKnownArgs(args, known, toolName) {
     // A per-machine knownHosts override goes through the same ~ expansion the
     // pool uses; without it a "~/.ssh/x.json" value is read as a literal path.
     const file = m.knownHosts ? expandHome(m.knownHosts) : storePath(dshHome)
-    let raw
+    let text
     try {
-      raw = JSON.parse(readFileSync(file, 'utf8'))
+      text = readFileSync(file, 'utf8')
     } catch (err) {
       // Distinguish "no store yet" from "the store exists but is unreadable".
       // Silently reporting "not trusted" for a permission error would hide a
@@ -835,6 +835,28 @@ function assertKnownArgs(args, known, toolName) {
       const code = err && /** @type {{code?: string}} */ (err).code
       if (code === 'ENOENT') return 'not trusted yet (no fingerprint recorded)'
       return 'known-hosts store unreadable (' + (code || 'parse error') + '): ' + file
+    }
+    // A knownHosts override is usually an OpenSSH file. Parsing it as this
+    // plugin's JSON store answered "store unreadable (parse error)" for a file
+    // the connection path verifies happily.
+    // An empty or comment-only file is what 'touch ~/.ssh/known_hosts' leaves
+    // behind, and the connection path already treats it as an OpenSSH file with
+    // no entries; the inventory called the same file 'unreadable (parse error)'.
+    const hasContent = text.split(/\r?\n/).some((line) => {
+      const trimmed = line.trim()
+      return trimmed !== '' && !trimmed.startsWith('#')
+    })
+    if (looksLikeOpenSshKnownHosts(text) || (m.knownHosts && !hasContent)) {
+      // The path is local config, not remote text: printable() here doubled every
+      // backslash in a Windows path ('C:\\Users\\...'), which reads as a different
+      // path. The rest of the plugin prints these raw for the same reason.
+      return openSshTrustLine(text, file, m.host, m.port || 22)
+    }
+    let raw
+    try {
+      raw = JSON.parse(text)
+    } catch {
+      return 'known-hosts store unreadable (parse error): ' + file
     }
     const rec = raw?.hosts?.[String(m.host) + ':' + (m.port || 22)]
     if (!rec) return 'not trusted yet (no fingerprint recorded)'
@@ -2289,8 +2311,12 @@ function assertKnownArgs(args, known, toolName) {
             'NOT verified: hostKeyPolicy is "off", so any key would be accepted' +
             (e.fingerprint ? ' (presented ' + e.fingerprint + ')' : ''))
         } else {
+          // Which file vouched for the key matters when a machine overrides it:
+          // 'ok' plus a fingerprint does not say whether the OpenSSH file or this
+          // plugin's store was consulted.
           say('host key', 'ok',
-            (e.fingerprint || 'verified') + (e.hostKeyFirstSeen ? ' (first contact: recorded now)' : ''))
+            (e.fingerprint || 'verified') + (e.hostKeyFirstSeen ? ' (first contact: recorded now)' : '') +
+            (m.knownHosts ? ' (against ' + expandHome(m.knownHosts) + ')' : ''))
         }
         const probe = await pool.exec(alias, 'echo doctor-ok', { timeoutMs: 8000 })
         const replied = String(probe.stdout || '').includes('doctor-ok')
