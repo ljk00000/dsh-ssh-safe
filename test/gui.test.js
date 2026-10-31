@@ -10,7 +10,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dpapiAvailable } from '../src/dpapi.js'
 import { SshPool } from '../src/pool.js'
-import { machineFor, alternateHostKey } from './helpers/local-ssh-server.js'
+import { machineFor, alternateHostKey, testHostKey } from './helpers/local-ssh-server.js'
 
 // The page is a separate process on purpose: the plugin keeps no listening
 // socket. These tests drive the real server, so they cover the parts that matter
@@ -1362,6 +1362,36 @@ test('the page names why TCP failed instead of saying the host is unreachable', 
     assert.match(dnsText, /主机名解析不了/)
   } finally {
     child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('the page explains a refused command channel instead of printing ssh2 text', async () => {
+  // '(SSH) Channel open failure: ' with an empty reason names the stage but not the
+  // cause; the tool layer explains MaxSessions, the page printed the raw string.
+  const ssh2 = (await import('ssh2')).default
+  const hostKey = testHostKey()
+  const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
+    client.on('authentication', (ctx) => ctx.accept())
+    client.on('ready', () => {
+      client.on('session', (accept, reject) => { if (reject) reject(); else accept().end() })
+    })
+  })
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  const port = server.address().port
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-guisess-'))
+  const { child, base, token } = await start(home)
+  try {
+    await call(base, token, '/api/save', { alias: 'sess', host: '127.0.0.1', port, user: 'u', password: 'pw' })
+    const result = await call(base, token, '/api/test', { alias: 'sess' })
+    const text = (result.body.lines || []).join('\n')
+    assert.match(text, /\[ok\] 认证/)
+    assert.match(text, /\[FAIL\] 命令通道: 服务器拒绝再开一个会话通道/)
+    assert.match(text, /MaxSessions/)
+    assert.doesNotMatch(text, /Channel open failure: $/m, 'the bare ssh2 text must be gone')
+  } finally {
+    child.kill()
+    server.close()
     rmSync(home, { recursive: true, force: true })
   }
 })

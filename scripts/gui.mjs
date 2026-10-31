@@ -530,6 +530,28 @@ function state() {
 
 // ---- connection test -------------------------------------------------------
 
+/**
+ * Explain a refused command channel in the page's own words.
+ *
+ * ssh2 prints "(SSH) Channel open failure: " with an empty reason, which names the
+ * stage but not the cause: sshd answers that when the connection is at
+ * MaxSessions, or when the account may not open a shell.
+ *
+ * @param {unknown} message
+ * @returns {string}
+ */
+function channelFailureNote(message) {
+  const text = String(message ?? '')
+  if (/Channel open failure/i.test(text)) {
+    return '服务器拒绝再开一个会话通道（通常是会话上限 MaxSessions，默认 10；' +
+      '或该账号不允许开 shell）——本页的连接已断开，正式使用时关掉那台主机上的其它会话，' +
+      '或在 sshd_config 里提高上限'
+  }
+  if (/Administratively prohibited/i.test(text)) {
+    return '服务器禁止开 shell（sshd_config 的 PermitTTY / ForceCommand，或账号被限制）'
+  }
+  return text.slice(0, 160)
+}
 function tcpProbe(host, port, timeoutMs) {
   return new Promise((resolve) => {
     const socket = net.connect({ host, port })
@@ -642,7 +664,10 @@ async function testConnection(alias) {
       client.exec('echo dsh-gui-ok', (err, stream) => {
         if (err) {
           clearTimeout(timer)
-          say('命令通道', 'FAIL', err.message.slice(0, 120))
+          // '(SSH) Channel open failure: ' with nothing after the colon names the
+          // stage but not why. The tool layer has explained MaxSessions since 0.7.245;
+          // the page, the least technical surface, printed the raw text.
+          say('命令通道', 'FAIL', channelFailureNote(err.message))
           return done(false)
         }
         let out = ''

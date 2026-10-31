@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.266 — 2026-11-01
+
+### Fixed — the page printed the raw ssh2 text for a refused channel
+```
+before  [FAIL] 命令通道: (SSH) Channel open failure: 
+after   [FAIL] 命令通道: 服务器拒绝再开一个会话通道（通常是会话上限 MaxSessions，默认 10；
+                        或该账号不允许开 shell）——本页的连接已断开，正式使用时关掉那台
+                        主机上的其它会话，或在 sshd_config 里提高上限
+```
+The tool layer has explained this since 0.7.245, including the dangling colon in the ssh2 prefix; the
+settings page — the surface a non-expert uses — printed the raw string with an empty reason and no
+advice. channelFailureNote() now covers "Channel open failure" and "Administratively prohibited", and
+anything else keeps a trimmed raw message.
+
+### Also checked
+- exitLine reads result.code / result.signal and the pool sets exactly those fields, so a signal-killed
+  command renders "[signal SIGKILL]" rather than "[exit unknown]". The integration path could not be
+  driven (ssh2 refuses signal() in server mode), so unit-level rendering stays the authority there.
+
+### My own mistakes
+- The first helper patch did not parse ("Expected ," from a quoting mistake); rewriting the helper as a
+  plain array of lines fixed it.
+- The new test then failed on "testHostKey is not defined" — the helper lives in another file and had
+  to be added to the import line of gui.test.js.
+
+### Tests
+- One new GUI case: a server that accepts authentication and refuses every session must produce the
+  explained sentence, keep the "[ok] 认证" line, and contain no bare "Channel open failure:" line.
+  Suite 852 / 847 pass / 5 skipped / 0 fail, run twice; tsc clean.
+
 ## 0.7.265 — 2026-11-01
 
 ### Fixed — the session-limit message named only remedies outside the plugin
