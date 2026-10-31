@@ -2621,3 +2621,64 @@ test('a server that refuses exec is named by ssh_exec and by the doctor', async 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a server that only offers keyboard-interactive accepts the password', async () => {
+  // Debian/Ubuntu sshd backs password logins with PAM and offers only
+  // keyboard-interactive. ssh2 does not try that method unless asked, so a correct
+  // password failed with 'All configured authentication methods failed'.
+  const ssh2 = (await import('ssh2')).default
+  const hostKey = ssh2.utils.generateKeyPairSync('ed25519').private
+  const answers = []
+  const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
+    client.on('authentication', (ctx) => {
+      if (ctx.method !== 'keyboard-interactive') { ctx.reject(['keyboard-interactive']); return }
+      // A password prompt and an unrelated one: the second must never see the password.
+      ctx.prompt([{ prompt: 'Password: ', echo: false }, { prompt: 'Verification code: ', echo: false }], (given) => {
+        answers.push(given)
+        if (given[0] === 'test-pass') ctx.accept()
+        else ctx.reject()
+      })
+    })
+    client.on('ready', () => {
+      client.on('session', (accept) => {
+        const session = accept()
+        session.on('exec', (acceptExec) => {
+          const stream = acceptExec()
+          stream.on('close', () => {})
+          stream.exit(0)
+          stream.end('kbd-ok\n')
+        })
+      })
+    })
+  })
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  const port = server.address().port
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-kbd-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'k', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+      machines: {
+        k: { host: '127.0.0.1', port, user: 'tester', password: 'test-pass' },
+        bad: { host: '127.0.0.1', port, user: 'tester', password: 'wrong' },
+      },
+    })
+    const attempt = async (machine) => {
+      try { return String((await own.ssh_exec.execute({ machine, command: 'echo hi' }, {})).text) } catch (err) { return 'ERR: ' + err.message }
+    }
+    assert.match(await attempt('k'), /kbd-ok\s+\[exit 0\]/)
+    assert.match(await attempt('bad'), /All configured authentication methods failed/)
+    // The password went to the prompt that asked for one and nowhere else.
+    assert.deepEqual(answers[0], ['test-pass', ''])
+    assert.deepEqual(answers[1], ['wrong', ''])
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    server.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

@@ -111,6 +111,12 @@ export function connectOptions(machine, auth, timing = {}) {
     if (auth.passphrase) options.passphrase = auth.passphrase
   } else if (auth.password) {
     options.password = auth.password
+    // Many sshd setups back password logins with PAM and offer only
+    // 'keyboard-interactive' (Debian/Ubuntu default, 2FA/RADIUS gateways). ssh2
+    // does not try that method unless asked, so the same password the command line
+    // accepts failed here with 'All configured authentication methods failed'.
+    // Only enabled when a password can answer the prompt.
+    options.tryKeyboard = true
   } else if (auth.agent) {
     // The agent holds the key; ssh2 asks it to sign and we never see it.
     options.agent = auth.agent

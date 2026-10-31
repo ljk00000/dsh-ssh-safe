@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.243 — 2026-11-01
+
+### Fixed
+- **Password logins failed against servers that offer only `keyboard-interactive`.** ssh2 does not
+  try that method unless told to, and the plugin never told it. Debian/Ubuntu sshd backs password
+  logins with PAM and commonly advertises `keyboard-interactive` alone, so a correct password ended
+  in:
+  ```
+  before: ERR: Could not connect to tester@host:22: All configured authentication methods failed
+          (the server rejected the credentials — check the user, the key or password, and authorized_keys)
+  after : kbd-ok
+          [exit 0]
+  ```
+  `connectOptions()` now sets `tryKeyboard: true` when a password is available (never for key- or
+  agent-only machines, where a password would have nothing to answer), and the pool answers the
+  prompts. Only a prompt that asks for a password or passphrase receives the secret: a second prompt
+  is usually a one-time code, and answering it with the password would send the secret to a challenge
+  it cannot satisfy.
+
+### Also changed
+- A connection that the server drops while it is being set up now lists "the server closing the
+  connection" among the causes; the message named only `ssh_close`, an eviction and a dropped
+  channel, so a reader went looking for an action nobody had taken.
+
+### Tests
+- One new case builds that server: the right password authenticates, a wrong one is still refused,
+  and the recorded prompt answers are `["test-pass", ""]` — the password reaches the password prompt
+  and the verification-code prompt receives nothing. Suite 825 / 820 pass / 5 skipped / 0 fail,
+  `tsc` clean.
+
 ## 0.7.242 — 2026-11-01
 
 ### Fixed

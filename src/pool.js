@@ -341,12 +341,23 @@ function noCooldown(err) {
   return err
 }
 
-/** The operation's connection was taken away before it could use it. */
-function goneError(alias) {
+/**
+ * The operation's connection was taken away before it could use it.
+ *
+ * A server that drops the connection right after accepting authentication leaves
+ * nothing to point at, and the list named only the plugin's own actions: the
+ * reader went looking for a ssh_close that never happened.
+ *
+ * @param {string} alias
+ * @param {{duringConnect?: boolean}} [where]
+ */
+function goneError(alias, where = {}) {
+  const causes = where.duringConnect
+    ? 'ssh_close, an eviction, or the server closing the connection while the session was being set up'
+    : 'ssh_close, an eviction, a dropped channel, or the server closing the connection'
   return new Error(
     'The connection to "' + alias + '" is gone: it was closed while the operation was starting ' +
-    'or running (ssh_close, an eviction, or a dropped channel). The operation did not complete; ' +
-    'call it again to reconnect.'
+    'or running (' + causes + '). The operation did not complete; call it again to reconnect.'
   )
 }
 
@@ -359,9 +370,9 @@ function goneError(alias) {
  * 'Cannot read properties of null (reading exec)' instead of saying what had
  * happened.
  */
-function liveOrGone(e, alias) {
+function liveOrGone(e, alias, where = {}) {
   if (e && e.client) return e.client
-  throw noCooldown(goneError(alias))
+  throw noCooldown(goneError(alias, where))
 }
 
 /**
@@ -715,12 +726,12 @@ export class SshPool {
           // alias left maxConnections-1 connections open indefinitely (measured:
           // 'maxConnections: 1' kept 2 sockets after both went idle).
           await this.#evict(Number(this.config.maxConnections), alias)
-          return liveOrGone(e, alias)
+          return liveOrGone(e, alias, { duringConnect: true })
         }
       } else {
         e.lastUsedAt = Date.now()
         await this.#evict(Number(this.config.maxConnections), alias)
-        return liveOrGone(e, alias)
+        return liveOrGone(e, alias, { duringConnect: true })
       }
     }
 
@@ -951,6 +962,15 @@ export class SshPool {
         reject(connectFailure(err, m, { lean: this.config.machineInventory === 'alias' }))
       }
 
+      // tryKeyboard lets a PAM-backed server ask for the password one prompt at a
+      // time. Answer only a prompt that asks for a password: a second prompt is
+      // usually a one-time code, and feeding the password to it would send the
+      // secret to a challenge it does not answer.
+      client.on('keyboard-interactive', (name, instructions, lang, prompts, finish) => {
+        const answers = (Array.isArray(prompts) ? prompts : []).map((p) =>
+          /pass(word)?|passphrase/i.test(String(p && p.prompt ? p.prompt : '')) ? String(auth.password || '') : '')
+        try { finish(answers) } catch { /* the client gave up already */ }
+      })
       client.on('error', fail)
       client.on('ready', () => {
         if (settled) return
