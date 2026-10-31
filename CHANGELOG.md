@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.302 — 2026-11-01
+
+### Hardened — closing a connection mid-command is pinned
+`ssh_close` has a `force` flag because a running command would be cut off. Both halves of that contract
+were untested:
+```
+without force   Not closing t: a command is still running on it. Wait for it to finish,
+                or pass force: true to cut it off.      … and the command still exits 0
+with force      Closed: t
+                the command then reports: [connection closed before the command reported an
+                exit status — the output above is partial] [exit unknown]
+```
+
+### Verified this round (no defect found)
+- `maxConnections` caps how many connections are **kept alive**, as documented, not how many may run at
+  once: three concurrent commands opened 3 sockets and settled to 1 within 150 ms (LRU eviction).
+- A read stuck on a FIFO is bounded by `sftpTimeoutMs` (default 30 s, minimum 1 s), and the message names
+  the file kind: "reading /p/pipe did not complete within 1000ms — … blocks forever". `commandTimeoutMs`
+  is deliberately not the knob for transfers.
+- `ssh_doctor` against a changed host key: `[FAIL] host key: HOST KEY CHANGED … recorded … presented …`,
+  then three `[skip]` stages with "the host key was rejected first", and `trustHostKey: true` still refuses.
+  The audit row carries the same reason (`"reason":"host key — HOST KEY CHANGED …"`).
+
+### My own mistakes — three misread contracts in one round
+1. I expected `maxConnections: 1` to serialise concurrent commands; it governs the idle pool, and the README
+   says so ("最多**保活** 8 条连接").
+2. I expected `ssh_read` to honour `commandTimeoutMs`; transfers use `sftpTimeoutMs`, which the docs and an
+   existing test both state. My "infinite hang" was a 6-second patrol against a 30-second budget.
+3. `putSpecial(path, "fifo")` takes the mode letter, and the VFS made a character device — so the message
+   said "character device" and I nearly reported a wording bug that was my own probe.
+Also: a test asserted `/slept 1 \[exit 0\]/` while the tool prints the status on the next line.
+
+### Tests
+- One new live case covering both halves of the close contract.
+  Suite 889 / 884 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.301 — 2026-11-01
 
 ### Added — `ssh_config` names a deny pattern that can hang a command

@@ -3548,3 +3548,45 @@ test('an unwritable DSH home is reported by every surface that writes there', as
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('closing a connection mid-command is refused without force, and said out loud with it', async () => {
+  // ssh_close has a force flag precisely because a running command would be cut
+  // off. Without it the tool must refuse (and the command must survive); with it the
+  // interrupted command has to report that its output is partial.
+  const own = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-closemid-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  try {
+    await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 8000,
+      machines: { t: machineFor('t', own.port) },
+    })
+    const running = tools.ssh_exec.execute({ machine: 't', command: 'sleep 1' }, {})
+    await new Promise((r) => setTimeout(r, 250))
+    const plain = String((await tools.ssh_close.execute({ machine: 't' }, {})).text)
+    assert.match(plain, /Not closing t: a command is still running on it/)
+    assert.match(plain, /pass force: true to cut it off/)
+    // The command was not disturbed.
+    // The output is 'slept 1' and the status is on the next line.
+    const undisturbed = String((await running).text)
+    assert.match(undisturbed, /slept 1/)
+    assert.match(undisturbed, /\[exit 0\]/)
+
+    const cut = tools.ssh_exec.execute({ machine: 't', command: 'sleep 5' }, {})
+    await new Promise((r) => setTimeout(r, 250))
+    const forced = String((await tools.ssh_close.execute({ machine: 't', force: true }, {})).text)
+    assert.match(forced, /Closed: t/)
+    const partial = await cut.then((r) => String(r.text), (err) => 'ERR: ' + err.message)
+    assert.match(partial, /connection closed before the command reported an exit status/)
+    assert.match(partial, /the output above is partial/)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await own.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
