@@ -373,12 +373,16 @@ async function testConnection(alias) {
   return await new Promise((resolve) => {
     const client = new ssh2.Client()
     let fingerprint = ''
+    // A host-key mismatch does not end the attempt (proving the credential works
+    // is useful), but it must not leave the verdict green: the plugin refuses
+    // that connection a second later.
+    let mismatched = false
     let settled = false
     const done = (ok) => {
       if (settled) return
       settled = true
       try { client.end() } catch {}
-      resolve(finish(ok))
+      resolve(finish(ok && !mismatched))
     }
     const timer = setTimeout(() => {
       say('认证', 'FAIL', '在 20 秒内没有完成握手')
@@ -454,6 +458,7 @@ async function testConnection(alias) {
         if (verdict.ok) {
           say('主机密钥', 'ok', fingerprint + '（已记录，校验通过；本页不修改记录）')
         } else if (/^HOST KEY CHANGED/.test(String(verdict.reason))) {
+          mismatched = true
           say('主机密钥', 'FAIL', fingerprint + ' 与记录的指纹不一致，正式连接会被拒绝（可能是重装，也可能是中间人）')
         } else {
           say('主机密钥', 'warn', fingerprint + ' 还没有记录，正式连接会被拒绝，除非用 ssh_connect trustHostKey: true（本页不记录）')

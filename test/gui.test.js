@@ -9,6 +9,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dpapiAvailable } from '../src/dpapi.js'
+import { SshPool } from '../src/pool.js'
+import { machineFor, alternateHostKey } from './helpers/local-ssh-server.js'
 
 // The page is a separate process on purpose: the plugin keeps no listening
 // socket. These tests drive the real server, so they cover the parts that matter
@@ -775,6 +777,38 @@ test('a body over the limit answers 413 instead of dropping the socket', async (
     assert.equal(state.status, 200)
   } finally {
     child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('the test button refuses to call a changed host key a pass', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
+  const first = await startServer()
+  const port = first.port
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-hk-'))
+  // Record the first key through the plugin's own store, then restart the server
+  // with a different one: the page must not report a green result.
+  const pool = new SshPool({
+    hostKeyPolicy: 'tofu', allowPlaintextPassword: true, connectTimeoutMs: 3000,
+    reconnectCooldownMs: 0, machines: { t: machineFor('t', port) },
+  }, { dshHome: home })
+  await pool.connect('t')
+  await pool.closeAll({ force: true })
+  await first.close()
+  const second = await startServer({ port, key: alternateHostKey() })
+  const { child, base: url, token } = await start(home)
+  try {
+    const saved = await call(url, token, '/api/save', {
+      alias: 't', host: '127.0.0.1', port: String(port), user: 'tester', password: 'test-pass',
+    })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    const tested = await call(url, token, '/api/test', { alias: 't' })
+    const text = tested.body.lines.join('\n')
+    assert.match(text, /\[FAIL\] 主机密钥/, text)
+    assert.match(text, /不一致/, text)
+    assert.equal(tested.body.ok, false, 'a mismatched key must not read as a pass: ' + text)
+  } finally {
+    child.kill()
+    await second.close()
     rmSync(home, { recursive: true, force: true })
   }
 })

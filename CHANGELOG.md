@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.129 — 2026-10-31
+
+### Fixed
+- **The settings page called a changed host key a pass.** The test-connection result
+  carried `ok: true` while one of its own lines said the key does not match and the
+  plugin will refuse the connection:
+  ```
+  before: "ok": true
+          [FAIL] 主机密钥: SHA256:… 与记录的指纹不一致，正式连接会被拒绝（可能是重装，也可能是中间人）
+          [ok] 认证 / [ok] 命令通道
+  after : "ok": false      (same lines: the credential part is still shown, because
+                           proving it works is useful)
+  ```
+  An unknown host stays a warning with `ok: true` — that is the normal first contact,
+  and the line already says the real call would need `trustHostKey: true`.
+
+### Verified, no change needed
+- Credential precedence matches the report in all four combinations tested by value
+  (the wrong source is deliberately given a value the server rejects):
+  ```
+  plaintext refused, env right : AUTH OK | password config (IGNORED: plaintext) — this connection uses env
+  plaintext allowed, file right: AUTH OK | password file-plaintext
+  settings right, file wrong   : AUTH OK | password config
+  settings refused, env wrong  : AUTH FAIL| password config (IGNORED: plaintext) — this connection uses env
+  ```
+- Environment password beats an unrelated key, and all three tools agree
+  (`password env`, `auth: password (env)`).
+- The audit trail records a write (path, bytes, mode) and a read (bytes, redacted)
+  without ever storing file content: a file containing `token=abc123` left no trace
+  of the value in the log.
+
 ## 0.7.128 — 2026-10-31
 
 ### Fixed
