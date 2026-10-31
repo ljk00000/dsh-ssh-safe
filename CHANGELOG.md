@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.118 — 2026-10-31
+
+### Fixed
+- **A read or listing that timed out stopped at "did not complete within Nms".**
+  The write path already added "the remote channel may have dropped"; the other two
+  left the reader with a deadline and no next step:
+  ```
+  before: reading /tmp/stall.txt did not complete within 2000ms
+  after : reading /tmp/stall.txt did not complete within 2000ms — the remote channel
+          may have dropped, or the filesystem is not answering
+  ```
+  A FIFO still gets the specific note instead ("a FIFO has no end until something
+  writes to it"), because that detail is computed first.
+
+### Verified, no change needed
+- Two concurrent writes to one path each report the bytes they sent and the last
+  writer wins; neither message claims the other one happened. That is the
+  filesystem, and nothing in the report contradicts it.
+
 ## 0.7.117 — 2026-10-31
 
 ### Fixed

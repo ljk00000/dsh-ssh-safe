@@ -118,3 +118,26 @@ test('a write blocked by a FIFO does not claim the file was truncated', async ()
     },
   )
 })
+
+test('a read or listing that times out says what to look at next', async () => {
+  // The write path said 'the remote channel may have dropped'; read and listing
+  // ended at 'did not complete within Nms' and left the reader guessing.
+  const srv = await startServer()
+  srv.vfs.putDir('/tmp')
+  srv.vfs.putFile('/tmp/stall.txt', 'x'.repeat(100))
+  srv.vfs.control.stallReads = true
+  const pool = new SshPool({
+    hostKeyPolicy: 'tofu', allowPlaintextPassword: true, connectTimeoutMs: 3000,
+    sftpTimeoutMs: 400, reconnectCooldownMs: 0, maxFileBytes: 1024 * 1024,
+    machines: { t: machineFor('t', srv.port) },
+  }, { dshHome: mkdtempSync(path.join(tmpdir(), 'dsh-stall-')) })
+  try {
+    await assert.rejects(
+      () => pool.readFile('t', '/tmp/stall.txt', {}),
+      /did not complete within 400ms — the remote channel may have dropped, or the filesystem is not answering/,
+    )
+  } finally {
+    await pool.closeAll({ force: true })
+    await srv.close()
+  }
+})

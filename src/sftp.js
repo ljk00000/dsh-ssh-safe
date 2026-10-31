@@ -417,7 +417,10 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, 
       // nothing) names the real cause.
       const detail = await specialFileNote(sftp, target, 'read')
       if (settled) return
-      settle(null, new Error('reading ' + target + ' did not complete within ' + timeoutMs + 'ms' + detail))
+      // The same fallback the write path has: a bare 'did not complete' says
+      // nothing about what to look at next.
+      settle(null, new Error('reading ' + target + ' did not complete within ' + timeoutMs + 'ms' +
+        (detail || ' — the remote channel may have dropped, or the filesystem is not answering')))
     }, timeoutMs)
     abortListener = onAbort(signal, 'reading ' + target + ' was cancelled', (error) => settle(null, error))
 
@@ -646,7 +649,8 @@ export async function listRemoteDir(client, remotePath, { timeoutMs, signal }) {
       if (settled) return
       settled = true
       closeSftp(sftp)
-      reject(new Error(redact('listing ' + target + ' did not complete within ' + timeoutMs + 'ms')))
+      reject(new Error(redact('listing ' + target + ' did not complete within ' + timeoutMs + 'ms' +
+        ' — the remote channel may have dropped, or the filesystem is not answering')))
     }, timeoutMs)
 
     const settle = (result, error) => {
