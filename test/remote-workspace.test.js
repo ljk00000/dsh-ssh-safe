@@ -490,3 +490,38 @@ test('remove refuses a placeholder that belongs to another alias, before it unre
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('list names the alias a placeholder belongs to instead of suggesting create', async () => {
+  // The row said '有占位目录，但未注册（用 action: "create" 注册）' for a directory
+  // that records another alias — advice create refuses to follow.
+  const registry = {
+    list: () => [],
+    create: async () => ({ id: 'w1' }),
+    delete: async () => true,
+  }
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-wsowner-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const own = {}
+    await apply({
+      tools: { register: (d) => { own[d.name] = d } },
+      effect: () => {}, get: (name) => (name === 'workspaceRegistry' ? registry : undefined),
+    }, {
+      defaultMachine: 'alpha', hostKeyPolicy: 'tofu',
+      machines: { alpha: { host: 'h', port: 22, user: 'u' }, beta: { host: 'h2', port: 22, user: 'u2' } },
+    })
+    const dir = path.join(remoteRoot(home), 'alpha')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, '.dsh-remote-workspace.json'), JSON.stringify({ alias: 'beta' }))
+    writeFileSync(path.join(dir, 'AGENTS.md'), '# beta')
+
+    const text = String((await own.ssh_workspace.execute({ action: 'list' }, {})).text)
+    assert.match(text, /有占位目录，但属于别名 "beta"（不是 "alpha"）/)
+    assert.doesNotMatch(text, /但未注册（用 action: "create" 注册）/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

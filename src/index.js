@@ -1397,6 +1397,11 @@ function assertKnownArgs(args, known, toolName) {
             ? '无法读取工作区服务，无法判断是否已注册（' + registryRead.error + '）'
             : workspace
               ? '已注册为工作区「' + workspace.title + '」'
+              : (marker && typeof marker.alias === 'string' && marker.alias && marker.alias !== alias)
+                // 'use create to register it' cannot work here: create refuses a
+                // directory that records another alias. Say whose it is instead.
+                ? '有占位目录，但属于别名 "' + marker.alias + '"（不是 "' + alias + '"）；' +
+                  '用 machine: "' + marker.alias + '" 打开它，或先删除 "' + marker.alias + '" 的工作区'
               : marker
                 ? (missingInstructions
                   ? '有占位目录，但 AGENTS.md 已被删除（说明文件缺失，会话学不到远端规则）；用 action: "create" 重建'

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.117 — 2026-10-31
+
+### Fixed
+- **`ssh_workspace list` recommended an action that cannot work.** For a directory
+  whose marker names another alias it said "有占位目录，但未注册（用 action: \"create\"
+  注册）" — and `create` refuses exactly that directory. The row names the owner now:
+  ```
+  before: 有占位目录，但未注册（用 action: "create" 注册）
+  after : 有占位目录，但属于别名 "beta"（不是 "alpha"）；用 machine: "beta" 打开它，
+          或先删除 "beta" 的工作区
+  ```
+
+### Verified, no change needed
+- A marker that is not valid JSON is treated as "not a placeholder" everywhere:
+  `list` says the directory exists but is not a placeholder, `create` rebuilds it
+  (marker replaced, instructions rewritten), `remove` deletes it. All three agree.
+
 ## 0.7.116 — 2026-10-31
 
 ### Fixed — `remove` deleted another alias's placeholder, files and all
