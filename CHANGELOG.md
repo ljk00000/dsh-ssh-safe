@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.103 — 2026-10-31
+
+### Fixed
+- **`ssh_workspace remove` described directories and registry answers that did not
+  exist.** Three separate lines were wrong:
+  ```
+  before: 占位目录保留：…\remotes\prod            (the directory was never created)
+  after:  占位目录本来就不存在：…
+  
+  before: 注册记录已不存在                       (the service answered false)
+  after:  工作区服务没有删除「远程 · prod」（它可能已被别处移除；刷新侧栏确认）
+  
+  before: ERR: nope                              (the service threw)
+  after:  ERR: 从侧栏移除「远程 · prod」失败，注册记录仍在：nope
+  ```
+  `deleteFiles: true` against a directory that is already gone now succeeds —
+  absence is the outcome that was asked for — instead of failing with "it is not
+  a remote workspace placeholder", which sent the reader looking for files that
+  were never created.
+
 ## 0.7.102 — 2026-10-31
 
 ### Fixed

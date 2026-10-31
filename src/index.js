@@ -1433,13 +1433,25 @@ function assertKnownArgs(args, known, toolName) {
         const workspace = findWorkspace({ list: () => registryRead.items }, dir)
         let removed = '没有注册记录'
         if (workspace && registry && typeof registry.delete === 'function') {
-          const ok = await registry.delete(workspace.id)
-          removed = ok ? '已从侧栏移除「' + workspace.title + '」' : '注册记录已不存在'
+          try {
+            const ok = await registry.delete(workspace.id)
+            removed = ok
+              ? '已从侧栏移除「' + workspace.title + '」'
+              : '工作区服务没有删除「' + workspace.title + '」（它可能已被别处移除；刷新侧栏确认）'
+          } catch (err) {
+            // A bare "nope" from the registry named neither the alias nor what was
+            // left half-done.
+            throw new Error('从侧栏移除「' + workspace.title + '」失败，注册记录仍在：' +
+              String(err && err.message ? err.message : err).slice(0, 200))
+          }
         }
-        let files = '占位目录保留：' + dir
+        let files
         if (args.deleteFiles === true) {
+          const gone = !existsSync(dir)
           removeRemoteDir(dshHome, alias)
-          files = '占位目录已删除'
+          files = gone ? '占位目录本来就不存在' : '占位目录已删除'
+        } else {
+          files = existsSync(dir) ? '占位目录保留：' + dir : '占位目录本来就不存在：' + dir
         }
         return { text: '远程工作区 ' + alias + '\n  ' + removed + '\n  ' + files +
           '\n  远端主机上的文件没有被动过。' }

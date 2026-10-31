@@ -222,6 +222,10 @@ export function listWorkspaces(registry) {
 /** Remove the placeholder directory entirely. */
 export function removeRemoteDir(dshHome, alias) {
   const dir = remoteDir(dshHome, alias)
+  // Already gone is the outcome the caller asked for, not a refusal: reporting
+  // "not a placeholder" for a directory that does not exist sends them looking
+  // for files that were never there.
+  if (!existsSync(dir)) return ''
   // Only a directory this plugin created: the marker is what makes it a
   // placeholder rather than whatever else happens to sit under remotes/.
   if (!existsSync(join(dir, MARKER))) {

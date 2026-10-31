@@ -79,3 +79,16 @@ test('create then remove leaves the directory only when asked to', async () => {
   assert.match(deleted, /占位目录已删除/)
   assert.equal(existsSync(remoteDir(home, 'a')), false)
 })
+test('remove tells the truth about a directory that is not there', async () => {
+  // '占位目录保留' for a directory that does not exist, and 'not a placeholder'
+  // from the marker check, both sent the reader looking for files that were
+  // never created.
+  const gone = String((await tools.ssh_workspace.execute({ action: 'remove', machine: 'a' }, {})).text)
+  assert.match(gone, /占位目录本来就不存在/)
+  assert.doesNotMatch(gone, /占位目录保留/)
+
+  const deleted = String((await tools.ssh_workspace.execute({ action: 'remove', machine: 'a', deleteFiles: true }, {})).text)
+  assert.match(deleted, /占位目录本来就不存在/)
+  assert.doesNotMatch(deleted, /not a remote workspace placeholder/)
+})
+

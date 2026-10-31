@@ -337,3 +337,34 @@ test('a registry that returns an empty object is not reported as registered', as
     assert.match(list, /未注册/)
   } finally { restore() }
 })
+
+test('a registry delete that does nothing is not reported as removed', async () => {
+  // A service answering false was reported as success, and a service that threw
+  // produced a bare error with no alias and no statement of what was left.
+  // The listing has to name this machine's real placeholder directory: matching
+  // is by path.
+  const half = {
+    list: () => [{ id: 'w9', path: remoteDir(process.env.DSH_HOME, 'a'), title: '远程 · a' }],
+    delete: async () => false,
+  }
+  const { tools: tools2, restore } = await toolsFor({ DSH_SSH_A_HOST: 'h', DSH_SSH_A_USER: 'u' }, half)
+  try {
+    const text = String((await tools2.ssh_workspace.execute({ action: 'remove', machine: 'a' }, {})).text)
+    assert.match(text, /工作区服务没有删除「远程 · a」/)
+    assert.doesNotMatch(text, /已从侧栏移除/)
+  } finally { restore() }
+
+  const broken = {
+    // Synchronous: listWorkspaces() reads the service's return value directly, so
+    // a Promise looks like an empty registry.
+    list: () => [{ id: 'w9', path: remoteDir(process.env.DSH_HOME, 'a'), title: '远程 · a' }],
+    delete: async () => { throw new Error('nope') },
+  }
+  const { tools: tools3, restore: restore3 } = await toolsFor({ DSH_SSH_A_HOST: 'h', DSH_SSH_A_USER: 'u' }, broken)
+  try {
+    await assert.rejects(
+      () => tools3.ssh_workspace.execute({ action: 'remove', machine: 'a' }, {}),
+      /从侧栏移除「远程 · a」失败，注册记录仍在：nope/
+    )
+  } finally { restore3() }
+})
