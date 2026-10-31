@@ -735,24 +735,31 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
  */
 export function listingEntries(items) {
   return items
-    .filter((it) => it.filename !== '.' && it.filename !== '..')
-    .map((it) => ({
-      name: it.filename,
-      size: it.attrs.size,
-      // Compare the whole type field: a socket is 0o140000, which also has the
-      // 0o040000 directory bit set, so a bit test called sockets dirs.
-      dir: (Number(it.attrs.mode) & 0o170000) === 0o040000,
-      // A symlink, a FIFO and a socket are not regular files, and a listing that
-      // shows all three as '-' invites reading a FIFO, which blocks.
-      type: typeChar(it.attrs.mode),
-      // SFTP reports whole seconds, so the milliseconds are always .000 and only
-      // make the column wider. A server can report a time no Date can represent
-      // (or something that is not a number): toISOString() then throws "Invalid
-      // time value" and the whole listing fails with no path and no filename.
-      mtime: isoSeconds(it.attrs.mtime),
-    }))
+    // An entry without a name cannot be a row, and an entry without attrs is a
+    // server that sent SSH_FXP_NAME without them: reading it as an empty object
+    // keeps the rest of the listing instead of throwing on the first bad entry.
+    .filter((it) => it && typeof it.filename === 'string' && it.filename !== '.' && it.filename !== '..')
+    .map((it) => {
+      const attrs = it.attrs && typeof it.attrs === 'object' ? it.attrs : {}
+      return {
+        name: it.filename,
+        // A size that is not a number is unknown, not zero: formatListing prints
+        // it as a dash rather than inventing a byte count.
+        size: Number.isFinite(attrs.size) ? attrs.size : undefined,
+        // Compare the whole type field: a socket is 0o140000, which also has the
+        // 0o040000 directory bit set, so a bit test called sockets dirs.
+        dir: (Number(attrs.mode) & 0o170000) === 0o040000,
+        // A symlink, a FIFO and a socket are not regular files, and a listing that
+        // shows all three as '-' invites reading a FIFO, which blocks.
+        type: typeChar(attrs.mode),
+        // SFTP reports whole seconds, so the milliseconds are always .000 and only
+        // make the column wider. A server can report a time no Date can represent
+        // (or something that is not a number): toISOString() then throws "Invalid
+        // time value" and the whole listing fails with no path and no filename.
+        mtime: isoSeconds(attrs.mtime),
+      }
+    })
 }
-
 /**
  * The ISO stamp for a whole-second epoch, or null when it cannot be one.
  *

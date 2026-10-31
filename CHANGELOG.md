@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.236 — 2026-11-01
+
+### Fixed
+- **One malformed directory entry failed the whole `ssh_list`.** `listingEntries()` read
+  `it.attrs.size` without a guard:
+  ```
+  { filename: "a.txt" }            → TypeError: Cannot read properties of undefined (reading 'size')
+  { filename: "b.txt", attrs: null } → TypeError
+  ```
+  A server that answers SSH_FXP_NAME without attributes — or with `"size": {}` — lost the rest of
+  the directory, message included. Missing attributes are now an empty object, an entry with no
+  name is dropped (it cannot be a row), and a size that is not a number is *unknown*, not zero.
+
+- **The size column printed the word `undefined`.** With size unknown, `String(it.size).padStart(10)`
+  wrote `undefined` into a column of numbers. It now shows `-`.
+
+### Verified, no change needed
+- `mode` is not trusted either: a non-numeric mode falls back to `-` (a plain file) instead of
+  throwing, and the remaining rows keep their real types.
+
+### Tests
+- One new case: seven mixed entries yield five rows (nameless ones dropped), the unknown size stays
+  `undefined`, the unreadable mode falls back to `-`, and the rendered listing never says
+  `undefined`. Suite 817 / 812 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.235 — 2026-11-01
 
 ### Fixed

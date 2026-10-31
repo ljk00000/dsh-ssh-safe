@@ -150,7 +150,11 @@ export function formatListing(listing, limit = 0, offset = 0) {
   const rows = shown.map((it) =>
     // The type character comes from the mode when the caller knows it: a symlink
     // or a FIFO shown as '-' looks like an ordinary file.
-    (it.type || (it.dir ? 'd' : '-')) + ' ' + String(it.size).padStart(10) + '  ' + (it.mtime || '') + '  ' + printable(it.name))
+    (it.type || (it.dir ? 'd' : '-')) + ' ' +
+    // A server that sends no size leaves it unknown; printing "undefined" in a
+    // column of numbers reads like a bug in the listing rather than a gap.
+    (Number.isFinite(it.size) ? String(it.size) : '-').padStart(10) + '  ' +
+    (it.mtime || '') + '  ' + printable(it.name))
 
   const head = start > 0 && sorted.length > start
     ? '… ' + start + ' entr' + (start === 1 ? 'y' : 'ies') + ' above not shown (offset = ' + start + ')\n'

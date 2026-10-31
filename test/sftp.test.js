@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { readRemoteFile, writeRemoteFile, listRemoteDir , listingEntries } from '../src/sftp.js'
+import { formatListing } from '../src/format.js'
 
 // sftp.js was the only module with no direct test: its 183 lines ran only through
 // a fake sftp inside pool tests, so the error branches (sftp() failing,
@@ -320,4 +321,31 @@ test('a timestamp no Date can represent does not fail the listing', () => {
     listingEntries([{ filename: 'n', attrs: { ...base, mtime: 1700000000 } }])[0].mtime,
     '2023-11-14T22:13:20Z',
   )
+})
+
+test('a malformed readdir entry does not fail the listing', () => {
+  // One entry without attrs threw 'Cannot read properties of undefined (reading
+  // size)' and the whole ssh_list failed: the rest of the directory was lost with
+  // it. Nameless entries cannot be rows; a size that is not a number is unknown.
+  const rows = listingEntries([
+    { filename: 'no-attrs.txt' },
+    { filename: 'null-attrs.txt', attrs: null },
+    { attrs: { size: 1, mode: 0o100644, mtime: 1 } },
+    { filename: null, attrs: { size: 1, mode: 0o100644, mtime: 1 } },
+    { filename: 'size-object.txt', attrs: { size: {}, mode: 0o100644, mtime: 1 } },
+    { filename: 'mode-string.txt', attrs: { size: 7, mode: 'abc', mtime: 1 } },
+    { filename: 'fine.txt', attrs: { size: 9, mode: 0o100644, mtime: 1700000000 } },
+  ])
+  assert.deepEqual(rows.map((r) => r.name), [
+    'no-attrs.txt', 'null-attrs.txt', 'size-object.txt', 'mode-string.txt', 'fine.txt',
+  ])
+  assert.equal(rows[0].size, undefined)
+  assert.equal(rows[0].mtime, null)
+  assert.equal(rows[2].size, undefined, 'a non-numeric size is unknown, not zero')
+  assert.equal(rows[3].type, '-', 'an unreadable mode falls back to a plain file')
+  assert.equal(rows[4].size, 9)
+  assert.equal(rows[4].mtime, '2023-11-14T22:13:20Z')
+  // The column shows a dash rather than the word undefined.
+  const text = formatListing({ path: '/x', items: rows }, 0, 0)
+  assert.doesNotMatch(text, /undefined/)
 })
