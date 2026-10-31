@@ -1828,6 +1828,21 @@ test('a warning-only doctor run records warn, and the reason survives redaction'
   }
 })
 
+
+test('an exit code is shown once, not twice', async () => {
+  // The row read 't exec exit exit=3 exit 3': kind, outcome and status said the same
+  // word three times before the command itself.
+  await run('ssh_exec', { command: 'exit 3' })
+  await run('ssh_exec', { command: 'kill' })
+  const shown = String((await tools.ssh_audit.execute({ limit: 40 }, {})).text)
+  assert.doesNotMatch(shown, /exec exit exit=/)
+  assert.match(shown, /exec exit=\d/)
+  assert.doesNotMatch(shown, /exec signal signal=/)
+  assert.match(shown, /exec signal=\w+/)
+  // A record whose outcome is not implied by the detail keeps its word.
+  assert.match(shown, /exec ok exit=\d/)
+})
+
 test('closing every connection leaves a record for each one', async () => {
   // ssh_close with no machine is what people call at the end of a session, and it
   // wrote nothing: the per-machine form recorded what it did, this one did not.

@@ -1795,7 +1795,13 @@ function assertKnownArgs(args, known, toolName) {
         // A command or path in the log is remote text: an escape sequence there
         // repainted the terminal of whoever was reading the audit trail.
         const machine = r.machine ? ' ' + printable(r.machine) : ''
-        const parts = [when, machine.trim(), printable(r.kind || '?'), printable(r.outcome || '')]
+        // 'exec exit exit=3' said the same thing twice on one row; the status token
+        // below already carries it. Everything else keeps its outcome word.
+        const hasExit = r.exitCode !== null && r.exitCode !== undefined
+        const hasSignal = Boolean(r.signal)
+        const repeats = (r.outcome === 'exit' && hasExit) || (r.outcome === 'signal' && hasSignal)
+        const parts = [when, machine.trim(), printable(r.kind || '?')]
+        if (!repeats) parts.push(printable(r.outcome || ''))
         if (r.exitCode !== null && r.exitCode !== undefined) parts.push('exit=' + r.exitCode)
         // A signal death has no exit status: without this the row said only
         // "exit=" with nothing after it.

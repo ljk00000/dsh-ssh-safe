@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.179 — 2026-10-31
+
+### Fixed
+- **An audit row said `exit` three times.** Kind, outcome and status each printed it before
+  the command itself:
+  ```
+  before: t exec exit exit=3 exit 3
+          t exec signal signal=SIGKILL kill
+  after : t exec exit=3 exit 3
+          t exec signal=SIGKILL kill
+  ```
+  The outcome word is dropped only when the status token already carries it; every other
+  record keeps its outcome (`t exec ok exit=0 echo hi`, `t read ok /r/a.txt`, `t close ok`,
+  `close none`).
+
+### Verified, no change needed
+- `ssh_close` records render without a machine: `close none` on its own row, and the JSON
+  keeps `machine` absent rather than an empty string.
+- `connectionStats()` reporting is live: with `maxConnections: 2` and three aliases the
+  header showed `Live connections: 2 / 2 max [b, c]` on three rounds and returned to
+  `0 / 2 max` after `ssh_close force`.
+
 ## 0.7.178 — 2026-10-31
 
 ### Fixed
