@@ -213,3 +213,28 @@ test('an IPv6 host is bracketed in messages but stored the same way as before', 
   const v4 = checkHostKey({ dshHome: home, host: '10.0.0.1', port: 22, keyBlob: blob, policy: 'strict', trustHostKey: false, fp })
   assert.match(v4.reason, /Unknown host 10\.0\.0\.1:22/)
 })
+
+test('a known_hosts file in no recognisable format says so, not a JSON error', () => {
+  // It fell through to the plugin's JSON store parser, so pointing knownHosts at a
+  // corrupt file answered with a JSON syntax error.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-khfmt-'))
+  const blob = Buffer.from('known-hosts-format-test-0123456789')
+  const fp = 'SHA256:' + createHash('sha256').update(blob).digest('base64').replace(/=+$/, '')
+  const file = path.join(home, 'known_hosts')
+  writeFileSync(file, '# comment\ngarbage not a known_hosts line\n', 'utf8')
+  const out = checkHostKey({
+    dshHome: home, host: 'h', port: 22, keyBlob: blob, policy: 'tofu', trustHostKey: false,
+    knownHostsFile: file, fp,
+  })
+  assert.equal(out.ok, false)
+  assert.match(out.reason, /is not in a format this plugin can verify/)
+  assert.match(out.reason, /first entry: "garbage not a known_hosts line"/)
+  assert.doesNotMatch(out.reason, /JSON/, 'the setting names a known_hosts file, not a JSON store')
+  // An empty file is still a legitimate first contact.
+  writeFileSync(file, '', 'utf8')
+  const empty = checkHostKey({
+    dshHome: home, host: 'h', port: 22, keyBlob: blob, policy: 'tofu', trustHostKey: true,
+    knownHostsFile: file, fp,
+  })
+  assert.equal(empty.ok, true)
+})

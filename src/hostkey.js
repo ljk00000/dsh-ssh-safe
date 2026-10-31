@@ -404,6 +404,25 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
         text, file, host, port, keyBlob, policy, trustHostKey: trustHostKey === true, fp,
       })
     }
+    // The file was named as the known_hosts file but reads as neither that nor
+    // this plugin's store. Falling through answered with a JSON parse error,
+    // which is a strange thing to see for '~/.ssh/known_hosts'.
+    // A JSON document is this plugin's own store (a caller may point knownHostsFile
+    // at one); readStore below explains whatever is wrong with it.
+    let looksJson = false
+    try { JSON.parse(text); looksJson = true } catch { looksJson = false }
+    if (text !== null && !looksJson) {
+      const firstLine = String(text).split(/\r?\n/).find((line) => line.trim() && !line.trim().startsWith('#')) || ''
+      return {
+        ok: false,
+        reason: 'Host key verification failed: the known_hosts file ' + file +
+          ' is not in a format this plugin can verify — it is neither an OpenSSH known_hosts file ' +
+          'nor the plugin\'s own store (first entry: ' + JSON.stringify(firstLine.trim().slice(0, 60)) + '). ' +
+          'Fix the file, or point the knownHosts setting at ~/.ssh/known_hosts.',
+        fp,
+        firstSeen: false,
+      }
+    }
   }
   const id = keyId(host, port)
   const label = hostLabel(host, port)

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.136 — 2026-10-31
+
+### Fixed
+- **A `knownHosts` file in no recognisable format was answered with a JSON parse
+  error.** The file was not OpenSSH-format, so the check fell through to the plugin's
+  own JSON store and reported that instead:
+  ```
+  before: the host key store …known_hosts could not be parsed (Unexpected token 'g',
+          "garbage no"... is not valid JSON)
+  after : the known_hosts file …known_hosts is not in a format this plugin can verify —
+          it is neither an OpenSSH known_hosts file nor the plugin's own store
+          (first entry: "garbage not a known_hosts line"). Fix the file, or point the
+          knownHosts setting at ~/.ssh/known_hosts.
+  ```
+  A valid JSON store is still handed to the store reader, so corrupt entries keep their
+  own explanation, and an empty file is still a first contact.
+
+### Verified, no change needed
+- Replacing the `knownHosts` file with a **directory** while the plugin runs is refused
+  on the next connect: `the known_hosts file … could not be read (EISDIR)`.
+- Non-ASCII aliases, hosts and users are listed as written (`café  üser@héllo.example:22`).
+
 ## 0.7.135 — 2026-10-31
 
 ### Fixed
