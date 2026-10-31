@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.205 — 2026-10-31
+
+### Fixed
+- **The read-only-trust note doubled every backslash in a Windows path.** 0.7.202 put the
+  `knownHosts` path through `printable()`, which escapes backslashes for remote text:
+  ```
+  before: …accepted for this connection only: C:\\Users\\Administrator\\…\\kh is an OpenSSH known_hosts file
+  after : …accepted for this connection only: C:\Users\Administrator\…\kh is an OpenSSH known_hosts file
+  ```
+  `C:\\Users` is a different path from `C:\Users`. Fixed the same way as the inventory line in
+  0.7.204 — but that fix missed this one, which is why the test now asserts the note contains the
+  path exactly as configured.
+
+### Verified, no change needed
+- `hostKeyPolicy: tofu` combined with an OpenSSH `knownHosts` file: tofu cannot record into a file
+  this plugin does not write, and the reply says so instead of silently not recording — with both
+  remedies (ssh-keyscan, or `trustHostKey: true` for one connection).
+- `ssh_workspace create` with such a machine: the AGENTS.md instruction names the alias and the
+  endpoint consistently.
+- The README config table matches `Config({})` for all 23 keys (already guarded by a test).
+
 ## 0.7.204 — 2026-10-31
 
 ### Fixed

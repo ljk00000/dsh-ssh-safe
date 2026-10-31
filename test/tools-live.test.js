@@ -1122,6 +1122,9 @@ test('a key trusted against an OpenSSH known_hosts says it was not recorded', as
       const shown = String((await own.ssh_connect.execute({ machine: 't', trustHostKey: true }, {})).text)
       assert.match(shown, /\[note\] that key was accepted for this connection only/)
       assert.match(shown, /ssh-keyscan -p \d+ 127\.0\.0\.1 >>/)
+      // The path is local config, not remote text: printable() escaped every
+      // backslash, so a Windows path read as C:\\Users\\… (a different path).
+      assert.ok(shown.includes(knownHosts), 'the note shows the path as it is: ' + shown.slice(0, 240))
       assert.equal(readFileSync(knownHosts, 'utf8'), '# empty\n', 'the file is not written')
       await own.ssh_close.execute({ force: true }, {})
       const again = await own.ssh_connect.execute({ machine: 't' }, {}).then((r) => String(r.text), (e) => 'ERR: ' + e.message)

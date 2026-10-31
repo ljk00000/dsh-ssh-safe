@@ -1060,7 +1060,9 @@ function assertKnownArgs(args, known, toolName) {
       // the next plain connect fail with the same 'Unknown host' the caller just
       // thought they had cleared.
       const readOnlyTrust = m.knownHosts && entry.hostKeyFirstSeen === true
-        ? '\n[note] that key was accepted for this connection only: ' + printable(expandHome(m.knownHosts)) +
+        // The path is local config, not remote text: printable() escaped every
+        // backslash, so a Windows path read as C:\\Users\\… (a different path).
+        ? '\n[note] that key was accepted for this connection only: ' + expandHome(m.knownHosts) +
           ' is an OpenSSH known_hosts file this plugin verifies but does not write, so the next' +
           ' connection asks again (and fails under hostKeyPolicy: strict). Add it with' +
           ' ssh-keyscan -p ' + m.port + ' ' + m.host + ' >> "' + expandHome(m.knownHosts) + '".'
