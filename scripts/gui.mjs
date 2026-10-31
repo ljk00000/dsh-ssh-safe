@@ -58,7 +58,33 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv.slice(2))
 const dshHome = path.resolve(String(args['dsh-home'] || process.env.DSH_HOME || path.join(process.env.USERPROFILE || process.env.HOME || '.', '.dsh')))
 const profileDir = path.resolve(String(args.profile || path.join(dshHome, 'profiles', 'desktop')))
-const idleMs = Number(args['idle-ms'] || 10 * 60 * 1000)
+// Both of these used to go straight into Number(): --port abc reached
+// server.listen(NaN) and died with a RangeError stack trace, and --idle-ms abc
+// became NaN, which setTimeout treats as 0, so the page exited at once while the
+// banner promised 'NaN 秒'. The tools validate their inputs; so should the CLI.
+const rawPort = args.port
+if (typeof rawPort === 'boolean') {
+  console.error('--port needs a value: --port 8787 (or --port 0 for a free one).')
+  process.exit(2)
+}
+const port = rawPort === undefined ? 0 : Number(rawPort)
+if (!Number.isInteger(port) || port < 0 || port > 65535) {
+  console.error('--port must be an integer between 0 and 65535 (0 picks a free port); received ' + JSON.stringify(rawPort))
+  process.exit(2)
+}
+const rawIdle = args['idle-ms']
+if (typeof rawIdle === 'boolean') {
+  console.error('--idle-ms needs a value in milliseconds, e.g. --idle-ms 600000.')
+  process.exit(2)
+}
+const idleMs = rawIdle === undefined ? 10 * 60 * 1000 : Number(rawIdle)
+if (!Number.isFinite(idleMs) || Math.floor(idleMs) !== idleMs || idleMs < 1000) {
+  // 0 is not 'never': setTimeout(fn, 0) fires at once, which is the opposite of
+  // what anyone typing it means. Say that instead of exiting immediately.
+  console.error('--idle-ms must be a whole number of milliseconds, at least 1000; received ' + JSON.stringify(rawIdle))
+  console.error('The page exits after that much inactivity. 0 would exit at once, not never.')
+  process.exit(2)
+}
 const credFile = credentialsPath(dshHome)
 
 /**
@@ -820,7 +846,6 @@ const server = createServer(async (req, res) => {
   }
 })
 
-const port = Number(args.port || 0)
 server.listen(port, '127.0.0.1', () => {
   const actual = server.address().port
   const url = 'http://127.0.0.1:' + actual + '/?t=' + token

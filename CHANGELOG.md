@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.213 — 2026-11-01
+
+### Fixed
+- **`scripts/gui.mjs --port abc` died with a stack trace.** The value went straight into
+  `server.listen(NaN)`:
+  ```
+  before: RangeError [ERR_SOCKET_BAD_PORT]: options.port should be >= 0 and < 65536
+          Received type number (NaN).  at Server.listen (node:net:2099:5)
+  after : --port must be an integer between 0 and 65535 (0 picks a free port); received "abc"
+  ```
+  `--port` with no value was worse: `Number(true)` is 1, so it silently asked for port 1.
+
+- **`--idle-ms abc` made the page exit at once while promising "NaN 秒".** `Number("abc")` is NaN,
+  `setTimeout` treats NaN as 0, and `idleWords(NaN)` rendered "NaN 秒". Values below 1000 are now
+  refused with the reason spelled out — `0` is not "never", it fires immediately — and both flags
+  exit 2 with a message instead of a stack trace.
+
+### Tests
+- One new case per bad shape (port: `abc`, `70000`, missing value; idle: `abc`, `0`, missing value),
+  each asserting exit 2, the message, and that no `RangeError`/stack frame reached stderr. The
+  valid path is unchanged: `--idle-ms 1500` still prints "闲置 1.5 秒也会退出。" and exits by itself.
+  Suite 790 / 785 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.212 — 2026-11-01
 
 ### Fixed

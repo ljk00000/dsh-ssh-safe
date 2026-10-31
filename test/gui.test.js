@@ -997,3 +997,32 @@ test('repeated save/delete cycles never lose an operation to a busy file', async
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a bad --port or --idle-ms is refused with a message, not a stack trace', async () => {
+  // --port abc reached server.listen(NaN) and died with a RangeError stack trace;
+  // --idle-ms abc became NaN, which setTimeout treats as 0, so the page exited at
+  // once while its banner promised 'NaN 秒'.
+  const { spawnSync } = await import('node:child_process')
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-args-'))
+  try {
+    const run = (...args) => spawnSync(process.execPath, [script, '--no-open', '--dsh-home', home, ...args], {
+      encoding: 'utf8', timeout: 20000,
+    })
+    const cases = [
+      [['--port', 'abc'], /--port must be an integer between 0 and 65535.*"abc"/],
+      [['--port', '70000'], /--port must be an integer between 0 and 65535/],
+      [['--port'], /--port needs a value/],
+      [['--idle-ms', 'abc'], /--idle-ms must be a whole number of milliseconds, at least 1000/],
+      [['--idle-ms', '0'], /0 would exit at once, not never/],
+      [['--idle-ms'], /--idle-ms needs a value/],
+    ]
+    for (const [args, expected] of cases) {
+      const result = run(...args)
+      assert.equal(result.status, 2, JSON.stringify(args) + ' should exit 2, saw ' + result.status)
+      assert.match(result.stderr, expected, JSON.stringify(args) + ' stderr: ' + result.stderr)
+      assert.doesNotMatch(result.stderr, /at Server|RangeError|at ModuleJob/, JSON.stringify(args) + ' must not print a stack trace')
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
