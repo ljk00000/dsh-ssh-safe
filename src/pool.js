@@ -807,6 +807,7 @@ export class SshPool {
           timedOut: true,
           dropped: false,
           truncated: budget.truncated,
+          droppedChars: budget.dropped,
           timeline,
         }
         // Let the TERM message flush before the channel is destroyed.
@@ -829,6 +830,7 @@ export class SshPool {
           cancelled: true,
           dropped: false,
           truncated: budget.truncated,
+          droppedChars: budget.dropped,
           timeline,
         }
         setImmediate(() => settle(cancelledResult))
@@ -874,6 +876,7 @@ export class SshPool {
             // difference between "it printed nothing" and "we lost the rest".
             dropped: typeof code !== 'number' && !named,
             truncated: budget.truncated,
+            droppedChars: budget.dropped,
             timeline,
           })
         })

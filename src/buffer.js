@@ -26,6 +26,9 @@ export class OutputBudget {
     this.cap = cap
     this.used = 0
     this.truncated = false
+    // How much was thrown away. "output was truncated" without a number left
+    // the caller guessing whether one character or a megabyte was lost.
+    this.dropped = 0
   }
 
   /** Characters still available. */
@@ -51,6 +54,7 @@ export class OutputBudget {
     if (room <= 0) {
       state.truncated = true
       this.truncated = true
+      this.dropped += text.length
       return ''
     }
     let take = text.length > room ? text.slice(0, room) : text
@@ -66,6 +70,7 @@ export class OutputBudget {
     if (take.length < text.length) {
       state.truncated = true
       this.truncated = true
+      this.dropped += text.length - take.length
     }
     return take
   }

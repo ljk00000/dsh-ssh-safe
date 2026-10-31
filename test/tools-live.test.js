@@ -158,8 +158,9 @@ test('ssh_read renders the file and masks secrets by default', async () => {
 test('ssh_read says when it stopped at maxBytes', async () => {
   srv.vfs.putFile('/var/long.txt', 'z'.repeat(500))
   const text = await run('ssh_read', { path: '/var/long.txt', maxBytes: 20 })
-  assert.match(text, /\[truncated at 20 bytes\]/, text.slice(0, 120))
-  assert.ok(text.length < 100, 'only the read prefix should be returned')
+  assert.match(text, /\[truncated: the first 20 bytes of a larger file/, text.slice(0, 140))
+  // Only the prefix: twenty characters, not the 500 in the file.
+  assert.equal((text.match(/z/g) || []).length, 20, 'only the read prefix should be returned')
 })
 
 test('ssh_write reports the bytes it wrote and they read back', async () => {
@@ -216,7 +217,7 @@ test('a single byte is described as "1 byte"', async () => {
   assert.match(wrote, /Wrote 1 byte to \/tmp\/one-byte\.txt/, wrote)
   srv.vfs.putFile('/tmp/two-bytes.txt', 'xy')
   const read = await run('ssh_read', { path: '/tmp/two-bytes.txt', maxBytes: 1 })
-  assert.match(read, /\[truncated at 1 byte\]/, read)
+  assert.match(read, /\[truncated: the first 1 byte of a larger file/, read)
 })
 test('a refused command is recorded with the machine it targeted', async () => {
   await assert.rejects(() => run('ssh_exec', { command: 'rm -rf /' }), /Command refused/)
@@ -241,7 +242,7 @@ test('raw: true bypasses masking and maxBytes still caps the read', async () => 
   assert.doesNotMatch(raw, /secrets masked/, 'raw must not claim to have masked anything')
 
   const capped = await run('ssh_read', { path: '/etc/secret.txt', raw: true, maxBytes: 10 })
-  assert.match(capped, /\[truncated at 10 bytes\]/, capped)
+  assert.match(capped, /\[truncated: the first 10 bytes of a larger file/, capped)
   assert.ok(capped.includes('PASSWORD=h'), 'the first ten bytes are kept')
 })
 
@@ -250,7 +251,7 @@ test('a file larger than maxFileBytes is capped, not refused', async () => {
   const text = await run('ssh_read', { path: '/var/large.txt', maxBytes: 5 * 1024 * 1024 })
   // The tool argument can only tighten the configured ceiling (1 MB here).
   assert.ok(text.length < 1200000, 'the read must stop at the configured cap: ' + text.length)
-  assert.match(text, /\[truncated at 1048576 bytes\]/)
+  assert.match(text, /\[truncated: the first 1048576 bytes of a larger file/)
 })
 test('ssh_write refuses more than maxFileBytes and accepts exactly that much', async () => {
   srv.vfs.putDir('/tmp')
@@ -290,7 +291,8 @@ test('two commands on one machine run at the same time, not one after the other'
 test('output beyond maxOutputChars is cut and the cut is announced', async () => {
   // maxOutputChars is left at its 200000 default here.
   const text = await run('ssh_exec', { command: 'big 300000' })
-  assert.match(text, /\[output truncated at maxOutputChars\]/)
+  assert.match(text, /\[output truncated at maxOutputChars: \d+ more characters were dropped/)
+    assert.match(text, /raise maxOutputChars, or send the output to a file/)
   assert.ok(text.length <= 200500, 'the tool must not return everything: ' + text.length)
   assert.ok(text.length > 100000, 'it should still return most of the cap: ' + text.length)
   assert.match(text, /\[exit 0\]|exit 0/)

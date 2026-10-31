@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.58 — 2026-10-31
+
+### Fixed
+- **"Output truncated" did not say how much was lost, or what to do.** The note was
+  `[output truncated at maxOutputChars]`; the budget now counts what it discarded:
+  `[output truncated at maxOutputChars: 3987 more characters were dropped — raise
+  maxOutputChars, or send the output to a file and read it with ssh_read]`.
+- **A truncated read said where it stopped but not that the file was larger.** It
+  read `[truncated at 1024 bytes]`, which is also what a file of exactly 1024
+  bytes would look like. Now: `[truncated: the first 1024 bytes of a larger file —
+  raise maxFileBytes in the plugin config to read more]`. `maxBytes` can only
+  tighten the ceiling, so pointing at `maxFileBytes` is the advice that works.
+- **A refused oversized write gave no way forward.** `Refusing to write 3000 bytes
+  (maxFileBytes = 1024)` now adds: raise `maxFileBytes`, or split the content
+  across several writes — a partial write would leave a broken file behind.
+
+### Verified, no change needed
+- `ssh_list` already reports `… 3 more entries not shown (maxListEntries = 3)`.
+
+### Added — tests
+- The dropped-character count and the remedy, and the read header's "larger file"
+  wording; the prefix-only assertion now counts the returned bytes instead of
+  measuring the whole message.
+
 ## 0.7.57 — 2026-10-31
 
 ### Fixed

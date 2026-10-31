@@ -873,7 +873,14 @@ function assertKnownArgs(args, known, toolName) {
         if (r.stdout) parts.push(String(r.stdout).replace(/\s+$/, ''))
         if (r.stderr) parts.push('[stderr]\n' + String(r.stderr).replace(/\s+$/, ''))
       }
-      if (r.truncated) parts.push('[output truncated at maxOutputChars]')
+      if (r.truncated) {
+        // "truncated" alone left the caller guessing whether one character or a
+        // megabyte was lost, and what to do about it.
+        const lost = Number(r.droppedChars) || 0
+        parts.push('[output truncated at maxOutputChars' +
+          (lost > 0 ? ': ' + lost + ' more character' + (lost === 1 ? '' : 's') + ' were dropped' : '') +
+          ' — raise maxOutputChars, or send the output to a file and read it with ssh_read]')
+      }
       if (r.timedOut) parts.push('[timed out after ' + (budget || cfg.commandTimeoutMs) + 'ms]')
       if (r.cancelled) {
         parts.push('[cancelled at the caller request — the remote command was sent SIGTERM; the output above is what arrived first]')
@@ -952,7 +959,12 @@ function assertKnownArgs(args, known, toolName) {
       // to redact. raw: true opts out for the cases where the masked value is
       // the thing being investigated.
       const body = args.raw === true ? r.content : redact(r.content)
-      const header = r.truncated ? '[truncated at ' + plural(r.bytes, 'byte') + ']\n' : ''
+      // The file is larger than the ceiling; say so and say what raises it.
+      // maxBytes can only tighten the limit, so pointing at maxFileBytes is the
+      // only advice that works.
+      const header = r.truncated
+        ? '[truncated: the first ' + plural(r.bytes, 'byte') + ' of a larger file — raise maxFileBytes in the plugin config to read more]\n'
+        : ''
       // Only claim to have masked something when the text actually changed: a
       // README read through the default path used to end with a warning that
       // implied secrets had been found and hidden.
@@ -997,7 +1009,11 @@ function assertKnownArgs(args, known, toolName) {
       const content = args.content
       const bytes = Buffer.byteLength(content)
       if (bytes > cfg.maxFileBytes) {
-        throw new Error('Refusing to write ' + plural(bytes, 'byte') + ' (maxFileBytes = ' + cfg.maxFileBytes + ').')
+        throw new Error(
+          'Refusing to write ' + plural(bytes, 'byte') + ' (maxFileBytes = ' + cfg.maxFileBytes + '). ' +
+          'Raise maxFileBytes in the plugin config, or split the content across several writes — ' +
+          'a partial write would leave a broken file behind.'
+        )
       }
       const startedAt = Date.now()
       let r
