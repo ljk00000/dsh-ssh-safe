@@ -278,7 +278,14 @@ export const DEFAULT_DENY_RULES = [
     pattern: '\\bfind\\s+/+(?:\\s|$)[^\n]*-exec\\s+(?:[\\w./-]*/)?rm\\b',
     why: 'it deletes every file it can reach through find -exec rm',
   },
-  { pattern: ':\\(\\)\\s*\\{\\s*:\\|:\\s*&\\s*\\};:', why: 'it is the fork bomb :(){ :|:& };:' },
+  {
+    // Spacing inside the body is free: ':(){ : | : & }; :' is the same bomb.
+    // Measured: the tight spelling was refused, the spaced one was not.
+    // bash accepts blanks between the name and the parentheses: ': ( ) { : | : & } ; :'
+    // parses (checked with 'bash -n'), so the rule must allow them.
+    pattern: ':\\s*\\(\\s*\\)\\s*\\{\\s*:\\s*\\|\\s*:\\s*&\\s*\\}\\s*;\\s*:',
+    why: 'it is the fork bomb :(){ :|:& };:',
+  },
   {
     // The same bomb with a name: 'bomb(){ bomb|bomb& };bomb'. A trailing pipe or
     // '&' inside a self-recursive function is what forks without end; a plain

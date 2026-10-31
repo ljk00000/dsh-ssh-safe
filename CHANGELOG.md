@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.175 — 2026-10-31
+
+### Fixed
+- **The fork bomb was only refused in one spacing.** Written with blanks — `:(){ : | : & }; :`
+  or `: ( ) { : | : & } ; :` — it matched nothing, and I assumed the spaced form was a
+  syntax error until `bash -n` said otherwise:
+  ```
+  $ bash -n bomb-tight.sh     exit=0 (parses)
+  $ bash -n bomb-spaced.sh    exit=0 (parses)
+  $ bash -n bomb-space-name.sh exit=0 (parses)   ← the spelling that was allowed
+  $ bash -n nonsense.sh       exit=2
+  ```
+  The rule now accepts blanks around the body and between the name and the parentheses;
+  all three spellings are refused.
+
+### Verified, no change needed
+- Pipes into an interpreter are refused however the interpreter is reached: `bash`, `sh`,
+  `perl`, `ruby`, `zsh`, `ksh`, `source`, `eval`, and through `sudo -E`, `env`, extra
+  arguments or a `tee` in between. `allowPipeline: true` (`pipeToShell: allow`) lets them
+  through, as intended.
+- Ordinary pipelines are untouched: `ls | head -3`, `find . -type f | tee list.txt`,
+  `tar czf - dir | ssh host tar xzf -`.
+- `f(){ f; }; f` is a plain recursion, not a fork bomb: it parses, hits the nesting limit,
+  and `commandTimeoutMs` is the guard for it. Blocking it would refuse ordinary recursive
+  helpers.
+
 ## 0.7.174 — 2026-10-31
 
 ### Fixed

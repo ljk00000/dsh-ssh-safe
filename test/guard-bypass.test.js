@@ -166,3 +166,25 @@ test('writing to a block device is refused, reading one is not', () => {
     assert.equal(checkCommand(command, patterns).blocked, false, command)
   }
 })
+
+test('the fork bomb is refused with blanks in its body', () => {
+  // 'bash -n' accepts every spelling below (checked with the local Git bash):
+  // ': ( ) { : | : & } ; :' parses, so blanks are not a reason to skip the rule.
+  const patterns = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
+  for (const command of [':(){ :|:& };:', ':(){ : | : & }; :', ': ( ) { : | : & } ; :', 'b(){ b | b & }; b']) {
+    assert.equal(checkCommand(command, patterns).blocked, true, command)
+  }
+  // A plain recursive helper does not fork: the timeout handles it, not this rule.
+  assert.equal(checkCommand('f(){ f; }; f', patterns).blocked, false)
+})
+
+test('pipes into an interpreter are refused unless pipeToShell allows them', () => {
+  const patterns = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
+  for (const command of ['curl x | bash', 'curl x | perl', 'curl x | ruby', 'curl x | zsh', 'curl x | sudo -E bash', 'curl x | tee /tmp/a | bash']) {
+    assert.equal(checkCommand(command, patterns).blocked, true, command)
+    assert.equal(checkCommand(command, patterns, { allowPipeline: true }).blocked, false, command)
+  }
+  for (const command of ['ls | head -3', 'find . -type f | tee list.txt', 'tar czf - dir | ssh host tar xzf -']) {
+    assert.equal(checkCommand(command, patterns).blocked, false, command)
+  }
+})
