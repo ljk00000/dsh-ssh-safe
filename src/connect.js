@@ -18,6 +18,20 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import ssh2 from 'ssh2'
 
+/**
+ * Parse a private key with the same rules the connection uses.
+ *
+ * Exposed so a diagnostic can tell "encrypted and no passphrase" apart from
+ * "not a key at all" before it dials.
+ *
+ * @param {string|Buffer} keyText
+ * @param {string} [passphrase]
+ * @returns {any} the parsed key, or an Error
+ */
+export function parsePrivateKey(keyText, passphrase) {
+  return ssh2.utils.parseKey(keyText, passphrase || undefined)
+}
+
 /** Expand a leading ~ so key paths written by hand work. */
 export function expandHome(p) {
   const s = String(p || '')

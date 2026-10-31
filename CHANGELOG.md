@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.128 — 2026-10-31
+
+### Fixed
+- **`ssh_doctor` passed a passphrase-protected key and found out after dialling.**
+  The credential check only looked at the file header, so it said
+  `[ok] credentials: config-key` and the real problem surfaced two steps later,
+  under `connect`. It parses the key with the passphrase the connection would use:
+  ```
+  before: [ok] credentials: config-key
+          [ok] tcp: port … accepts connections
+          [FAIL] connect: … could not be parsed: no passphrase given …
+  after : [FAIL] credentials: the private key … is passphrase-protected and no
+          keyPassphrase is configured — set keyPassphrase for this machine
+          Stopped: fix the above before testing the network.
+  ```
+  A wrong passphrase reads differently (`integrity check failed -- bad passphrase?`),
+  and the right one still reports `[ok] credentials: config-key`. The parse rule is
+  shared with the connection (`parsePrivateKey`), so the two cannot drift.
+
+### Verified, no change needed
+- `ssh_machines` shows the key source and path without the passphrase, and
+  `ssh_credentials` lists `key config …/id_encrypted` with no value.
+
 ## 0.7.127 — 2026-10-31
 
 ### Fixed — keyPassphrase did nothing

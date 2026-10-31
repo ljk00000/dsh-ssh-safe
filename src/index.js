@@ -37,6 +37,7 @@ import {
   readCredentialFile,
 } from './machines.js'
 import { storePath } from './hostkey.js'
+import { parsePrivateKey } from './connect.js'
 import { DEFAULT_DENY_RULES, checkCommand, describeRule, invalidPatterns } from './guard.js'
 import { exitLine, formatListing, plural } from './format.js'
 import { AuditLog, summarize } from './audit.js'
@@ -2001,6 +2002,19 @@ function assertKnownArgs(args, known, toolName) {
             if (body.length === 0) credentialProblem = 'key file is empty: ' + keyPath
             else if (!/PRIVATE KEY-----/.test(String(body.subarray(0, 200)))) {
               credentialProblem = 'key file does not look like a private key: ' + keyPath
+            } else {
+              // The header check passes for an ENCRYPTED key, so this said ok and
+              // the failure only appeared after dialling. Parse it here, with the
+              // passphrase the connection would use.
+              try {
+                const parsed = parsePrivateKey(String(body), auth.passphrase)
+                if (parsed instanceof Error) {
+                  credentialProblem = /passphrase/i.test(parsed.message) && !auth.passphrase
+                    ? 'the private key ' + keyPath + ' is passphrase-protected and no keyPassphrase is ' +
+                      'configured — set keyPassphrase for this machine (or DSH_SSH_<ALIAS>_KEY_PASSPHRASE)'
+                    : 'the private key ' + keyPath + ' could not be parsed: ' + parsed.message
+                }
+              } catch { /* leave the earlier checks to speak */ }
             }
           } catch (err) {
             const code = err && /** @type {{code?: string}} */ (err).code

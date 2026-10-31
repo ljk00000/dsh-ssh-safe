@@ -1,12 +1,13 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import { apply } from '../src/index.js'
 import { looksBinary } from '../src/sftp.js'
 import { SshPool } from '../src/pool.js'
+import ssh2 from 'ssh2'
 import { startServer, machineFor, alternateHostKey } from './helpers/local-ssh-server.js'
 
 // The twelve tool bodies are the largest untested part of src/index.js: they
@@ -1148,6 +1149,46 @@ test('the cooldown advice names an option the caller actually has', async () => 
   } finally {
     await own.ssh_close?.execute?.({}, {})
     await srv2.close()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('the doctor names a passphrase-protected key before dialling', async () => {
+  // The header check passed, so the doctor said [ok] credentials and the failure
+  // only appeared after the TCP step, filed under 'connect'.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-dockeyfit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    const { private: encrypted } = ssh2.utils.generateKeyPairSync('rsa', { bits: 2048, passphrase: 'right-pass', cipher: 'aes256-cbc' })
+    const keyPath = path.join(home, 'id_encrypted')
+    writeFileSync(keyPath, encrypted, { mode: 0o600 })
+    const build = async (machine) => {
+      const tools = {}
+      await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+        defaultMachine: 'k', hostKeyPolicy: 'tofu', reconnectCooldownMs: 0,
+        connectTimeoutMs: 2000, commandTimeoutMs: 2000,
+        machines: { k: { host: '127.0.0.1', port: srv2.port, user: 'tester', ...machine } },
+      })
+      return tools
+    }
+
+    const none = String((await (await build({ keyPath })).ssh_doctor.execute({ machine: 'k' }, {})).text)
+    assert.match(none, /\[FAIL\] credentials: the private key .* is passphrase-protected/)
+    assert.match(none, /set keyPassphrase/)
+    assert.doesNotMatch(none, /accepts connections/, 'no dial is needed to say this')
+
+    const wrong = String((await (await build({ keyPath, keyPassphrase: 'nope' })).ssh_doctor.execute({ machine: 'k' }, {})).text)
+    assert.match(wrong, /\[FAIL\] credentials: .*could not be parsed/i)
+
+    const right = String((await (await build({ keyPath, keyPassphrase: 'right-pass' })).ssh_doctor.execute({ machine: 'k' }, {})).text)
+    assert.match(right, /\[ok\] credentials: config-key/)
+  } finally {
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
     rmSync(home, { recursive: true, force: true })
   }
 })
