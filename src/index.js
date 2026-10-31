@@ -937,8 +937,12 @@ function assertKnownArgs(args, known, toolName) {
         kind: 'exec',
         machine: alias,
         command: summarize(command),
-        outcome: r.cancelled ? 'cancel' : (r.timedOut ? 'timeout' : (r.dropped ? 'incomplete' : (r.code === 0 ? 'ok' : 'exit'))),
+        // A command killed by a signal did not exit: recording 'exit' with no code
+        // made a SIGKILL look like an exit whose status went missing.
+        outcome: r.cancelled ? 'cancel' : (r.timedOut ? 'timeout' : (r.dropped ? 'incomplete'
+          : (r.signal ? 'signal' : (r.code === 0 ? 'ok' : 'exit')))),
         exitCode: r.code,
+        ...(r.signal ? { signal: String(r.signal) } : {}),
         truncated: r.truncated,
         ms: Date.now() - startedAt,
       })
@@ -1532,6 +1536,9 @@ function assertKnownArgs(args, known, toolName) {
         const machine = r.machine ? ' ' + r.machine : ''
         const parts = [when, machine.trim(), r.kind || '?', r.outcome || '']
         if (r.exitCode !== null && r.exitCode !== undefined) parts.push('exit=' + r.exitCode)
+        // A signal death has no exit status: without this the row said only
+        // "exit=" with nothing after it.
+        if (r.signal) parts.push('signal=' + r.signal)
         // Show the subject: a command for exec, a path for transfers.
         const subject = r.command || r.path || r.pattern || ''
         if (subject) parts.push(subject)

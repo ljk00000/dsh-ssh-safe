@@ -864,3 +864,39 @@ test('an empty file says it is empty instead of returning nothing', async () => 
   const blank = String((await tools.ssh_read.execute({ machine: 't', path: '/tmp/newline.txt' }, {})).text)
   assert.equal(blank, '\n')
 })
+
+test('an audit record says a signal killed the command, not that it exited', async () => {
+  // 'outcome: exit' with no code made a SIGKILL look like an exit whose status
+  // went missing, and the record carried no signal at all.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-audsig-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const own = {}
+    const srv2 = await startServer()
+    try {
+      await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+        defaultMachine: 's', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, auditLog: true,
+        connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+        machines: { s: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+      })
+      await own.ssh_exec.execute({ machine: 's', command: 'kill' }, {}).catch(() => {})
+      const records = readFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'), 'utf8')
+        .split('\n').filter(Boolean).map((line) => JSON.parse(line))
+      const killed = records.find((record) => record.command === 'kill')
+      assert.equal(killed.outcome, 'signal')
+      assert.equal(killed.signal, 'SIGKILL')
+      assert.equal(killed.exitCode, null, 'a signal death has no exit code')
+
+      const shown = String((await own.ssh_audit.execute({ limit: 5 }, {})).text)
+      assert.match(shown, /signal=SIGKILL/)
+    } finally {
+      await own.ssh_close.execute({ machine: 's', force: true }, {}).catch(() => {})
+      await srv2.close()
+    }
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

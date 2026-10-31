@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.109 — 2026-10-31
+
+### Fixed
+- **A command killed by a signal was recorded as having exited.** The audit line said
+  `outcome: exit` with no exit code at all, and carried no signal, so a SIGKILL
+  looked like an exit whose status went missing. It now records the death for what
+  it was:
+  ```
+  before: t exec exit exit=               kill
+  after : t exec signal signal=SIGKILL    kill
+  ```
+  `exit 3` still records `exit exit=3`, and `ssh_audit` prints the signal next to
+  the code when a record has one.
+
+### Verified, no change needed
+- The rest of the outcome vocabulary matches what happened: `ok` (exit 0), `exit`
+  (non-zero), `cancel`, `timeout`, `incomplete` (connection lost), `error`.
+- Byte and entry counts are exact: `read` of a 5-byte file records `bytes=5`, a
+  `write` of 3 bytes records `bytes=3`, a listing of one entry records `entries=1`.
+
 ## 0.7.108 — 2026-10-31
 
 ### Fixed
