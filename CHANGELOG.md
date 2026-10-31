@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.142 — 2026-10-31
+
+### Fixed — a read could hang forever
+- **The timeout path awaited a diagnostic that never answered.** Before reporting a
+  timeout, the read does one `stat` to explain a FIFO. After a forced close the
+  session is gone, `stat` never replies, and the `await` sat inside the timer
+  callback — so the timeout could not fire either:
+  ```
+  ssh_read (sftpTimeoutMs 3000), ssh_close force: true after 200ms
+  before: close took 2ms … and the read was still pending 12s later
+  after : close took 262ms … read settled at 3288ms with
+          "reading /tmp/big.txt did not complete within 3000ms — the remote channel
+           may have dropped, or the filesystem is not answering"
+  ```
+  The diagnostic is now raced against a 250ms bound (and unref-ed), so the timeout it
+  decorates always wins. The FIFO explanation still works on a live session — the
+  special-files suite passes unchanged.
+
+### Verified, no change needed
+- Re-creating a workspace for an alias whose host changed refreshes `AGENTS.md` and
+  the marker (host `h1` → `h2`, no stale text) and reports `已刷新`.
+- `remove` keeps the placeholder unless `deleteFiles: true`; with it the directory is
+  deleted, the second call says the directory was never there, and the remote host is
+  untouched.
+
 ## 0.7.141 — 2026-10-31
 
 ### Fixed

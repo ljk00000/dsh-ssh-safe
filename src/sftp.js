@@ -280,6 +280,22 @@ export function typeChar(mode) {
  * @returns {Promise<string>} '' when the path is an ordinary file
  */
 async function specialFileNote(sftp, target, operation) {
+  // Never let the diagnostic outlive the timeout it decorates: after a forced
+  // close the session is gone, stat never answers, and awaiting it here kept
+  // the whole read pending forever (measured: still pending 12s after a 3s
+  // timeout).
+  const note = await Promise.race([
+    probeSpecialFile(sftp, target, operation),
+    new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(''), 250)
+      if (typeof timer.unref === 'function') timer.unref()
+    }),
+  ])
+  return note
+}
+
+/** The unbounded probe behind specialFileNote. */
+async function probeSpecialFile(sftp, target, operation) {
   if (typeof sftp.stat !== 'function') return ''
   let attrs
   try { attrs = await callSftp(sftp, 'stat', target) } catch { return '' }

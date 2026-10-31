@@ -1309,3 +1309,36 @@ test('an error message escapes the remote path it echoes', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a read in flight settles when the connection is force-closed', async () => {
+  // The timeout path awaited a stat for the FIFO explanation. After a forced
+  // close the session is gone, stat never answers, and the await kept the read
+  // pending forever: still pending 12s after a 3s timeout.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-closeread-'))
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    srv2.vfs.putDir('/tmp')
+    srv2.vfs.putFile('/tmp/big.txt', 'y'.repeat(500))
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000, sftpTimeoutMs: 3000,
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    srv2.vfs.control.stallReads = true
+    const read = own.ssh_read.execute({ machine: 't', path: '/tmp/big.txt' }, {})
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    await own.ssh_close.execute({ machine: 't', force: true }, {})
+    const outcome = await Promise.race([
+      read.then((r) => 'ok: ' + String(r.text).slice(0, 40), (err) => 'err: ' + String(err.message).slice(0, 80)),
+      new Promise((resolve) => setTimeout(() => resolve('still pending'), 9000)),
+    ])
+    assert.notEqual(outcome, 'still pending', 'the read must settle after the connection is gone')
+    assert.match(outcome, /did not complete within 3000ms/)
+  } finally {
+    srv2.vfs.control.stallReads = false
+    await own.ssh_close.execute({}, {}).catch(() => {})
+    await srv2.close()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
