@@ -22,13 +22,27 @@ import { redact } from './credentials.js'
 /** Open an SFTP session or reject. */
 function openSftp(client) {
   return new Promise((resolve, reject) => {
+    // ssh2 answers "Unable to start subsystem: sftp", which names neither the
+    // machine nor what to do: three of the four file tools need this subsystem,
+    // and a server with Subsystem sftp commented out answers exactly that.
+    const explain = (message) => {
+      const text = redact(String(message || ''))
+      if (/subsystem/i.test(text)) {
+        return new Error(
+          'the server did not start the SFTP subsystem (' + text + '); ssh_read, ssh_list and ' +
+          'ssh_write need it — check that sshd_config has Subsystem sftp enabled and that no ' +
+          'ForceCommand or chroot rule blocks it'
+        )
+      }
+      return new Error(text)
+    }
     try {
       client.sftp((err, sftp) => {
-        if (err) reject(new Error(redact(err.message)))
+        if (err) reject(explain(err.message))
         else resolve(sftp)
       })
     } catch (err) {
-      reject(new Error(redact(err && err.message ? err.message : String(err))))
+      reject(explain(err && err.message ? err.message : String(err)))
     }
   })
 }

@@ -2431,6 +2431,17 @@ function blockingFileAbove(dir) {
         const replied = String(probe.stdout || '').includes('doctor-ok')
         say('authentication', replied ? 'ok' : 'FAIL', replied ? 'command channel works' : 'connected but no output')
         if (!replied) say('shell', 'warn', 'the session opened but produced no stdout; the remote shell may be restricted')
+        // The file tools need the SFTP subsystem, which a server can refuse while
+        // exec still works. Without this stage the doctor passed such a machine and
+        // every ssh_list answered "Unable to start subsystem: sftp".
+        try {
+          await pool.list(alias, '.', { timeoutMs: 8000 })
+          say('sftp', 'ok', 'subsystem works')
+        } catch (err) {
+          const detail = redact(err && err.message ? err.message : String(err))
+          if (/subsystem/i.test(detail)) say('sftp', 'FAIL', detail)
+          else say('sftp', 'warn', 'subsystem answered, but the home directory could not be listed (' + detail + ')')
+        }
       } catch (err) {
         const message = redact(err && err.message ? err.message : String(err))
         // Authentication was attempted (or at least the connection was), so the

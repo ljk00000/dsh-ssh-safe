@@ -2514,3 +2514,58 @@ test('a field that cannot be text is refused, not stringified', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a server without SFTP is named by the file tools and by the doctor', async () => {
+  // ssh2 answers 'Unable to start subsystem: sftp', which names neither the cause nor
+  // the fix; the doctor passed such a machine because it never tried the subsystem.
+  const ssh2 = (await import('ssh2')).default
+  const hostKey = ssh2.utils.generateKeyPairSync('ed25519').private
+  const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
+    client.on('authentication', (ctx) => ctx.accept())
+    client.on('ready', () => {
+      client.on('session', (accept) => {
+        const session = accept()
+        session.on('sftp', (_acceptSftp, rejectSftp) => { if (rejectSftp) rejectSftp() })
+        session.on('exec', (acceptExec) => {
+          const stream = acceptExec()
+          stream.on('close', () => {})
+          stream.exit(0)
+          stream.end('doctor-ok\n')
+        })
+      })
+    })
+  })
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  const port = server.address().port
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-nosftp-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'n', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000, sftpTimeoutMs: 4000,
+      machines: { n: { host: '127.0.0.1', port, user: 'tester', password: 'x' } },
+    })
+    const attempt = async (name, args) => {
+      try { return String((await own[name].execute(args, {})).text) } catch (err) { return 'ERR: ' + err.message }
+    }
+    const listed = await attempt('ssh_list', { machine: 'n', path: '/tmp' })
+    assert.match(listed, /did not start the SFTP subsystem/)
+    assert.match(listed, /Subsystem sftp/)
+    assert.doesNotMatch(listed, /^ERR: Unable to start subsystem: sftp$/)
+    const read = await attempt('ssh_read', { machine: 'n', path: '/tmp/x' })
+    assert.match(read, /did not start the SFTP subsystem/)
+    // exec keeps working, so the failure is specific to the file tools.
+    const ran = await attempt('ssh_exec', { machine: 'n', command: 'echo hi' })
+    assert.match(ran, /doctor-ok/)
+    const doc = await attempt('ssh_doctor', { machine: 'n' })
+    assert.match(doc, /\[FAIL\] sftp: the server did not start the SFTP subsystem/)
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    server.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

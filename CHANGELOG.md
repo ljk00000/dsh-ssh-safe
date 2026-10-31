@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.241 — 2026-11-01
+
+### Fixed
+- **A server that refuses the SFTP subsystem answered with ssh2's own words, and the doctor did not
+  notice.** Measured against a minimal ssh2 server that accepts auth and exec but rejects `sftp`:
+  ```
+  ssh_list   before: ERR: Unable to start subsystem: sftp
+             after : ERR: the server did not start the SFTP subsystem (Unable to start subsystem:
+                     sftp); ssh_read, ssh_list and ssh_write need it — check that sshd_config has
+                     Subsystem sftp enabled and that no ForceCommand or chroot rule blocks it
+  doctor     before: [ok] credentials, [ok] tcp, [ok] host key, [FAIL] authentication … (no sftp line)
+             after : … [FAIL] sftp: the server did not start the SFTP subsystem (…)
+  ```
+  The doctor now opens one SFTP session and lists the home directory. A subsystem that works but a
+  home that cannot be listed is a `warn`, not a `FAIL`, so a permission problem is not reported as a
+  missing subsystem.
+
+### Verified, no change needed
+- `ssh_exec` keeps working on that server (`doctor-ok [exit 0]`), which is what makes the file-tool
+  failure specific and worth naming.
+
+### Tests
+- One new case builds that server with ssh2 itself: both file tools name the subsystem and the fix,
+  `exec` still works, and the doctor reports `[FAIL] sftp`.
+  Suite 823 / 818 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.240 — 2026-11-01
 
 ### Fixed
