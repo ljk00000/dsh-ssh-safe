@@ -54,7 +54,16 @@ const SHELL_WRAPPERS = ['bash', 'sh', 'zsh', 'dash', 'ksh', 'eval', 'exec', 'env
  */
 export function normalizeCommand(command) {
   let s = String(command ?? '')
+  // A newline separates commands exactly like ';' does. Collapsing it to a space
+  // made 'cd /' + newline + 'rm -rf *' invisible to the rule that catches
+  // 'cd / && rm -rf *'.
+  s = s.replace(/\r?\n/g, ' ; ')
   s = s.replace(/\s+/g, ' ').trim()
+  // A command substitution may expand to the empty string: 'rm -rf /$(echo)' IS
+  // 'rm -rf /'. Removing it makes the target visible to the deny rules; the
+  // cost is that 'rm -rf /$SUBDIR' is refused as well, which is the safe side.
+  s = s.replace(/\$\([^()]*\)/g, '')
+  s = s.replace(/`[^`]*`/g, '')
   s = s.replace(/['"]/g, '')
   s = s.replace(/^(\/(?:[\w.+-]+\/)*)([\w.+-]+)/, '$2')
   s = s.replace(/\\([\w.+-])/g, '$1')

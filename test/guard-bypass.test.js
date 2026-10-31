@@ -120,3 +120,21 @@ test('variable indirection, backticks and the home glob are closed', async () =>
   assert.equal(checkCommand('rm -rf ~/.cache', patterns).blocked, false)
   assert.equal(expandAssignments('X=' + D + 'X; echo ' + D + 'Y'), 'X=' + D + 'X; echo ' + D + 'Y')
 })
+
+test('a newline is a command separator, and $(...) can expand to nothing', () => {
+  // Two spellings the deny rules missed, measured against DEFAULT_DENY_RULES:
+  //   'cd /' + newline + 'rm -rf *'  -- the rule accepted only && | ; | ||
+  //   'rm -rf /$(echo)'              -- the substitution is empty, so this IS rm -rf /
+  const patterns = [
+    '(?:^|[\\s;&|()\`])rm(?:\\s+-{1,2}[A-Za-z-]+)+\\s+/+(?:\\*|\\.{1,2})?(?:\\s|$|[)\`])',
+    '\\bcd\\s+(?:/+|~|\\$(?:\\{HOME\\}|HOME))\\s*(?:&&|;|\\|\\|)\\s*(?:(?:sudo|doas|env|nohup)\\s+)?(?:-{1,2}\\S+(?:\\s+\\S+)?\\s+)*(?:[\\w./-]*/)?rm\\s+-[a-z]*r[a-z]*\\s+(?:\\./)?\\*',
+  ]
+  assert.equal(normalizeCommand('cd /\nrm -rf *'), 'cd / ; rm -rf *')
+  assert.equal(normalizeCommand('rm -rf /$(echo)'), 'rm -rf /')
+  assert.equal(checkCommand('cd /\nrm -rf *', patterns).blocked, true)
+  assert.equal(checkCommand('rm -rf /$(echo)', patterns).blocked, true)
+  assert.equal(checkCommand('rm -rf /`echo`', patterns).blocked, true)
+  // Ordinary work is not turned into a command by the change.
+  assert.equal(checkCommand('echo one\necho two', patterns).blocked, false)
+  assert.equal(checkCommand('rm -rf /tmp/build', patterns).blocked, false)
+})

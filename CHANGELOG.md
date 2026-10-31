@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.172 — 2026-10-31
+
+### Fixed
+- **Two spellings got past the deny list.** Measured against `DEFAULT_DENY_RULES`:
+  ```
+  cd /
+  rm -rf *            ← the rule accepted only && | ; | || as the separator
+  rm -rf /$(echo)     ← the substitution expands to nothing, so this IS rm -rf /
+  ```
+  `normalizeCommand` now turns a newline into `;` (a newline separates commands in a
+  shell) and removes command substitutions, because they may expand to the empty string.
+  Both are now refused; `echo one` + newline + `echo two`, `rm -rf /tmp/build` and the
+  other ten safe commands in the matrix are still allowed.
+  The one remaining spelling that slips is `RM -RF /`, which no shell runs — commands are
+  case-sensitive, so there is nothing to block.
+
+### Verified, no change needed
+- The full matrix: 28 dangerous spellings (root and home deletion, `cd / && rm -rf *`,
+  `find / -delete`, `find / -exec rm`, `mkfs`, `dd of=/dev/sd*`, both fork bombs, the
+  shutdown family including sudo and systemctl) and 16 bypass attempts (quoted slash,
+  sudo prefix, `bash -c`, `;`, `&&`, backslash-rm, trailing and extra spaces, subshells)
+  — all refused; 11 safe commands all allowed.
+
+### Corrected while editing
+- My first patch to `normalizeCommand` lost a backslash and left an unterminated regex,
+  which `node --check` caught immediately; the line was rewritten with `String.raw`.
+- My first matrix run used `if (!result)` against a function that returns `{blocked}`
+  rather than null — it reported 28/28 blocked for the wrong reason. Re-run with
+  `result.blocked`, which is where the two real bypasses came from.
+
 ## 0.7.171 — 2026-10-31
 
 ### Fixed (documentation)
