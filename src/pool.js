@@ -308,6 +308,29 @@ function noCooldown(err) {
   return err
 }
 
+/** The operation's connection was taken away before it could use it. */
+function goneError(alias) {
+  return new Error(
+    'The connection to "' + alias + '" is gone: it was closed while the operation was starting ' +
+    'or running (ssh_close, an eviction, or a dropped channel). The operation did not complete; ' +
+    'call it again to reconnect.'
+  )
+}
+
+/**
+ * The client connect() is about to hand back, or the refusal when it is gone.
+ *
+ * connect() awaits the health probe and the eviction ceiling before returning,
+ * and a concurrent ssh_close can null the client inside that await. Returning
+ * it unchecked handed null to the caller, which then died with
+ * 'Cannot read properties of null (reading exec)' instead of saying what had
+ * happened.
+ */
+function liveOrGone(e, alias) {
+  if (e && e.client) return e.client
+  throw noCooldown(goneError(alias))
+}
+
 /**
  * Name the real cause when ssh2 says the client is not connected.
  *
@@ -321,11 +344,7 @@ function noCooldown(err) {
 function explainGone(err, alias) {
   const message = String((err && /** @type {any} */ (err).message) || err || '')
   if (!/Not connected|not connected|Channel open failure/i.test(message)) return err instanceof Error ? err : new Error(message)
-  return new Error(
-    'The connection to "' + alias + '" is gone: it was closed while the operation was starting ' +
-    'or running (ssh_close, an eviction, or a dropped channel). The operation did not complete; ' +
-    'call it again to reconnect.'
-  )
+  return goneError(alias)
 }
 
 /**
@@ -469,8 +488,23 @@ export class SshPool {
       this.evictPending = false
       const limit = Number(this.config.maxConnections)
       if (!Number.isFinite(limit) || limit <= 0) return
-      this.evictIdle(limit).catch(() => {})
+      this.#evict(limit)
     })
+  }
+
+  /**
+   * Run one eviction after the ones already queued.
+   *
+   * Two evictions that both measured 'three live, keep one' each closed two, and
+   * together closed all three -- the ceiling asked for one. They see the same
+   * snapshot because each account happens as its own close completes, so they
+   * have to run one at a time.
+   */
+  #evict(limit, protect) {
+    const run = () => this.evictIdle(limit, protect)
+    this.evictChain = (this.evictChain || Promise.resolve()).then(run, run)
+    this.evictChain = this.evictChain.catch(() => {})
+    return this.evictChain
   }
 
   /** Is anything running on this alias? */
@@ -630,13 +664,13 @@ export class SshPool {
           // that command ends. Only a NEW connection used to evict, so reusing an
           // alias left maxConnections-1 connections open indefinitely (measured:
           // 'maxConnections: 1' kept 2 sockets after both went idle).
-          await this.evictIdle(Number(this.config.maxConnections), alias)
-          return e.client
+          await this.#evict(Number(this.config.maxConnections), alias)
+          return liveOrGone(e, alias)
         }
       } else {
         e.lastUsedAt = Date.now()
-        await this.evictIdle(Number(this.config.maxConnections), alias)
-        return e.client
+        await this.#evict(Number(this.config.maxConnections), alias)
+        return liveOrGone(e, alias)
       }
     }
 

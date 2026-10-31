@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.183 — 2026-10-31
+
+### Fixed
+- **Closing a connection while a command was starting produced a TypeError.** Reproduced 2
+  times in 8 attempts; the caller got a JavaScript error instead of the explanation:
+  ```
+  before: Cannot read properties of null (reading 'exec')
+            at pool.js:1028 (#execOn ← SshPool.exec)
+  after : The connection to "t" is gone: it was closed while the operation was starting or
+          running (ssh_close, an eviction, or a dropped channel). The operation did not
+          complete; call it again to reconnect.
+  ```
+  `connect()` awaits the health probe and the eviction ceiling before returning, and a
+  concurrent close can null the client inside that await. Both returns now go through
+  `liveOrGone()`, which hands back the client or that refusal; the refusal is marked
+  `noCooldown`, because the machine is not at fault.
+- **Two evictions could over-close.** The first attempt at the fix above let a burst finish
+  and left `Live connections: 0 / 1 max` where the ceiling asks for one: two evictions each
+  measured "three live, keep one", each closed two, and together they closed all three.
+  Evictions (from a finishing operation and from `connect()`) now share one queue, so each
+  sees the account the previous one left.
+
+### Verified, no change needed
+- 20 alternating calls between two aliases with `maxConnections: 1`: no failures, 94 ms,
+  exactly one live connection afterwards, one `exec` record per call and nothing else.
+- `maxConnections: 0` keeps all five connections across 20 calls (no eviction work).
+
 ## 0.7.182 — 2026-10-31
 
 ### Fixed

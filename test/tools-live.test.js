@@ -1844,6 +1844,40 @@ test('an exit code is shown once, not twice', async () => {
 })
 
 
+
+test('closing a connection while a command starts says so, instead of a TypeError', async () => {
+  // connect() awaits the health probe and the eviction ceiling, and a concurrent
+  // ssh_close can null the client inside that await. Returning it unchecked gave
+  // the caller 'Cannot read properties of null (reading exec)' two times in eight.
+  const srv3 = await startServer()
+  const own = {}
+  await apply(
+    { tools: { register: (def) => { own[def.name] = def } }, effect: () => {}, get: () => undefined },
+    {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 4000, commandTimeoutMs: 8000,
+      machines: { t: { host: '127.0.0.1', port: srv3.port, user: 'tester', password: 'test-pass' } },
+    },
+  )
+  const messages = []
+  try {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const running = own.ssh_exec.execute({ machine: 't', command: 'sleep 1' }, {})
+        .then((r) => String(r.text), (e) => e.message)
+      own.ssh_close.execute({ machine: 't', force: true }, {}).catch(() => {})
+      messages.push(await running)
+    }
+    for (const message of messages) {
+      assert.doesNotMatch(message, /Cannot read properties of null/)
+      assert.match(message, /is gone|ran: sleep 1|closed before the command reported/, message.slice(0, 120))
+    }
+  } finally {
+    await own.ssh_close.execute({ force: true }, {}).catch(() => {})
+    srv3.killClients()
+    await Promise.race([srv3.close(), new Promise((r) => setTimeout(r, 1500))])
+  }
+})
+
 test('the connection ceiling is enforced when work finishes, not only on the next call', async () => {
   // maxConnections: 1 with three concurrent commands left three sockets open
   // until something asked for a connection again: the report said '3 / 1 max'
