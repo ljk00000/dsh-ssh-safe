@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.70 — 2026-10-31
+
+### Fixed
+- **A multi-byte character split across two channel packets became U+FFFD.** The
+  exec output decoded every chunk on its own (`d.toString('utf8')`), so a
+  3-byte character straddling a packet boundary turned into three replacement
+  characters: measured with a server that splits one character in half,
+  `'中文测试' × 50` came back as `'���文测试…'`, 200 characters in and 202
+  out. Any `cat` of a file with non-ASCII text could lose characters at the seams.
+  Both streams now use a `StringDecoder`, which holds the partial sequence until
+  the rest arrives, and both decoders are flushed on close so a stream that ends
+  mid-character keeps its tail.
+
+### Added — tests
+- The same character split across two packets for stdout and for stderr, plus the
+  read collector doing the same.
+
+### Verified, no change needed
+- Every numeric setting is range-checked by the schema (`commandTimeoutMs: 0`,
+  `maxOutputChars: 0`, `maxConnections: -3`, a port above 65535 are all
+  rejected with `expected number >= ...`); parallel execs, the connection limit,
+  cancelling one of two commands and closing a connection under a running command
+  all behave as documented.
+
 ## 0.7.69 — 2026-10-31
 
 ### Fixed

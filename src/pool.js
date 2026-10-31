@@ -32,6 +32,7 @@ async function loadClient() {
 }
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { StringDecoder } from 'node:string_decoder'
 import { homedir } from 'node:os'
 import { isIPv6 } from 'node:net'
 import { redact, envNames } from './credentials.js'
@@ -873,6 +874,8 @@ export class SshPool {
       client.exec(command, (error, s) => {
         if (error) return settle(null, new Error(redact(error.message)))
         stream = s
+        const outDecoder = new StringDecoder('utf8')
+        const errDecoder = new StringDecoder('utf8')
         // Close the stdin side at once. Nothing in this plugin ever writes to a
         // channel, so leaving it open means every command that reads input waits
         // for a line that will never arrive: 'sudo apt-get install' sat for the
@@ -881,7 +884,10 @@ export class SshPool {
         // ('sudo: a terminal is required', 'Aborted', ...).
         sendStdinEof(s)
         s.on('data', (d) => {
-          const text = Buffer.isBuffer(d) ? d.toString('utf8') : String(d)
+          // A chunk boundary can fall inside a multi-byte character: decoding each
+          // chunk on its own turned one '中' (3 bytes) into three U+FFFD. The
+          // decoder holds the partial sequence until the rest arrives.
+          const text = Buffer.isBuffer(d) ? outDecoder.write(d) : String(d)
           // The timeline is what the caller renders, so it has to draw from the
           // same budget as the accumulators. Pushing every chunk and letting the
           // budget cap only the unused strings bypassed maxOutputChars entirely.
@@ -889,12 +895,24 @@ export class SshPool {
           if (kept) timeline.push({ stream: 'out', text: kept })
         })
         s.stderr.on('data', (d) => {
-          const text = Buffer.isBuffer(d) ? d.toString('utf8') : String(d)
+          const text = Buffer.isBuffer(d) ? errDecoder.write(d) : String(d)
           const kept = budget.append(err, text)
           if (kept) timeline.push({ stream: 'err', text: kept })
         })
         // close(code, signal): a process killed by a signal reports no code.
         s.on('close', (code, signal) => {
+          // Flush whatever the decoders still hold: without it a stream that ends
+          // mid-character loses its tail.
+          const tailOut = outDecoder.end()
+          if (tailOut) {
+            const keptOut = budget.append(out, tailOut)
+            if (keptOut) timeline.push({ stream: 'out', text: keptOut })
+          }
+          const tailErr = errDecoder.end()
+          if (tailErr) {
+            const keptErr = budget.append(err, tailErr)
+            if (keptErr) timeline.push({ stream: 'err', text: keptErr })
+          }
           const named = typeof signal === 'string' && signal.length > 0
           settle({
             stdout: out.text,
