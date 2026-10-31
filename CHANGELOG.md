@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.227 — 2026-11-01
+
+### Fixed
+- **The doctor and the connection disagreed about a wrong `keyPath`.** 0.7.226 taught the
+  connection path to say "is a directory, not a key file" and to name the `.pub` half; the doctor
+  still printed the errno and the bare verdict:
+  ```
+  directory   before: [FAIL] credentials: key file unreadable (EISDIR): …\ssh-dir
+              after : [FAIL] credentials: key file is a directory, not a key: …\ssh-dir
+  .pub file   before: [FAIL] credentials: key file does not look like a private key: …\id.pub
+              after : [FAIL] credentials: key file does not look like a private key: …\id.pub
+                      (a .pub file is the public half)
+  ```
+
+### Verified, no change needed
+- `ssh_doctor` already checks a key before dialling rather than after: a passphrase-protected key
+  with no `keyPassphrase` fails under `credentials`, not under `connect`.
+- A settings password next to a key is reported by the doctor as
+  "the settings form holds a plaintext password; it was ignored", and the plain key is used.
+
+### Tests
+- One new live case covering the .pub file and the directory through `ssh_doctor`.
+  Suite 808 / 803 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.226 — 2026-11-01
 
 ### Fixed

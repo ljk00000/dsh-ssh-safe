@@ -2208,7 +2208,11 @@ function assertKnownArgs(args, known, toolName) {
             const body = readFileSync(keyPath)
             if (body.length === 0) credentialProblem = 'key file is empty: ' + keyPath
             else if (!/PRIVATE KEY-----/.test(String(body.subarray(0, 200)))) {
-              credentialProblem = 'key file does not look like a private key: ' + keyPath
+              // A .pub next to the key is the commonest wrong file; say which half
+              // it is rather than leaving the reader to compare with ssh_exec's
+              // longer message.
+              credentialProblem = 'key file does not look like a private key: ' + keyPath +
+                (/\.pub$/i.test(keyPath) ? ' (a .pub file is the public half)' : '')
             } else {
               // The header check passes for an ENCRYPTED key, so this said ok and
               // the failure only appeared after dialling. Parse it here, with the
@@ -2225,7 +2229,11 @@ function assertKnownArgs(args, known, toolName) {
             }
           } catch (err) {
             const code = err && /** @type {{code?: string}} */ (err).code
-            credentialProblem = 'key file unreadable (' + (code || 'error') + '): ' + keyPath
+            // The connection path says 'is a directory, not a key file'; the doctor
+            // still printed the errno, so the two disagreed about the same mistake.
+            credentialProblem = code === 'EISDIR'
+              ? 'key file is a directory, not a key: ' + keyPath
+              : 'key file unreadable (' + (code || 'error') + '): ' + keyPath
           }
         }
       } else if (auth.kind === 'agent') {

@@ -2234,3 +2234,41 @@ test('a .pub file, a directory or junk as keyPath is explained, not passed to ss
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('the doctor and the connection agree about a .pub file and a directory keyPath', async () => {
+  // The connection path says 'is a directory, not a key file' and names the .pub
+  // half; the doctor still printed the errno or the bare header verdict, so the two
+  // disagreed about the same mistake.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-dockeyfit2-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    const pair = ssh2.utils.generateKeyPairSync('ed25519')
+    const pub = path.join(home, 'id_ed25519.pub')
+    const asDir = path.join(home, 'ssh-dir')
+    writeFileSync(pub, pair.public)
+    mkdirSync(asDir)
+    const build = async (machine) => {
+      const tools = {}
+      await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+        defaultMachine: 'k', hostKeyPolicy: 'tofu', reconnectCooldownMs: 0,
+        connectTimeoutMs: 2000, commandTimeoutMs: 2000,
+        machines: { k: { host: '127.0.0.1', port: srv2.port, user: 'tester', ...machine } },
+      })
+      return tools
+    }
+    const pubReport = String((await (await build({ keyPath: pub })).ssh_doctor.execute({ machine: 'k' }, {})).text)
+    assert.match(pubReport, /\[FAIL\] credentials: key file does not look like a private key/)
+    assert.match(pubReport, /a \.pub file is the public half/)
+    const dirReport = String((await (await build({ keyPath: asDir })).ssh_doctor.execute({ machine: 'k' }, {})).text)
+    assert.match(dirReport, /\[FAIL\] credentials: key file is a directory, not a key/)
+    assert.doesNotMatch(dirReport, /EISDIR/)
+  } finally {
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
