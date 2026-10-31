@@ -168,3 +168,14 @@ test('a PuTTY .ppk private key is masked too', () => {
   // A mention of the format in prose is masked as well; that is the safe side.
   assert.equal(redact('nothing to see here'), 'nothing to see here')
 })
+
+test('-p with a separate password argument is masked, but -p as a port is not', () => {
+  // 'sshpass -p SECRET pw ssh host' put the password in the audit command: only the
+  // glued form ('-pSECRET') was handled.
+  assert.doesNotMatch(redact('sshpass -p SECRET pw ssh host'), /SECRET/)
+  assert.match(redact('sshpass -p SECRET pw ssh host'), /-p <redacted>/)
+  assert.doesNotMatch(redact('sshpass -p "two words" pw ssh host'), /two words/)
+  // A port must survive: masking it would make the log say the wrong thing.
+  assert.equal(redact('ssh -p 2222 root@host'), 'ssh -p 2222 root@host')
+  assert.equal(redact('scp -P 2222 file host:'), 'scp -P 2222 file host:')
+})

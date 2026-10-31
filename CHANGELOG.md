@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.166 — 2026-10-31
+
+### Fixed
+- **`sshpass -p SECRET` recorded the password in the audit log.** The `-p` rule only
+  handled the glued form (`-pSECRET`), so a separate argument went to `audit.ndjson` —
+  where the record is supposed to hold the command, not the credential:
+  ```
+  before: sshpass -p SECRET pw ssh host uptime
+  after : sshpass -p <redacted> pw ssh host uptime
+  ```
+  A quoted value is masked whole, and a port survives: `ssh -p 2222 host` and
+  `scp -P 2222 …` are unchanged, because masking a port would make the log say the
+  wrong thing.
+
+### Verified, no change needed
+- Other command shapes are masked in the stored record and in `ssh_audit` output:
+  `mysql -uroot -pHUNTER2`, `curl -u user:PASS`, `export TOKEN=…`,
+  `https://user:ghp_…@github.com/…`, `echo PASSWORD=…`.
+- `redact` stays fast on big inputs: 1 MB plain text 5 ms, 300 KB with 10 000
+  `-----BEGIN` markers 131 ms (the old quadratic case took 33 s).
+
 ## 0.7.165 — 2026-10-31
 
 ### Fixed
