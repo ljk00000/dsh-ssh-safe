@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.112 — 2026-10-31
+
+### Fixed
+- **A `mode` the server did not apply was reported as a guess, or not at all.**
+  Writing a new file with `mode: "4755"` produced "mode 0755" with no note: the
+  setuid bit vanished silently. When the modes did differ the note claimed "the
+  file already existed, so it kept its own permissions" — a guess, since a umask
+  causes the same difference on a brand-new file.
+  ```
+  before: Wrote 9 bytes to /tmp/suid.sh (mode 0755)
+  after : Wrote 9 bytes to /tmp/suid.sh (mode 0755) — asked for 4755 but the file
+          ended up 0755 (the server applies its umask, and a file that already
+          existed keeps its own permissions); run chmod through ssh_exec to
+          change them
+  ```
+  The mode is also read back with `& 0o7777`, so a server that does keep a setuid
+  or sticky bit reports it instead of masking it to 0755.
+
+### Verified, no change needed
+- A new file gets exactly the mode asked for: `0600` → 600, `0755` → 755, no mode →
+  666 (the server applies its umask). An existing file keeps its permissions and
+  the note says so.
+- Paging edges: `offset: 0/3/4/5` continue where the previous page stopped, and
+  `offset: 99` answers `(offset 99 is past the last of 9 entries)`.
+- `maxBytes` can only tighten: asking for 10 MB with `maxFileBytes: 1024` returns
+  1024 bytes and says the ceiling is what to raise.
+
 ## 0.7.111 — 2026-10-31
 
 ### Fixed

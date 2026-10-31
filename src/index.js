@@ -1207,10 +1207,15 @@ function assertKnownArgs(args, known, toolName) {
           // mode is only applied when the file is created. Writing an existing
           // script with mode '755' left it 0644, and the only clue was a number
           // the caller had to compare against what they asked for.
-          (typeof r.modeRequested === 'number' && (r.modeRequested & 0o777) !== (r.mode & 0o777)
-            ? ' — asked for ' + (r.modeRequested & 0o777).toString(8).padStart(4, '0') +
-              ' but the file already existed, so it kept its own permissions; ' +
-              'run chmod through ssh_exec to change them'
+          // Two causes, and the tool cannot tell them apart: the server's umask,
+          // or a file that already existed keeping its own permissions. Saying
+          // "the file already existed" for a brand-new one was a guess; '4755'
+          // dropped its setuid bit here with no word at all.
+          (typeof r.modeRequested === 'number' && (r.modeRequested & 0o7777) !== (r.mode & 0o7777)
+            ? ' — asked for ' + (r.modeRequested & 0o7777).toString(8).padStart(4, '0') +
+              ' but the file ended up ' + (r.mode & 0o7777).toString(8).padStart(4, '0') +
+              ' (the server applies its umask, and a file that already existed keeps its own ' +
+              'permissions); run chmod through ssh_exec to change them'
             : '')
         : ''
       return { text: 'Wrote ' + plural(r.bytes, 'byte') + ' to ' + r.path + modeNote + viaLink }

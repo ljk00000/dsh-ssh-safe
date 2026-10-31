@@ -585,7 +585,10 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
           // The permissions the file ended up with are not the ones asked for on
           // every server (umask applies), and they decide who can read the file
           // just written.
-          if (attrs && typeof attrs.mode === 'number') mode = attrs.mode & 0o777
+          // 0o7777, not 0o777: a server that honours a setuid or sticky bit
+          // recorded it, and masking it away reported a file that is not the one
+          // on disk.
+          if (attrs && typeof attrs.mode === 'number') mode = attrs.mode & 0o7777
         }
       } catch { /* the link may be gone again; the write itself succeeded */ }
       if (explain) return

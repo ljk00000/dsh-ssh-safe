@@ -900,3 +900,17 @@ test('an audit record says a signal killed the command, not that it exited', asy
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a mode that the server did not apply says so for a new file too', async () => {
+  // The note used to claim 'the file already existed' whenever the modes
+  // differed, which is a guess — and '4755' dropped its setuid bit without a word.
+  srv.vfs.putDir('/tmp')
+  const result = await tools.ssh_write.execute(
+    { machine: 't', path: '/tmp/suid.sh', content: '#!/bin/sh', mode: '4755' },
+    {},
+  )
+  const text = String(result.text)
+  assert.match(text, /asked for 4755/)
+  assert.match(text, /the server applies its umask/)
+  assert.doesNotMatch(text, /the file already existed, so it kept/)
+})
