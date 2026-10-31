@@ -300,6 +300,11 @@ function state() {
       hostKeyPolicy: m.hostKeyPolicy || '(global)',
       fromSettings: Boolean(settings[alias] && (settings[alias].host || settings[alias].user)),
       inCredentialFile: fromDisk.includes(alias),
+      // A settings-form port that cannot be dialled was shown as the 22
+      // fallback, so the page looked configured while the real call would fail
+      // on that value.
+      portProblem: m.portProblem || '',
+      portRaw: m.portProblem ? String(m.portRaw ?? '') : '',
     }
   })
   return {
@@ -348,6 +353,12 @@ async function testConnection(alias) {
 
   if (!m.host || !m.username) {
     say('配置', 'FAIL', '缺少主机或用户，请在上方填写后保存')
+    return finish(false)
+  }
+  if (m.portProblem) {
+    // Report the value the plugin will use for the connection, which is not the
+    // one in the settings form: a '[ok] 配置' line here claims a working setup.
+    say('配置', 'FAIL', '端口无效：' + m.portProblem + '（设置界面里写的是 ' + String(m.portRaw ?? '') + '）— 正式连接会失败')
     return finish(false)
   }
   say('配置', 'ok', m.username + '@' + m.host + ':' + m.port)

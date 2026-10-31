@@ -853,3 +853,37 @@ test('a port that the settings form will override is announced on save', async (
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('an invalid settings-form port is reported, not replaced by 22', async () => {
+  // The state said port 22 and the test button said '[ok] 配置', so a bad port in
+  // the settings form looked like a working machine.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-guiport2-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    machines:',
+    '      evil:',
+    '        host: "h.example"',
+    '        port: 99999',
+    '        user: "u"',
+    '- id: other',
+    '  config: {}',
+    ''].join('\n'))
+  const { child, base: url, token } = await start(home, ['--profile', profile])
+  try {
+    const state = await call(url, token, '/api/state', undefined)
+    const evil = state.body.machines.find((m) => m.alias === 'evil')
+    assert.match(String(evil.portProblem), /not an integer between 1 and 65535/)
+    assert.equal(evil.portRaw, '99999')
+    const tested = await call(url, token, '/api/test', { alias: 'evil' })
+    const text = tested.body.lines.join('\n')
+    assert.match(text, /\[FAIL\] 配置: 端口无效/, text)
+    assert.doesNotMatch(text, /\[ok\] 配置/, 'a broken port must not read as a working configuration')
+    assert.equal(tested.body.ok, false)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

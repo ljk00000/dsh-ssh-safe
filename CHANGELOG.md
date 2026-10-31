@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.140 — 2026-10-31
+
+### Fixed
+- **The settings page showed a broken port as 22 and "配置 ok".** A port the plugin
+  cannot dial was replaced by the fallback in the page state, and the test button
+  reported a working configuration for it — while a real `ssh_connect` refuses:
+  ```
+  settings: port 99999
+  before: state {"port": 22, …}, test: [ok] 配置: u@h.example:22 / [FAIL] TCP: ENOTFOUND
+  after : state {"port": 22, "portProblem": "port 99999 from the config is not an integer
+                between 1 and 65535", "portRaw": "99999"}
+          test : [FAIL] 配置: 端口无效：port 99999 … （设置界面里写的是 99999）— 正式连接会失败
+          card : red tag 端口无效 99999 instead of a green ready tag
+  ```
+
+### Verified, no change needed
+- The page escapes every value it interpolates (`esc()` on alias, host, user, port,
+  key path, environment aliases), and test output goes through `textContent`, so a
+  hostile name cannot inject markup.
+
 ## 0.7.139 — 2026-10-31
 
 ### Fixed

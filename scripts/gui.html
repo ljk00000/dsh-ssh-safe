@@ -169,9 +169,13 @@ function renderList() {
     const key = m.keyPath
       ? '<span class="tag">私钥 ' + esc(m.keyPath) + "</span>"
       : "";
-    const ready = m.host && m.username
-      ? '<span class="tag ok">' + esc(m.username) + "@" + esc(m.host) + ":" + m.port + "</span>"
-      : '<span class="tag bad">缺少主机或用户</span>';
+    // A port the plugin cannot dial is not a ready machine: the card used to
+    // show the 22 fallback with a green tag.
+    const ready = m.portProblem
+      ? '<span class="tag bad">端口无效 ' + esc(m.portRaw || "") + "</span>"
+      : m.host && m.username
+        ? '<span class="tag ok">' + esc(m.username) + "@" + esc(m.host) + ":" + esc(m.port) + "</span>"
+        : '<span class="tag bad">缺少主机或用户</span>';
     return (
       '<div class="card m" data-alias="' + esc(m.alias) + '">' +
         '<div class="m-head">' +
