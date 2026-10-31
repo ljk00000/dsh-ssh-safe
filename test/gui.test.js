@@ -407,7 +407,13 @@ test('the test button walks every stage against a reachable server', async () =>
     assert.match(text, /\[ok\] 认证/)
     assert.match(text, /\[ok\] 命令通道/)
     assert.match(text, /SHA256:/)
-    assert.match(text, /仅报告，未记录/, 'a test must not change the trust state')
+    // The page must state the truth about what the plugin will do with this key:
+    // an unknown host is refused by ssh_connect, so it is a warning here, not an
+    // "ok" that contradicts the next real call.
+    assert.match(text, /\[warn\] 主机密钥/, text)
+    assert.match(text, /本页不记录/, 'a test must not change the trust state')
+    assert.equal(existsSync(path.join(home, 'dsh-ssh-safe', 'known_hosts.json')), false,
+      'the test button wrote a trust record')
   } finally {
     child.kill()
     await srv.close()

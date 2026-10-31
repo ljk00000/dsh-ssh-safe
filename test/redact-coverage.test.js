@@ -84,3 +84,22 @@ test('ordinary text is left untouched', () => {
     assert.equal(redact(plain), plain, 'must not alter: ' + plain)
   }
 })
+test('the plugin\'s own vocabulary is not mistaken for a secret', () => {
+  // 'trustHostKey: true' ends in KEY, so the generic rule replaced the value with
+  // '<redacted>' and the one line that told the caller what to do became
+  // gibberish: 'call ssh_connect with trustHostKey: <redacted>'. A path and a key
+  // type are not secrets either.
+  assert.equal(
+    redact('call ssh_connect with trustHostKey: true for this one connection.'),
+    'call ssh_connect with trustHostKey: true for this one connection.',
+  )
+  assert.equal(redact('keyPath: /home/u/.ssh/id_ed25519'), 'keyPath: /home/u/.ssh/id_ed25519')
+  assert.equal(redact('keyType: ssh-ed25519'), 'keyType: ssh-ed25519')
+
+  // Everything that really is a secret is still redacted.
+  assert.match(redact('password: hunter2'), /<redacted>/)
+  assert.match(redact('api_key: sk-abc'), /<redacted>/)
+  assert.match(redact('AWS_SECRET_ACCESS_KEY=abc'), /<redacted>/)
+  assert.match(redact('keyPassphrase: hunter2'), /<redacted>/,
+    'only the names on the list are exempt')
+})

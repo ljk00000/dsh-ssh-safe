@@ -35,6 +35,8 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 import { connectOptions } from '../src/connect.js'
+import { checkHostKey } from '../src/hostkey.js'
+import { expandHome } from '../src/pool.js'
 import { dpapiAvailable, encryptDpapi } from '../src/dpapi.js'
 import { credentialFor, credentialState, credentialsPath, machineDefinition } from '../src/machines.js'
 
@@ -95,6 +97,20 @@ function pluginBlock() {
  * the plugin does: with useCredentialFile off, the file's password, host, port
  * and user are all out of play, and a "connection ok" here would be a lie.
  */
+/**
+ * The global hostKeyPolicy from the settings file, since machineDefinition only
+ * carries the per-machine override.
+ */
+function settingsHostKeyPolicy() {
+  const block = pluginBlock()
+  if (!block) return 'strict'
+  for (const line of block) {
+    const match = line.match(/^\s*hostKeyPolicy:\s*['"]?(strict|tofu|off)['"]?\s*(?:#.*)?$/)
+    if (match) return match[1]
+  }
+  return 'strict'
+}
+
 function settingsUseCredentialFile() {
   const block = pluginBlock()
   if (!block) return true
@@ -419,11 +435,30 @@ async function testConnection(alias) {
       return done(false)
     }
     config.hostVerifier = (key) => {
-      // Report, do not record: a test must not change the trust state.
+      // Report, do not record: a test must not change the trust state. It must
+      // still TELL the truth about what the plugin will do with this key -- a
+      // page that prints "[ok] 主机密钥" for a changed key says the opposite of
+      // what ssh_connect will do a second later.
       try {
         fingerprint = 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '')
-        say('主机密钥', 'ok', fingerprint + '（仅报告，未记录；正式连接用 ssh_connect）')
-      } catch { /* ignore */ }
+        const policy = m.hostKeyPolicy || settingsHostKeyPolicy()
+        const verdict = checkHostKey({
+          dshHome: credentialHome,
+          host: m.host,
+          port: m.port,
+          keyBlob: key,
+          policy,
+          trustHostKey: false,
+          knownHostsFile: m.knownHosts ? expandHome(m.knownHosts) : '',
+        })
+        if (verdict.ok) {
+          say('主机密钥', 'ok', fingerprint + '（已记录，校验通过；本页不修改记录）')
+        } else if (/^HOST KEY CHANGED/.test(String(verdict.reason))) {
+          say('主机密钥', 'FAIL', fingerprint + ' 与记录的指纹不一致，正式连接会被拒绝（可能是重装，也可能是中间人）')
+        } else {
+          say('主机密钥', 'warn', fingerprint + ' 还没有记录，正式连接会被拒绝，除非用 ssh_connect trustHostKey: true（本页不记录）')
+        }
+      } catch { /* a diagnostics page must not break the connection it reports on */ }
       return true
     }
 

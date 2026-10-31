@@ -91,6 +91,15 @@ export function agentSocket(env = process.env) {
  * A prefix is allowed because real variable names carry one.
  */
 
+/**
+ * Key names that end like a secret but never hold one.
+ *
+ * The generic rule matches any identifier ending in KEY, which is what makes it
+ * catch 'api_key: ...' without a list. These are the plugin's own vocabulary: a
+ * boolean and a path, neither of which can leak a credential.
+ */
+const NEVER_SECRET = new Set(['trusthostkey', 'keypath', 'keytype'])
+
 /** Replace anything that looks like a secret before it can reach a message. */
 export function redact(text) {
   let s = String(text ?? '')
@@ -108,7 +117,13 @@ export function redact(text) {
   // redact. See the timing test in test/redact-coverage.test.js.
   s = s.replace(
     /(^|[^\w])(["']?)([A-Za-z0-9_]*?(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|KEY))\2(\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,}]+)/gi,
-    (_m, lead, quote, key, separator) => lead + quote + key + quote + separator + '<redacted>',
+    (match, lead, quote, key, separator) => {
+      // 'trustHostKey: true' is an instruction, not a secret: it ends in KEY like
+      // every password field does, and replacing its value with '<redacted>'
+      // turned the one line that tells the caller what to do into gibberish.
+      if (NEVER_SECRET.has(String(key).toLowerCase())) return match
+      return lead + quote + key + quote + separator + '<redacted>'
+    },
   )
   // 'curl -u user:password' and '--user=user:password' carry the secret after a
   // flag rather than after '=' or ':', so the rule above misses them.

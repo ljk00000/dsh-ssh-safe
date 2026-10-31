@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.75 — 2026-10-31
+
+### Fixed
+- **The settings page said "主机密钥 ok" for a key the plugin would refuse.** Its
+  test button accepted any host key on purpose (a test must not change the trust
+  state) but reported it as `[ok] 主机密钥 SHA256:… 仅报告，未记录`. A user checking a
+  host after a suspected compromise saw a green line for a key that `ssh_connect`
+  would reject a second later. The page now runs the same check the plugin does
+  and says which of the three cases it is: recorded and matching (`ok`), changed
+  (`FAIL`, naming it as a possible man-in-the-middle), or not recorded yet
+  (`warn`, "正式连接会被拒绝，除非用 ssh_connect trustHostKey: true"). It still records
+  nothing, and a test asserts the trust file is not created.
+- **Redaction mangled the plugin’s own advice.** The generic rule redacts any
+  identifier ending in KEY followed by `: value`, so `ssh-connect with
+  trustHostKey: true` came back as `trustHostKey: <redacted>` — the one line that
+  tells the caller what to do, unreadable. `trustHostKey`, `keyPath` and `keyType`
+  are exempt now; `password`, `api_key`, `AWS_SECRET_ACCESS_KEY` and
+  `keyPassphrase` are redacted exactly as before.
+
+### Verified, no change needed
+- `ssh_doctor` with an OpenSSH `knownHosts` file reports the host key stage as
+  FAIL with the `ssh-keyscan` command, then skips authentication -- no crash, no
+  silent trust.
+
 ## 0.7.74 — 2026-10-31
 
 ### Added
