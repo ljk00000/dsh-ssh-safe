@@ -26,14 +26,32 @@ jobs:
       - name: Typecheck (checkJs)
         run: npm run typecheck
 
-      # The suite is deliberately dependency-free: no ssh2 install is needed
-      # because every module that would touch it is either lazy-loaded or
-      # exercised through a fake client.
-      #
       # `node --test` with no path, not `node --test "test/*.test.js"`: the glob
       # form needs Node 21+, and on Node 20 the quoted pattern is taken as a
       # literal path ("Could not find .../*.test.js"). Automatic discovery works
       # on every version in the matrix.
+      #
+      # The TAP reporter, not the default one: a failing run has to name the test
+      # that failed somewhere a reader of the run page can see it, and the step
+      # log needs an authenticated request. TAP lines are plain ASCII, which also
+      # survives both shells.
       - name: Run tests
-        run: npm test
+        shell: bash
+        run: |
+          set -o pipefail
+          node --test --test-reporter=tap --test-timeout=60000 2>&1 | tee test-output.txt
 
+      # Annotations are readable without authentication; the log is not. Each
+      # failing test becomes one error annotation, so the run page (and the
+      # notification email) says which test failed instead of "exit code 1".
+      - name: Report failing tests
+        if: failure()
+        shell: bash
+        run: |
+          if [ ! -f test-output.txt ]; then echo "::error::no test output was captured"; exit 0; fi
+          grep -n "^not ok " test-output.txt | head -20 | while IFS= read -r hit; do
+            name="${hit#* - }"
+            echo "::error::failing test: $name"
+          done
+          echo "--- failure details ---"
+          grep -A6 "^not ok " test-output.txt | head -120
