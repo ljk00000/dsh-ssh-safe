@@ -312,6 +312,16 @@ DSH_SSH_PROD_HOST_KEY_POLICY=strict   # 这台机器强制 strict，即使全局
 SFTP 把相对路径解析到登录目录，而插件无从知道那是哪里（取决于 sshd 配置和账号类型）。
 让 `../etc` 在猜测的基准上解析，不如直接要求绝对路径。
 
+目录条目超过 `maxListEntries` 时，末尾会写「还有 N 条未显示」并给出下一页的 `offset`。
+`maxListEntries` 是插件配置，工具调用改不了它，所以分页靠 `offset`：
+
+```
+ssh_list { machine: "prod", path: "/var/log" }              → 前 2000 条 …
+ssh_list { machine: "prod", path: "/var/log", offset: 2000 } → 接着的 2000 条
+```
+
+排序是「目录在前，然后按名字」，`offset` 作用在排序之后，所以同一时间两次调用看到的顺序一致。
+
 ### 可选：`ssh_read` 的脱敏
 
 `ssh_read` 默认会把你读到的内容里的密钥样式文本替换成 `<redacted>`——

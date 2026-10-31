@@ -761,3 +761,31 @@ test('trustHostKey does not override a changed key', async () => {
     await second.close().catch(() => {})
   }
 })
+
+test('ssh_list pages through a directory larger than the row cap', async () => {
+  // maxListEntries is a config value, so before the offset argument a directory
+  // with more entries than the cap could never be read past the first page.
+  const own = {}
+  await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+    connectTimeoutMs: 4000, commandTimeoutMs: 4000, maxListEntries: 3,
+    machines: { t: { host: '127.0.0.1', port: srv.port, user: 'tester', password: 'test-pass' } },
+  })
+  srv.vfs.putDir('/tmp/page')
+  for (let i = 0; i < 7; i++) srv.vfs.putFile('/tmp/page/p' + i + '.txt', 'x')
+
+  const first = String((await own.ssh_list.execute({ machine: 't', path: '/tmp/page' }, {})).text)
+  assert.match(first, /p0\.txt/)
+  assert.match(first, /4 more entries not shown \(maxListEntries = 3\) — pass offset: 3 to continue/)
+
+  const second = String((await own.ssh_list.execute({ machine: 't', path: '/tmp/page', offset: 3 }, {})).text)
+  assert.match(second, /3 entries above not shown \(offset = 3\)/)
+  assert.match(second, /p3\.txt/)
+  assert.doesNotMatch(second, /p0\.txt/)
+
+  // Past the end is not an error, but it must not claim the directory is empty.
+  const past = String((await own.ssh_list.execute({ machine: 't', path: '/tmp/page', offset: 99 }, {})).text)
+  assert.match(past, /offset 99 is past the last of 7 entries/)
+  await assert.rejects(() => own.ssh_list.execute({ machine: 't', path: '/tmp/page', offset: -1 }, {}), /offset must be 0 or more/)
+  await own.ssh_close.execute({ machine: 't', force: true }, {})
+})

@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.98 — 2026-10-31
+
+### Added
+- **`ssh_list` takes an `offset`, so a directory bigger than the row cap can be
+  read.** `maxListEntries` is a plugin setting and the tool could not change it,
+  so a directory with more entries than the cap could never be listed past its
+  first page — the note named the knob and left the caller there. The note now
+  says where to continue, and an offset shows how much was skipped:
+  ```
+  /tmp/many
+  d  4096  …  adir
+  -     1  …  f00.txt …
+  … 16 more entries not shown (maxListEntries = 5) — pass offset: 5 to continue
+  ```
+  ```
+  /tmp/many
+  … 5 entries above not shown (offset = 5)
+  -     1  …  f04.txt …
+  ```
+  An offset past the end answers `(offset 99 is past the last of 7 entries)`
+  instead of claiming the directory is empty; a negative offset is refused.
+
+### Fixed — a flaky test
+- `connect.test.js` generated an ed25519 key and parsed it, and ssh2's ed25519
+  generator occasionally produced a key its own parser rejected ("Malformed
+  OpenSSH private key"): the test passed alone and failed roughly once in fifty
+  full-suite runs. It uses RSA now, the same fix the fake server already carried.
+  Three consecutive full runs: 674 tests, 669 pass, 0 fail.
+
 ## 0.7.97 — 2026-10-31
 
 ### Fixed

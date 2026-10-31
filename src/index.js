@@ -392,6 +392,16 @@ export async function apply(ctx, config) {
     return Math.floor(n)
   }
 
+  /** Optional non-negative integer, used for offsets. 0 is a real value here. */
+  const optionalOffset = (value, field) => {
+    if (value === undefined || value === null || value === '') return 0
+    const n = Number(value)
+    if (!Number.isFinite(n) || n < 0) {
+      throw new Error(field + ' must be 0 or more (received ' + JSON.stringify(value) + ')')
+    }
+    return Math.floor(n)
+  }
+
   /** Boolean that only accepts true/false, not the string "true". */
   const optionalFlag = (value, field) => {
     if (value === undefined || value === null) return false
@@ -1189,6 +1199,7 @@ function assertKnownArgs(args, known, toolName) {
       machine: { type: 'string', description: 'Machine alias. Defaults to defaultMachine.' },
       path: { type: 'string', description: 'Absolute path on the remote host. Defaults to "."' },
       timeoutMs: { type: 'integer', description: 'Override the listing deadline. 0 = configured value.' },
+      offset: { type: 'integer', description: 'Skip this many entries (after sorting: directories first, then names). Use the count in the "not shown" note to page through a large directory.' },
       password: { type: 'string', description: 'Only honoured when the profile sets allowSessionPassword: true.' },
     },
     output: textOut,
@@ -1205,6 +1216,10 @@ function assertKnownArgs(args, known, toolName) {
         throw new Error('path must be a string (received ' + typeof rawPath + ')')
       }
       const remotePath = rawPath.trim() || '.'
+      // The row cap is a config value, so without an offset a directory with more
+      // entries than maxListEntries could never be read past its first page: the
+      // note named the knob, and a caller cannot edit the plugin config.
+      const offset = optionalOffset(args.offset, 'offset')
       const startedAt = Date.now()
       let listing
       try {
@@ -1225,7 +1240,7 @@ function assertKnownArgs(args, known, toolName) {
         kind: 'list', machine: alias, path: listing.path, outcome: 'ok',
         entries: listing.items.length, ms: Date.now() - startedAt,
       })
-      return { text: formatListing(listing, cfg.maxListEntries) }
+      return { text: formatListing(listing, cfg.maxListEntries, offset) }
     },
   })
 

@@ -64,9 +64,10 @@ export function plural(count, noun) {
  *
  * @param {{path: string, items: Array<{name: string, size: number, dir: boolean, type?: string, mtime?: string|null}>}} listing
  * @param {number} [limit] maximum rows; 0 or absent means no limit
+ * @param {number} [offset] rows to skip after sorting, for paging
  * @returns {string}
  */
-export function formatListing(listing, limit = 0) {
+export function formatListing(listing, limit = 0, offset = 0) {
   const items = Array.isArray(listing?.items) ? listing.items : []
   const path = String(listing?.path || '.')
   if (items.length === 0) return '(empty directory: ' + path + ')'
@@ -76,18 +77,31 @@ export function formatListing(listing, limit = 0) {
   const sorted = items.slice().sort((a, b) =>
     a.dir === b.dir ? String(a.name).localeCompare(String(b.name)) : a.dir ? -1 : 1)
 
+  // Offset pages through a directory larger than the row cap. The cap is a
+  // config value, so without this a caller could never reach entry 3001.
+  const start = Math.max(0, Math.floor(Number(offset) || 0))
+  const window = start > 0 ? sorted.slice(start) : sorted
   const max = Number(limit) > 0 ? Number(limit) : 0
-  const shown = max > 0 ? sorted.slice(0, max) : sorted
-  const omitted = sorted.length - shown.length
+  const shown = max > 0 ? window.slice(0, max) : window
+  const omitted = window.length - shown.length
 
   const rows = shown.map((it) =>
     // The type character comes from the mode when the caller knows it: a symlink
     // or a FIFO shown as '-' looks like an ordinary file.
     (it.type || (it.dir ? 'd' : '-')) + ' ' + String(it.size).padStart(10) + '  ' + (it.mtime || '') + '  ' + printable(it.name))
 
-  const tail = omitted > 0
-    ? '\n… ' + omitted + ' more entr' + (omitted === 1 ? 'y' : 'ies') + ' not shown (maxListEntries = ' + max + ')'
+  const head = start > 0 && sorted.length > start
+    ? '… ' + start + ' entr' + (start === 1 ? 'y' : 'ies') + ' above not shown (offset = ' + start + ')\n'
     : ''
+  const tail = omitted > 0
+    ? '\n… ' + omitted + ' more entr' + (omitted === 1 ? 'y' : 'ies') + ' not shown (maxListEntries = ' + max +
+      ') — pass offset: ' + (start + shown.length) + ' to continue'
+    : ''
+  // An offset past the end is not an error, but "(empty directory)" would be a
+  // lie about a directory that has entries.
+  if (start >= sorted.length && start > 0) {
+    return path + '\n(offset ' + start + ' is past the last of ' + sorted.length + ' entries)'
+  }
 
-  return path + '\n' + rows.join('\n') + tail
+  return path + '\n' + head + rows.join('\n') + tail
 }

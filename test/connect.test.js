@@ -25,7 +25,11 @@ test('a key becomes a Buffer and a passphrase is carried', () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-connect-'))
   const keyPath = join(dir, 'id')
   // A real key: connectOptions now parses it so a broken file names itself.
-  writeFileSync(keyPath, ssh2.utils.generateKeyPairSync('ed25519').private)
+  //
+  // RSA on purpose: ssh2's ed25519 generator occasionally produced a private key
+  // its own parser rejected ("Malformed OpenSSH private key"), which made this
+  // test fail about once in fifty full-suite runs and never on its own.
+  writeFileSync(keyPath, ssh2.utils.generateKeyPairSync('rsa', { bits: 2048 }).private)
   const options = connectOptions(machine, { keyPath, passphrase: 'pp' })
   assert.ok(Buffer.isBuffer(options.privateKey))
   assert.equal(options.passphrase, 'pp')
