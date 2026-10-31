@@ -833,7 +833,7 @@ function assertKnownArgs(args, known, toolName) {
     // time: a three-second command on one machine made an unrelated 200ms
     // command on the same or another machine wait for it.
     isConcurrencySafe: () => true,
-    async execute(args) {
+    async execute(args, execution) {
       const alias = machineFor(args)
       const startedAt = Date.now()
       try {
@@ -841,6 +841,7 @@ function assertKnownArgs(args, known, toolName) {
         await pool.connect(alias, {
           sessionPassword: optionalText(args.password, 'password'),
           trustHostKey,
+          signal: executionSignal(execution),
           // The host-key rejection starts the reconnect cooldown, so the advice
           // "call ssh_connect with trustHostKey: true once" was unusable for the
           // next 15-60 seconds: the retry was refused before it dialled. An

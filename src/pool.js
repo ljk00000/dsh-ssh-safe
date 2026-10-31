@@ -536,9 +536,9 @@ export class SshPool {
 
   /**
    * @param {string} alias
-   * @param {{sessionPassword?: string, trustHostKey?: boolean, force?: boolean}} [options]
+   * @param {{sessionPassword?: string, trustHostKey?: boolean, force?: boolean, signal?: AbortSignal}} [options]
    */
-  async connect(alias, { sessionPassword, trustHostKey, force = false } = {}) {
+  async connect(alias, { sessionPassword, trustHostKey, force = false, signal } = {}) {
     const e = this.entry(alias)
 
     // A pooled connection was opened with one specific credential. Reusing it
@@ -602,7 +602,30 @@ export class SshPool {
     // force skips the cooldown for this attempt only.
     if (force) e.nextAttemptAt = 0
 
-    e.ready = this.#open(alias, e, { sessionPassword, trustHostKey })
+    // A cancelled call must stop dialling. Without this, aborting ssh_connect
+    // during a stalled handshake waited out the full connectTimeoutMs (measured:
+    // 8s for an 8s timeout with the abort at 300ms) and the caller who pressed
+    // stop was still made to wait.
+    let onAbort = null
+    const cancelled = new Promise((_resolve, reject) => {
+      if (!signal) return
+      if (signal.aborted) {
+        // noCooldown() rather than a cast on the next line: without a semicolon
+        // after 'const error = ...' the '(...)' cast continues that expression and
+        // reads the const before it is initialised (a TypeError at abort time).
+        reject(noCooldown(new Error('connection to ' + alias + ' was cancelled before it started')))
+        return
+      }
+      onAbort = () => {
+        const error = noCooldown(new Error('connection to ' + alias + ' was cancelled while dialling'))
+        reject(error)
+        const client = e.client
+        if (client) { try { client.end() } catch { /* already gone */ } }
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+    })
+    const opened = this.#open(alias, e, { sessionPassword, trustHostKey })
+    e.ready = Promise.race([opened, cancelled])
       .then(async (client) => {
         e.client = client
         e.lastError = ''
@@ -628,7 +651,10 @@ export class SshPool {
         }
         throw err
       })
-      .finally(() => { e.ready = null })
+      .finally(() => {
+        if (onAbort && signal) signal.removeEventListener('abort', onAbort)
+        e.ready = null
+      })
 
     return e.ready
   }
@@ -826,7 +852,7 @@ export class SshPool {
         'run it from there, or split the command.'
       ))
     }
-    const client = await this.connect(alias, { sessionPassword })
+    const client = await this.connect(alias, { sessionPassword, signal })
     this.beginOp(alias)
     try {
       return await this.#execOn(alias, client, command, timeoutMs, signal)
@@ -1059,7 +1085,7 @@ export class SshPool {
     const configured = pick(this.config.maxFileBytes, 1048576)
     const requested = Number(maxBytes) || 0
     const cap = requested > 0 ? Math.min(requested, configured) : configured
-    const client = await this.connect(alias, { sessionPassword })
+    const client = await this.connect(alias, { sessionPassword, signal })
     return await readRemoteFile(client, remotePath, {
       maxBytes: cap,
       timeoutMs: timerValue(pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)), 30000),
@@ -1118,7 +1144,7 @@ export class SshPool {
   async #writeFileOn(alias, remotePath, content, { sessionPassword, timeoutMs, createDirs, signal, mode } = {}) {
     // See readFile: reject a bad path before touching the network.
     normalizeRemotePath(remotePath, { file: true })
-    const client = await this.connect(alias, { sessionPassword })
+    const client = await this.connect(alias, { sessionPassword, signal })
     return await writeRemoteFile(client, remotePath, content, {
       timeoutMs: timerValue(pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)), 30000),
       createDirs: createDirs === true,
@@ -1148,7 +1174,7 @@ export class SshPool {
     // list allows a relative path, so it validates with allowRelative rather
     // than insisting on an absolute one.
     normalizeRemotePath(remotePath || '.', { allowRelative: true })
-    const client = await this.connect(alias, { sessionPassword })
+    const client = await this.connect(alias, { sessionPassword, signal })
     return await listRemoteDir(client, remotePath, {
       timeoutMs: timerValue(pick(timeoutMs || undefined, pick(this.config.sftpTimeoutMs, 30000)), 30000),
       signal,

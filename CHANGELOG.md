@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.105 — 2026-10-31
+
+### Fixed
+- **Cancelling a call did not stop the connection attempt.** The abort signal was
+  honoured by exec, read, list and write, but not by the dial underneath them:
+  aborting at 300 ms against a port that accepts TCP and never sends a banner
+  waited out the whole `connectTimeoutMs`. Measured before and after:
+  ```
+  before: 8018ms | Timed out while waiting for handshake (no SSH banner arrived …)
+  after :  309ms | connection to silent was cancelled while dialling
+  ```
+  All four tools that reach the network pass the signal down now, so cancelling
+  `ssh_exec`, `ssh_list` or `ssh_read` on their first connect stops the same way.
+  A cancelled dial does not arm the reconnect cooldown: the next call retries.
+
+### Fixed — a latent crash in my own first attempt
+- The first version marked the cancellation error with a JSDoc cast on the line
+  after `const error = ...`. Without a semicolon that cast continues the previous
+  expression, so it read the const before initialisation and threw
+  `ReferenceError: Cannot access 'error' before initialization` **at abort time** —
+  exactly when it was needed. It uses the module's `noCooldown()` helper now, and a
+  test pins the behaviour.
+
+### Verified, no change needed
+- Cancelling a *running* command reports
+  `[cancelled at the caller request — the remote command was sent SIGTERM; the
+  output above is what arrived first]`
+  in 215 ms and leaves the pooled connection usable for the next call.
+- Cancelling a stalled listing reports `listing /tmp/stall was cancelled` at 307 ms.
+
 ## 0.7.104 — 2026-10-31
 
 ### Fixed

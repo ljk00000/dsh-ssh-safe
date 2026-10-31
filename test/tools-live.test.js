@@ -812,3 +812,41 @@ test('ssh_list pages through a directory larger than the row cap', async () => {
   await assert.rejects(() => own.ssh_list.execute({ machine: 't', path: '/tmp/page', offset: -1 }, {}), /offset must be 0 or more/)
   await own.ssh_close.execute({ machine: 't', force: true }, {})
 })
+
+test('cancelling a call stops the dial, not just the operation', async () => {
+  // Aborting ssh_connect during a stalled handshake waited out the whole
+  // connectTimeoutMs (measured: 8s for an 8s timeout with the abort at 300ms).
+  // A port that accepts TCP and never sends a banner is what that looks like.
+  const net = await import('node:net')
+  const silent = net.createServer(() => {})
+  await new Promise((resolve) => silent.listen(0, '127.0.0.1', resolve))
+  const port = silent.address().port
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-cancelfit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const own = {}
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'silent', hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      connectTimeoutMs: 6000, commandTimeoutMs: 6000, sftpTimeoutMs: 6000, reconnectCooldownMs: 0,
+      machines: { silent: { host: '127.0.0.1', port, user: 'tester', password: 'pw' } },
+    })
+    const cancelAfter = (ms) => { const controller = new AbortController(); setTimeout(() => controller.abort(), ms); return controller.signal }
+    const calls = [
+      ['ssh_connect', () => own.ssh_connect.execute({}, { signal: cancelAfter(250) })],
+      ['ssh_exec', () => own.ssh_exec.execute({ command: 'echo hi' }, { signal: cancelAfter(250) })],
+      ['ssh_list', () => own.ssh_list.execute({ path: '/tmp' }, { signal: cancelAfter(250) })],
+    ]
+    for (const [label, call] of calls) {
+      const started = Date.now()
+      await assert.rejects(call, /was cancelled/)
+      const elapsed = Date.now() - started
+      assert.ok(elapsed < 2000, label + ' waited ' + elapsed + 'ms instead of stopping at the abort')
+    }
+  } finally {
+    silent.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
