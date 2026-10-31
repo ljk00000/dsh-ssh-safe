@@ -195,6 +195,28 @@ test('--pass and redis-cli -a are masked without touching real flags', () => {
   assert.equal(redact('ssh -p 2222 root@host'), 'ssh -p 2222 root@host')
 })
 
+
+test('a password piped into sudo is masked', () => {
+  // 'echo pass | sudo -S cmd' is how sudo is fed non-interactively. The secret
+  // sits on the left of the pipe, so the flag rules never saw it: measured
+  // 'echo hunter2 | sudo -S id' reaching audit.ndjson verbatim.
+  for (const [input, secret] of [
+    ["echo 'hunter2' | sudo -S apt-get update", 'hunter2'],
+    ['echo hunter2 | sudo -S id', 'hunter2'],
+    ["printf '%s\\n' 'hunter2' | sudo -S id", 'hunter2'],
+    ['echo hunter2 | doas -S id', 'hunter2'],
+    ['echo hunter2 | passwd --stdin root', 'hunter2'],
+  ]) {
+    const out = redact(input)
+    assert.ok(!out.includes(secret), input + ' -> ' + out)
+    assert.match(out, /<redacted>/, input)
+  }
+  // A filename on the left is not a secret, and the audit line stays useful.
+  assert.equal(redact('cat /var/log/syslog | sudo -S tee /tmp/x'),
+    'cat /var/log/syslog | sudo -S tee /tmp/x')
+  assert.equal(redact('echo hi | sudo tee f'), 'echo hi | sudo tee f')
+})
+
 test('many unterminated BEGIN markers do not take quadratic time', () => {
   // The regex needed BEGIN and END: with thousands of BEGINs and no END, every
   // candidate scanned to the end of the string before failing. Measured 3.58 s on

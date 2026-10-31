@@ -184,6 +184,16 @@ export function redact(text) {
   // '--pass' was the one abbreviation missing, and it is the one people type.
   // Longer alternatives come first so '--passphrase=x' is not read as '--pass'.
   s = s.replace(/(^|[\s"'])(--?(?:password|passphrase|passwd|pass|token|secret))(\s+|=)(\S+)/gi, '$1$2$3<redacted>')
+  // 'echo pass | sudo -S cmd' feeds a password through a pipe. The secret is on
+  // the LEFT of the pipe, so none of the flag rules above can see it: measured
+  // 'echo hunter2 | sudo -S id' reaching audit.ndjson verbatim while the log
+  // promises it never holds secrets. Only the producers that put the text
+  // inline (echo/printf) are masked; 'cat file | sudo -S …' keeps its command,
+  // because a filename is not a secret and the audit line has to stay useful.
+  s = s.replace(
+    /(^|[;&|]\s*)(echo|printf)\s+[^|\n]*\|\s*(sudo|doas|passwd)\s+(-S|--stdin)\b/g,
+    (match, lead, producer, target, flag) => lead + producer + ' <redacted> | ' + target + ' ' + flag,
+  )
   // redis-cli takes its password with -a. Masking every '-a' would mangle
   // 'ls -a', so only immediately after the client's own name.
   // A quoted password is one value: masking only its first word left the rest in

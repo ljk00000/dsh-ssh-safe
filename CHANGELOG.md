@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.192 — 2026-10-31
+
+### Fixed
+- **A password piped into `sudo -S` reached the audit log.** The secret sits on the left of the
+  pipe, where no flag rule can see it, and the log promises it never holds secrets:
+  ```
+  command: echo 'hunter2' | sudo -S id      ← audit.ndjson before
+  command: echo <redacted> | sudo -S id    ← after
+  ```
+  Masked shapes: `echo … | sudo -S`, `echo … | doas -S`, `echo … | passwd --stdin`,
+  `printf … | …`, including several on one line (`&&`). Only producers that put the text
+  inline are masked: `cat /var/log/syslog | sudo -S tee /tmp/x` keeps its command, because a
+  filename is not a secret and the audit line has to stay useful.
+  Timing checked on 600 KB single lines: 3–11 ms (the pattern is anchored and has no nested
+  quantifier), so no repeat of the quadratic regressions this file has had.
+
+### Verified, no change needed
+- `sshpass -p hunter2 …` was already masked.
+- Special files: a FIFO, a socket and a character device list as `p`, `s`, `c`, and reading
+  each one times out with the reason ("a FIFO has no end until something writes to it",
+  "only regular files can be read or written this way"). My earlier report of a FIFO showing
+  as `c` was a bad probe argument (`putSpecial("/d/fifo", "fifo")` instead of `"p"`).
+
 ## 0.7.191 — 2026-10-31
 
 ### Documented
