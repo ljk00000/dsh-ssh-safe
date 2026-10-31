@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.115 — 2026-10-31
+
+### Fixed — a workspace could be created over another alias's placeholder
+- Creating a workspace for `alpha` where the placeholder of `beta` already sat
+  silently ADOPTED it, rewrote the marker and replaced the instructions:
+  ```
+  before: 已刷新远程工作区 别名 alpha … 已注册到侧栏工作区：「远程 · alpha」
+          marker now says alias: alpha      AGENTS.md still beta? false
+  ```
+  `beta`'s sessions would then read instructions for `alpha` and send their
+  commands to the wrong host. The directory recording another alias is now refused,
+  and nothing is written or registered:
+  ```
+  无法创建机器 "alpha" 的远程工作区：那个目录是别名 "beta" 的占位目录。
+    目录：…\remotes\alpha
+  改写它会让 "beta" 的会话读到 "alpha" 的连接说明，命令可能发到错的主机。
+  ```
+
+### Verified, no change needed
+- `ssh_doctor` against a closed port: `[FAIL] tcp: ECONNREFUSED` then
+  "Stopped: the host is unreachable, so authentication cannot be tested."
+- Against a port that accepts TCP and sends no banner: `[ok] tcp` then
+  `[FAIL] connect: … no SSH banner arrived — the port may not speak SSH, or a
+  firewall is dropping packets` after the connect timeout, not before.
+- `ssh_workspace list` distinguishes "the profile has no workspace service" from
+  "the service is there and the directory is not registered", and honours
+  `machineInventory: "alias"` (`<host hidden>`).
+
 ## 0.7.114 — 2026-10-31
 
 ### Fixed

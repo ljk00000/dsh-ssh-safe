@@ -161,6 +161,34 @@ export function writeRemoteWorkspace(dshHome, alias, machine = {}) {
       throw err
     }
   }
+  // A placeholder that belongs to ANOTHER alias: rewriting it would leave the
+  // other alias's sessions reading instructions for this machine, which is how a
+  // session ends up running commands on the wrong host. Refuse and name the owner.
+  if (!created) {
+    const existing = (() => {
+      try {
+        const parsed = JSON.parse(readFileSync(join(dir, MARKER), 'utf8'))
+        return parsed && typeof parsed === 'object' ? parsed : null
+      } catch {
+        return null
+      }
+    })()
+    const owner = existing && typeof existing.alias === 'string' ? existing.alias : ''
+    if (owner && owner !== alias) {
+      const err = new Error(
+        'refusing to use ' + dir + ' as a workspace for "' + alias + '": it is the placeholder ' +
+        'for "' + owner + '". Rewriting it would leave ' + owner + ' sessions reading ' + alias +
+        ' instructions — the wrong host. Use machine: "' + owner + '" for this workspace, or ' +
+        'remove the ' + owner + ' workspace first (ssh_workspace action: "remove", machine: "' +
+        owner + '", deleteFiles: true).'
+      )
+      // @ts-expect-error -- marking the error so the tool can say it in the user's language
+      err.code = 'DSH_WORKSPACE_FOREIGN_ALIAS'
+      // @ts-expect-error -- same
+      err.owner = owner
+      throw err
+    }
+  }
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'AGENTS.md'), remoteInstructions(alias, machine), 'utf8')
   writeFileSync(join(dir, MARKER), JSON.stringify({

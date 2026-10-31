@@ -399,3 +399,48 @@ test('two concurrent creates leave one registration, not two', async () => {
     assert.equal(store[0].title, remoteTitle('a'))
   } finally { restore() }
 })
+
+test('a placeholder that belongs to another alias is not adopted', async () => {
+  // Rewriting it left the other alias's sessions reading this machine's
+  // instructions: the session then runs commands on the wrong host.
+  const created = []
+  const registry = {
+    list: () => created,
+    create: async (dir, title) => { const w = { id: 'w' + created.length, path: dir, title }; created.push(w); return w },
+    delete: async () => true,
+  }
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-wsalias-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const own = {}
+    await apply({
+      tools: { register: (d) => { own[d.name] = d } },
+      effect: () => {}, get: (name) => (name === 'workspaceRegistry' ? registry : undefined),
+    }, {
+      defaultMachine: 'alpha', hostKeyPolicy: 'tofu',
+      machines: { alpha: { host: 'h', port: 22, user: 'u' }, beta: { host: 'h2', port: 22, user: 'u2' } },
+    })
+    const dir = path.join(remoteRoot(home), 'alpha')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, '.dsh-remote-workspace.json'), JSON.stringify({ alias: 'beta' }))
+    writeFileSync(path.join(dir, 'AGENTS.md'), '# remote beta')
+
+    await assert.rejects(
+      () => own.ssh_workspace.execute({ action: 'create', machine: 'alpha' }, {}),
+      (err) => {
+        assert.match(err.message, /别名 "beta" 的占位目录/)
+        assert.match(err.message, /可能发到错的主机/)
+        return true
+      },
+    )
+    // Nothing was rewritten and nothing was registered.
+    assert.equal(JSON.parse(readFileSync(path.join(dir, '.dsh-remote-workspace.json'), 'utf8')).alias, 'beta')
+    assert.match(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), /remote beta/)
+    assert.equal(created.length, 0)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

@@ -1453,6 +1453,18 @@ function assertKnownArgs(args, known, toolName) {
               '把它们移走，或者换一个机器别名，再重试。'
             )
           }
+          // A placeholder that belongs to ANOTHER alias: adopting it would leave
+          // that alias's sessions reading these instructions — the wrong host.
+          if (code === 'DSH_WORKSPACE_FOREIGN_ALIAS') {
+            const owner = String(/** @type {{owner?: string}} */ (err).owner || '另一个别名')
+            throw new Error(
+              '无法创建机器 "' + alias + '" 的远程工作区：那个目录是别名 "' + owner + '" 的占位目录。\n' +
+              '  目录：' + dir + '\n' +
+              '改写它会让 "' + owner + '" 的会话读到 "' + alias + '" 的连接说明，命令可能发到错的主机。\n' +
+              '用 machine: "' + owner + '" 打开这个工作区；或者先删除 "' + owner + '" 的工作区\n' +
+              '（action: "remove", machine: "' + owner + '", deleteFiles: true），再为 "' + alias + '" 创建。'
+            )
+          }
           const detail = code === 'EEXIST' || code === 'ENOTDIR'
             ? '那个位置已经有一个同名文件，占位目录建不出来'
             : '目录无法创建（' + (code || (err && err.message) || '未知原因') + '）'
