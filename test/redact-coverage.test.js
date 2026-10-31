@@ -194,3 +194,18 @@ test('--pass and redis-cli -a are masked without touching real flags', () => {
   assert.equal(redact('tar -af archive.tar x'), 'tar -af archive.tar x')
   assert.equal(redact('ssh -p 2222 root@host'), 'ssh -p 2222 root@host')
 })
+
+test('many unterminated BEGIN markers do not take quadratic time', () => {
+  // The regex needed BEGIN and END: with thousands of BEGINs and no END, every
+  // candidate scanned to the end of the string before failing. Measured 3.58 s on
+  // 20 000 markers in 600 KB, with a 1 MiB default read limit.
+  const text = '-----BEGIN X PRIVATE KEY-----b'.repeat(20000)
+  const started = Date.now()
+  const out = redact(text)
+  const ms = Date.now() - started
+  assert.equal(out, '<redacted-pem>')
+  assert.ok(ms < 500, 'redact took ' + ms + 'ms on ' + text.length + ' bytes')
+
+  // Prose that only mentions the marker is still left alone.
+  assert.equal(redact('see the -----BEGIN marker in the docs'), 'see the -----BEGIN marker in the docs')
+})

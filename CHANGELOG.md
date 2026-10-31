@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.169 — 2026-10-31
+
+### Fixed
+- **Masking PEM blocks was quadratic, and I introduced it in 0.7.164.** The rule needed
+  `BEGIN` and `END`; with thousands of `BEGIN` markers and no `END`, every candidate
+  scanned to the end of the string before failing. Reachable within the default 1 MiB
+  read limit:
+  ```
+  redact 600 KB holding 20 000 "-----BEGIN …-----"   before: 3583 ms
+                                  after :    6 ms
+  redact 220 KB of bare "-----BEGIN " (no closing)   before:  536 ms
+                                  after :    3 ms
+  ```
+  PEM masking is now a single forward scan (`maskPemBlocks`) instead of a backtracking
+  regex. A header must look like `-----BEGIN <UPPER-CASE LABEL>-----`, so prose that
+  merely mentions the marker is left alone, as before. Every shape from the previous
+  round was re-measured: complete, CRLF, mismatched labels, two BEGINs with one END,
+  JSON-embedded, openssh format, and a body containing dashes all still mask.
+
+### Added
+- A timing test: 20 000 unterminated markers must be masked in under 500 ms, so a return
+  to the backtracking form fails CI rather than a user's read.
+
 ## 0.7.168 — 2026-10-31
 
 ### Changed (documentation only)
