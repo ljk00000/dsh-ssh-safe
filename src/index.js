@@ -23,6 +23,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { readFileSync, existsSync } from 'node:fs'
 import net from 'node:net'
 import { homedir } from 'node:os'
+import { join as joinPath } from 'node:path'
 import { SshPool, expandHome, formatHost, hideAddress, pick } from './pool.js'
 import { expectedEnv, redact } from './credentials.js'
 import {
@@ -1247,7 +1248,11 @@ function assertKnownArgs(args, known, toolName) {
           // The instructions are the point of the placeholder: a workspace whose
           // AGENTS.md was deleted still registers, but the session that opens
           // there learns nothing about the remote host.
-          const missingInstructions = dirExists && !existsSync(dir + '\\AGENTS.md')
+          // joinPath, not dir + '\\AGENTS.md': a backslash is a path separator only
+          // on Windows, so on Linux that looked for a file whose name contains a
+          // backslash, never found one, and reported every healthy placeholder as
+          // having lost its instructions.
+          const missingInstructions = dirExists && !existsSync(joinPath(dir, 'AGENTS.md'))
           const state = registryRead.error
             ? '无法读取工作区服务，无法判断是否已注册（' + registryRead.error + '）'
             : workspace

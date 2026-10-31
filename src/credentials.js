@@ -131,6 +131,12 @@ export function redact(text) {
   // never sit between the space and the dash. That was why 'curl -u a:b' kept
   // leaking after the rule was added.
   s = s.replace(/(^|[\s"'])(-u|--user)(\s+|=)([^\s:@]+):(\S+)/g, '$1$2$3$4:<redacted>')
+  // 'mysql -uroot -pSECRET' / 'mysqldump -pSECRET db': the password is glued to
+  // the flag, so no '=' or ':' appears and every rule above misses it. Only the
+  // glued form is handled: 'ssh -p 2222 host' and '-p22' keep the flag as a
+  // port, because masking a port would make the log say the wrong thing.
+  s = s.replace(/(^|\s)(-p)([^\s-]\S*)/g, (match, lead, flag, value) =>
+    /^\d+$/.test(value) ? match : lead + flag + '<redacted>')
   // '--password secret' and '--token=secret'.
   s = s.replace(/(^|[\s"'])(--?(?:password|passwd|passphrase|token|secret))(\s+|=)(\S+)/gi, '$1$2$3<redacted>')
   // PEM blocks

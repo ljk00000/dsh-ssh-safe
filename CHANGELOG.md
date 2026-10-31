@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.80 — 2026-10-31
+
+### Fixed
+- **The audit log stored secrets in clear.** `ssh_exec { command: "mysql -uroot
+  -pSECRET …" }` wrote the password verbatim to `audit.ndjson`, and `ssh_audit`
+  then read it back into the conversation — the plugin’s own promise is that no
+  secret reaches a log. Every record now passes through the same redactor the
+  tool output uses, at the single point (`clampRecord`) all records go through,
+  so error fields and future kinds are covered too. Records stay useful: the
+  machine, the kind and the command shape survive.
+- **Redaction missed a password glued to `-p`.** `mysql -uroot -pSECRET`,
+  `mysqldump -pSECRET` and friends have no `=` or `:` after the flag, so no rule
+  matched. The glued form is redacted now; a **port** is not: `ssh -p 2222 host`,
+  `ssh -p2222 host`, `scp -P 2222` and `redis-cli -p 6379` are unchanged, because
+  masking a port would make the log say something that did not happen.
+
+### Fixed — Linux only
+- **A placeholder directory was built with a Windows separator.**
+  `dir + '\\AGENTS.md'` is a path only on Windows; on Linux it looks for a file
+  whose *name* contains a backslash, so every healthy placeholder was reported as
+  having lost its instructions, and the 0.7.78 test for the healthy state failed
+  there. It uses `path.join` now.
+
+### Added — tests
+- Audit redaction (four secret shapes, and that the record stays readable), the
+  `-p` rule with the port cases that must not change.
+
 ## 0.7.79 — 2026-10-31
 
 ### Fixed

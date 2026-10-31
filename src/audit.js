@@ -18,6 +18,8 @@
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs'
 import path from 'node:path'
 
+import { redact } from './credentials.js'
+
 /** Default cap so a long-running session cannot fill the disk. */
 const DEFAULT_MAX_BYTES = 4 * 1024 * 1024
 
@@ -45,7 +47,12 @@ function clampRecord(record) {
   for (const [key, value] of Object.entries(record && typeof record === 'object' ? record : {})) {
     if (value === undefined || typeof value === 'function') continue
     if (typeof value === 'string') {
-      out[key] = value.length > MAX_FIELD_CHARS ? value.slice(0, MAX_FIELD_CHARS) + '…' : value
+      // Redaction belongs here, at the single point every record passes through.
+      // 'mysql -u root -pSECRET' was written to audit.ndjson verbatim and then
+      // read back into the conversation by ssh_audit: the log is a leak surface
+      // exactly like a tool result, and the plugin promises no secret reaches it.
+      const safe = redact(value)
+      out[key] = safe.length > MAX_FIELD_CHARS ? safe.slice(0, MAX_FIELD_CHARS) + '…' : safe
     } else if (value === null || typeof value === 'number' || typeof value === 'boolean') {
       out[key] = value
     } else {

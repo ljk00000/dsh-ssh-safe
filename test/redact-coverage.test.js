@@ -103,3 +103,16 @@ test('the plugin\'s own vocabulary is not mistaken for a secret', () => {
   assert.match(redact('keyPassphrase: hunter2'), /<redacted>/,
     'only the names on the list are exempt')
 })
+
+test('a password glued to -p is redacted and a port is not', () => {
+  // 'mysql -uroot -pSECRET' has no '=' or ':' after the flag, so every rule above
+  // missed it -- and this exact shape is how a database password reaches a shell
+  // command, and then the audit log.
+  assert.equal(redact('mysql -uroot -pSuperSecret1 -e "select 1"'), 'mysql -uroot -p<redacted> -e "select 1"')
+  assert.equal(redact('mysqldump -u root -pPassw0rd db'), 'mysqldump -u root -p<redacted> db')
+
+  // A port is not a secret. Masking these would make the log say the wrong thing.
+  for (const line of ['ssh -p 2222 host', 'ssh -p2222 host', 'scp -P 2222 f h:/tmp', 'redis-cli -p 6379 ping']) {
+    assert.equal(redact(line), line)
+  }
+})
