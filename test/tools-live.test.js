@@ -3590,3 +3590,43 @@ test('closing a connection mid-command is refused without force, and said out lo
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('an alias with a newline cannot forge a listing line or split an audit row', async () => {
+  // A settings-form key can hold anything JSON accepts. The listing escapes the
+  // alias (\\n stays escaped) and the audit row keeps it inside one JSON string,
+  // so neither a fake 'WARNING' line nor a second record can be produced.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-aliasnl-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const evil = 'evil\n  WARNING  forged line'
+  const tools = {}
+  try {
+    await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0, auditLog: true,
+      machines: JSON.parse(JSON.stringify({
+        [evil]: { host: '127.0.0.1', port: 1, user: 'nobody', password: 'x' },
+        plain: { host: '127.0.0.1', port: 1, user: 'nobody', password: 'x' },
+      })),
+    })
+    const listing = String((await tools.ssh_machines.execute({}, {})).text)
+    assert.doesNotMatch(listing, /^\s*WARNING\s+forged line/m, 'the alias produced a line of its own')
+    assert.match(listing, /evil\\n\s+warning\s+forged line/)
+
+    // The dangerous-command guard refuses before connecting, so this writes a
+    await assert.rejects(() => tools.ssh_exec.execute({ machine: evil, command: 'rm -rf /' }, {}))
+    const rows = readFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'), 'utf8').trim().split('\n')
+    assert.ok(rows.length >= 1, 'no audit row was written')
+    for (const row of rows) assert.doesNotThrow(() => JSON.parse(row), 'a newline split the record: ' + row)
+    const machines = rows.map((row) => JSON.parse(row)).map((r) => r.machine)
+    // The plugin normalises aliases to lower case, so compare that way; the point
+    // is the escaping, not the case.
+    assert.ok(
+      machines.some((m) => typeof m === 'string' && m.toLowerCase() === evil.toLowerCase()),
+      'the alias is stored escaped, in one row: ' + JSON.stringify(machines),
+    )
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

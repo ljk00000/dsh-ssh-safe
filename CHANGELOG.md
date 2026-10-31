@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.7.309 — 2026-11-01
+
+### Added — a newline in an alias cannot forge a line or split an audit record
+A settings-form machine key is arbitrary JSON. A key holding `evil\n  WARNING  forged line` could have
+drawn a line of its own in `ssh_machines` and split its audit record in two; both are escaped:
+```
+ssh_machines      • evil\n  warning  forged line  nobody@127.0.0.1:1
+audit.ndjson      {"kind":"refused",…,"machine":"evil\n  warning  forged line",…}   one valid JSON line
+```
+
+### Verified this round (no defect found)
+- `ssh_list` pagination: `maxListEntries = 10` over 25 entries gives "… 15 more entries not shown
+  (maxListEntries = 10) — pass offset: 10 to continue"; `offset: 10` adds "10 entries above not shown" and
+  points at 20; `offset: 25` and `offset: 999` answer "(offset 25 is past the last of 25 entries)".
+- An aborted write does not wedge the per-path queue: the cancelled call reports "connection to t was
+  cancelled while dialling", the queued write that follows succeeds, the file holds the second content, and
+  the connection stays usable.
+- `known_hosts.json` as a directory is refused with "could not be read (EISDIR) … recording a new key would
+  overwrite the hosts already trusted there. Repair or remove that file" — `ssh_connect`, `ssh_exec` and
+  `ssh_doctor` all say it, and nothing is overwritten.
+- Reserved alias names are handled: a config key `toString` is listed as `tostring` and all four spellings
+  (`toString`, `tostring`, `TOSTRING`) resolve to the same machine; `__proto__` is refused as "not
+  configured" and `Object.prototype` stays clean.
+- Remote path normalisation: `/../../etc/passwd` clamps to `/etc/passwd`, `//w//ok.txt` and `/w/./ok.txt`
+  resolve, `/w/../w/ok.txt` resolves, a trailing slash on a file says "path ends with / — that names a
+  directory", relative `..` is refused for a listing, and an empty path means the home directory for
+  `ssh_list` while `ssh_read` says "path is required".
+
+### My own mistakes
+1. My first reserved-name probe built the object as a literal, so `__proto__` set the prototype instead of a
+   key and the plugin refused the config with "$.machines.host expected object" — my probe, not a defect.
+2. The new test asserted the audit `machine` field equals the alias as typed; aliases are normalised to
+   lower case, so the comparison had to be case-insensitive.
+3. The first two attempts wrote the audit row with a failing `ssh_exec` on an unreachable port, which never
+   reached the audit; a locally refused command writes the row without a network.
+
+### Tests
+- One new live case: the forged line is not produced, and every audit row still parses with the alias
+  escaped inside it.
+  Suite 896 / 891 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.308 — 2026-11-01
 
 ### Added — a server without the SFTP subsystem is now covered end to end
