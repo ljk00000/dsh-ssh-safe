@@ -3392,3 +3392,85 @@ test('a listing says when names had to be escaped', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('lean mode hides the address in ssh_doctor and in every failure path', async () => {
+  // machineInventory: 'alias' is a privacy setting: the same conversation must not
+  // learn the host and port from a different tool. The success paths were checked
+  // when the setting was added; these are the paths that print a network error.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-leandoc-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  const deadPort = 65001
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machineInventory: 'alias',
+      connectTimeoutMs: 2000, commandTimeoutMs: 2000,
+      machines: { dead: { host: '203.0.113.77', port: deadPort, user: 'tester', password: 'test-pass' } },
+    })
+    const doctor = String((await own.ssh_doctor.execute({ machine: 'dead' }, {})).text)
+    assert.match(doctor, /\[FAIL\] tcp/)
+    assert.match(doctor, /<host hidden>/)
+    assert.doesNotMatch(doctor, /203\.0\.113\.77/)
+    assert.doesNotMatch(doctor, new RegExp(String(deadPort)))
+    assert.doesNotMatch(doctor, /tester/)
+
+    for (const [name, args] of [
+      ['ssh_exec', { machine: 'dead', command: 'echo hi' }],
+      ['ssh_connect', { machine: 'dead' }],
+      ['ssh_list', { machine: 'dead', path: '/' }],
+    ]) {
+      const out = await own[name].execute(args, {}).then((r) => String(r.text), (err) => 'ERR: ' + err.message)
+      assert.doesNotMatch(out, /203\.0\.113\.77/, name + ' leaked the host: ' + out.slice(0, 200))
+      assert.doesNotMatch(out, new RegExp(String(deadPort)), name + ' leaked the port')
+      assert.match(out, /address hidden|host hidden/, name + ' must say the address is hidden')
+    }
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('an empty write is a write, not a missing argument', async () => {
+  // content: '' used to read as 'no content given', so a caller could neither create
+  // an empty file nor truncate one.
+  const own = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-emptywrite-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  try {
+    own.vfs.putDir('/e')
+    own.vfs.putFile('/e/full.txt', Buffer.from('0123456789'))
+    await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { t: machineFor('t', own.port) },
+    })
+    const wrote = String((await tools.ssh_write.execute({ machine: 't', path: '/e/new.txt', content: '' }, {})).text)
+    assert.match(wrote, /Wrote 0 bytes to \/e\/new\.txt/)
+    const read = String((await tools.ssh_read.execute({ machine: 't', path: '/e/new.txt' }, {})).text)
+    assert.match(read, /empty file: \/e\/new\.txt /)
+    const truncated = String((await tools.ssh_write.execute({ machine: 't', path: '/e/full.txt', content: '' }, {})).text)
+    assert.match(truncated, /Wrote 0 bytes to \/e\/full\.txt/)
+    assert.match(String((await tools.ssh_read.execute({ machine: 't', path: '/e/full.txt' }, {})).text), /empty file/)
+    // The three path-type mistakes still name the right tool.
+    const readDir = await tools.ssh_read.execute({ machine: 't', path: '/e' }, {}).then(
+      (r) => String(r.text), (err) => 'ERR: ' + err.message)
+    assert.match(readDir, /not a file: \/e \(it is a directory; use ssh_list\)/)
+    const writeDir = await tools.ssh_write.execute({ machine: 't', path: '/e', content: 'x' }, {}).then(
+      (r) => String(r.text), (err) => 'ERR: ' + err.message)
+    assert.match(writeDir, /not a file: \/e /)
+    const listFile = await tools.ssh_list.execute({ machine: 't', path: '/e/full.txt' }, {}).then(
+      (r) => String(r.text), (err) => 'ERR: ' + err.message)
+    assert.match(listFile, /not a directory: \/e\/full\.txt \(it is a file; use ssh_read\)/)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await own.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

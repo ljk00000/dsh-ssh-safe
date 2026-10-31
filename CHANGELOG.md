@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.296 — 2026-11-01
+
+### Hardened — the privacy setting is now pinned on its failure paths
+`machineInventory: "alias"` hides the host, port and user from the conversation. The success paths were
+covered when the setting was added; the paths that print a **network error** were not, and those are the
+ones that carry an address by accident. Verified and pinned:
+```
+[ok] configuration: <host hidden>
+[FAIL] tcp: no answer on the configured port within the timeout
+[skip] host key: not reached: the host is unreachable
+ERR: Could not connect to machine "dead" (address hidden): Timed out while waiting for handshake …
+```
+`ssh_doctor`, `ssh_exec`, `ssh_connect` and `ssh_list` all say "hidden" and none of them prints the host,
+the port or the user name.
+
+### Also pinned
+- `ssh_write` with `content: ""` is a write, not a missing argument: it creates the file and truncates an
+  existing one (`Wrote 0 bytes …`), and the three path-type mistakes keep naming the right tool —
+  `not a file: /e (it is a directory; use ssh_list)`, `not a directory: /e/full.txt (it is a file; use ssh_read)`.
+
+### My own mistakes
+- A test regex written from the mangled console output (`(empty file: /e/new.txt 0 bytes)`) failed against
+  the real string, which uses an em dash: `(empty file: /e/new.txt — 0 bytes)`. The console in this
+  environment drops non-ASCII, so the assertion now matches an ASCII fragment only. Fourth time a
+  console-mangled string has cost me a cycle.
+
+### Tests
+- Two new live cases (lean-mode leaks on every failure path; empty writes and path-type messages).
+  Suite 882 / 877 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.295 — 2026-11-01
 
 ### Fixed — two page instances could silently lose a saved machine
