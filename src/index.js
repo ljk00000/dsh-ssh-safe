@@ -818,7 +818,15 @@ function assertKnownArgs(args, known, toolName) {
     }
     const rec = raw?.hosts?.[String(m.host) + ':' + (m.port || 22)]
     if (!rec) return 'not trusted yet (no fingerprint recorded)'
-    return 'trusted: ' + rec.fingerprint + (rec.firstSeenAt ? ' (since ' + rec.firstSeenAt + ')' : '')
+    // A record with no usable fingerprint is not trust: the check refuses with
+    // 'no usable fingerprint'. Printing 'trusted: undefined' said the opposite,
+    // and a record that is not even an object is refused the same way.
+    const recorded = rec && typeof rec === 'object' ? rec.fingerprint : undefined
+    if (typeof recorded !== 'string' || recorded === '') {
+      return 'trusted: NO — the recorded entry has no usable fingerprint, so connections are ' +
+        'refused until it is removed (delete that entry from ' + file + ')'
+    }
+    return 'trusted: ' + printable(recorded) + (rec.firstSeenAt ? ' (since ' + printable(rec.firstSeenAt) + ')' : '')
   }
 
   // ── ssh_machines ──────────────────────────────────────────────────────

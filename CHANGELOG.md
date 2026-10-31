@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.147 — 2026-10-31
+
+### Fixed
+- **A trust record with no fingerprint was reported as trust.** `ssh_machines` printed
+  the raw field, so a corrupt store entry looked trusted while the check refuses it:
+  ```
+  before: trusted:                    (empty fingerprint)
+          trusted: undefined          (no fingerprint field)
+          trusted: undefined          (record is not even an object)
+  after : trusted: NO — the recorded entry has no usable fingerprint, so connections
+          are refused until it is removed (delete that entry from …\known_hosts.json)
+  ```
+  A missing record still reads "not trusted yet (no fingerprint recorded)", which is
+  the different situation it is.
+
+### Verified, no change needed
+- The pool clears `lastError` and `nextAttemptAt` on a successful connect, so a stale
+  failure cannot be quoted by a later cooldown message.
+
 ## 0.7.146 — 2026-10-31
 
 ### Fixed

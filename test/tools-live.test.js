@@ -1491,3 +1491,43 @@ test('the pool reports an exceeded ceiling only while it is exceeded for a reaso
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a trust record without a fingerprint is reported as not trusted', async () => {
+  // 'trusted: undefined' (and 'trusted: ' for an empty string) claimed trust for a
+  // record the check refuses with 'no usable fingerprint'.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-trustfit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const dir = path.join(home, 'dsh-ssh-safe')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(path.join(dir, 'known_hosts.json'), JSON.stringify({
+    version: 1,
+    hosts: {
+      'a.example:22': { fingerprint: '' },
+      'b.example:22': {},
+      'c.example:22': { fingerprint: 'SHA256:abc' },
+      'd.example:22': 'not an object',
+    },
+  }), 'utf8')
+  try {
+    const own = {}
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'a', hostKeyPolicy: 'tofu',
+      machines: {
+        a: { host: 'a.example', user: 'u' },
+        b: { host: 'b.example', user: 'u' },
+        c: { host: 'c.example', user: 'u' },
+        d: { host: 'd.example', user: 'u' },
+      },
+    })
+    const text = String((await own.ssh_machines.execute({}, {})).text)
+    assert.doesNotMatch(text, /trusted: (undefined|)\s*\n/)
+    const lines = text.split('\n').filter((line) => /trusted/.test(line))
+    assert.equal(lines.filter((line) => /trusted: NO — the recorded entry has no usable fingerprint/.test(line)).length, 3, text)
+    assert.match(text, /trusted: SHA256:abc/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
