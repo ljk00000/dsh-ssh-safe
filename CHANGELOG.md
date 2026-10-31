@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.181 — 2026-10-31
+
+### Fixed
+- **`ssh_machines` promised a password that could never be used.** A credential file whose
+  `passwordDpapi` is not DPAPI output (pasted plaintext, a truncated copy, a value from
+  another tool) cannot be decrypted on any account, and the listing said:
+  ```
+  before: auth: password (file-dpapi)
+  after : auth: NONE (the stored password is not a DPAPI blob; re-run scripts/set-password.mjs
+                         on this account)
+  ```
+  `ssh_credentials` says `file-dpapi (UNUSABLE) — …` and the doctor's warning now names the
+  real problem first, with the PowerShell error after it. The check is a format test
+  (`/^[0-9a-f]{40,}$/` — the same one the writer applies), so the listing stays fast: a
+  DPAPI call per machine would cost a PowerShell spawn each.
+  A well-formed blob from another Windows account still looks usable until the resolver
+  tries it; there the connect refusal already says "no usable credentials" and why.
+
+### Verified, no change needed
+- An unknown field in a credential entry is reported, not silently dropped:
+  `machine "odd" in the credential file has an unknown field "mystery" — it is ignored`.
+
+### Corrected while editing
+- My first patch used `blobProblem` inside `credentialFor` without defining it there, so
+  `ssh_doctor` threw `blobProblem is not defined` — caught by the probe immediately. The
+  resolver now computes its own copy, and the full suite confirms all three readers agree.
+
 ## 0.7.180 — 2026-10-31
 
 ### Fixed

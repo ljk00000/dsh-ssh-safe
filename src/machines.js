@@ -23,7 +23,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { agentSocket, machineFromEnv } from './credentials.js'
-import { decryptDpapi } from './dpapi.js'
+import { decryptDpapi, looksLikeDpapi } from './dpapi.js'
 
 /** Where the hot-reloadable credential file lives. */
 export function credentialsPath(dshHome) {
@@ -196,6 +196,12 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
   const knownHosts = firstSet([
     ['config', cfg.knownHosts], ['env', env.knownHosts], ['file', file.knownHosts],
   ])
+  // A blob that is not DPAPI output can never be decrypted here. Saying so is
+  // cheaper and truer than letting the listing promise a password that fails.
+  const blobProblem = filled(file.passwordDpapi) && !looksLikeDpapi(file.passwordDpapi)
+    ? 'the stored password is not a DPAPI blob; re-run scripts/set-password.mjs on this account'
+    : ''
+
   // A password is resolved by credentialFor(), because the value may need
   // decrypting and plaintext may be refused. Here we only record the source.
   const passwordSource = filled(cfg.password)
@@ -248,6 +254,8 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
     knownHosts: String(knownHosts.value || ''),
     /** Env var names that were found, for diagnostics. Never values. */
     present: env.present,
+    /** A problem with the stored secret itself, or '' when it looks usable. */
+    passwordBlobProblem: blobProblem,
     /** Which source supplied each field. Never contains a value. */
     sources: {
       host: host.source,
@@ -323,6 +331,12 @@ export function credentialFor(alias, {
     )
   }
 
+  // The same check the definition makes: a value that is not DPAPI output can
+  // never be decrypted, and the warning says which of the two it is.
+  const blobProblem = filled(file.passwordDpapi) && !looksLikeDpapi(file.passwordDpapi)
+    ? 'the stored password is not a DPAPI blob; re-run scripts/set-password.mjs on this account'
+    : ''
+
   // 2. encrypted secret in the credential file
   if (filled(file.passwordDpapi)) {
     try {
@@ -331,11 +345,11 @@ export function credentialFor(alias, {
     } catch (err) {
       // A blob written by another Windows account, or a corrupted one, cannot be
       // opened here. Fall through rather than failing to a dead end.
-      warnings.push(
-        'the stored password could not be decrypted (' +
-        String(err && err.message ? err.message : err).slice(0, 120) +
-        '). Re-run scripts/set-password.mjs on this machine and account.'
-      )
+      const detail = String(err && err.message ? err.message : err).slice(0, 120)
+      warnings.push(blobProblem
+        ? blobProblem + ' (' + detail + ')'
+        : 'the stored password could not be decrypted (' + detail + '). ' +
+          'Re-run scripts/set-password.mjs on this machine and account.')
     }
   }
 
@@ -398,6 +412,9 @@ export function credentialState(alias, { machines = {}, dshHome = '' } = {}) {
     port: m.port,
     username: m.username,
     passwordSource: m.sources.password,
+    // A stored blob that cannot be a DPAPI blob is not a password; the report
+    // says so instead of naming a source that will fail.
+    passwordBlobProblem: m.passwordBlobProblem || '',
     // What a stored-but-unusable password means: the settings form's plaintext
     // password is listed as the source and then ignored, so the report has to be
     // able to say what the connection would actually use instead.

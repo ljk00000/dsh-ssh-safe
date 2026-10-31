@@ -24,6 +24,18 @@
 
 import { spawnSync } from 'node:child_process'
 
+/**
+ * Does this look like ConvertFrom-SecureString output?
+ *
+ * The plugin's own writer produces hex and validates it the same way. A value
+ * that is not hex was never a DPAPI blob -- pasted plaintext, a truncated copy,
+ * a file from another tool -- and decrypting it can only fail.
+ */
+export function looksLikeDpapi(value) {
+  const text = String(value ?? '').trim()
+  return /^[0-9a-f]{40,}$/i.test(text)
+}
+
 /** PowerShell's DPAPI round trip is available on Windows only. */
 export function dpapiAvailable() {
   return process.platform === 'win32'

@@ -905,17 +905,23 @@ function assertKnownArgs(args, known, toolName) {
         // plaintext' and ssh_doctor said 'no password, key or agent available'.
         const plaintextIgnored = (pwSource === 'config' || pwSource === 'file-plaintext') &&
           cfg.allowPlaintextPassword !== true
-        const usablePassword = Boolean(pwSource) && pwSource !== 'none' && !plaintextIgnored
+        // A stored blob that is not DPAPI output cannot be turned into a password,
+        // so the listing must not promise one: 'auth: password (file-dpapi)' was
+        // printed for a value that could only fail to decrypt.
+        const blobProblem = pwSource === 'file-dpapi' ? m.passwordBlobProblem || '' : ''
+        const usablePassword = Boolean(pwSource) && pwSource !== 'none' && !plaintextIgnored && !blobProblem
         const authKind = usablePassword
           ? 'password (' + pwSource + ')'
           : m.keyPath
             ? (lean
                 ? 'private key (' + m.sources.keyPath + ', path hidden)'
                 : 'key ' + printable(m.keyPath) + ' (' + m.sources.keyPath + ')')
-            : plaintextIgnored
-              ? 'NONE (a plaintext ' + (pwSource === 'config' ? 'settings-form' : 'credential-file') +
-                ' password is set but ignored; allowPlaintextPassword is off)'
-              : 'NONE'
+            : blobProblem
+              ? 'NONE (' + blobProblem + ')'
+              : plaintextIgnored
+                ? 'NONE (a plaintext ' + (pwSource === 'config' ? 'settings-form' : 'credential-file') +
+                  ' password is set but ignored; allowPlaintextPassword is off)'
+                : 'NONE'
         // A port that cannot be dialled is shown as configured, not as the 22
         // fallback: showing 22 hid the value the user has to fix.
         const shownPort = m.portProblem && m.portRaw !== '' ? m.portRaw : m.port
@@ -1912,11 +1918,13 @@ function assertKnownArgs(args, known, toolName) {
           // A source that is present but ignored must not be reported as the
           // source: the line said 'config' and only the next line admitted it was
           // never used.
-          '    password   ' + (st.passwordSource === 'config' && cfg.allowPlaintextPassword !== true
+          '    password   ' + (st.passwordBlobProblem
+            ? 'file-dpapi (UNUSABLE) — ' + printable(st.passwordBlobProblem)
+            : st.passwordSource === 'config' && cfg.allowPlaintextPassword !== true
             ? 'config (IGNORED: plaintext)' + (st.envPassword ? ' — this connection uses env' : '')
             : st.passwordSource === 'file-plaintext' && cfg.allowPlaintextPassword !== true
               ? 'file (IGNORED: plaintext)' + (st.envPassword ? ' — this connection uses env' : '')
-              : where(st.passwordSource)),
+                : where(st.passwordSource)),
           '    key        ' + where(st.keyPathSource) +
             (st.keyPath ? '  ' + printable(String(st.keyPath).replace(/^.*[\\/]/, '…/')) : ''),
           '    host key   ' + printable(st.hostKeyPolicy) +
