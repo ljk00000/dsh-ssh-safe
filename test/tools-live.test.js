@@ -3138,3 +3138,50 @@ test('writing through a symlink chain names where the bytes actually landed', as
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the doctor reports sftp on a host that refuses the command channel', async () => {
+  // An SFTP-only account is common. The doctor used to stop at [FAIL] shell, so the
+  // reader had no way to learn that the file tools work and only ssh_exec does not.
+  const ssh2 = (await import('ssh2')).default
+  const hostKey = testHostKey()
+  const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
+    client.on('authentication', (ctx) => ctx.accept())
+    client.on('ready', () => {
+      client.on('session', (accept) => {
+        const session = accept()
+        session.on('exec', (acceptExec, rejectExec) => { if (rejectExec) rejectExec() })
+        session.on('sftp', (acceptSftp) => {
+          const sftp = acceptSftp()
+          sftp.on('REALPATH', (reqid) => sftp.name(reqid, [{ filename: '/var/empty', longname: '/var/empty', attrs: {} }]))
+          sftp.on('OPENDIR', (reqid) => sftp.handle(reqid, Buffer.from([1, 0, 0, 0])))
+          sftp.on('READDIR', (reqid) => sftp.status(reqid, 1))
+          sftp.on('CLOSE', (reqid) => sftp.status(reqid, 0))
+        })
+      })
+    })
+  })
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  const port = server.address().port
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-doctor-sftponly-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'n', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 4000,
+      machines: { n: { host: '127.0.0.1', port, user: 'tester', password: 'x' } },
+    })
+    const report = String((await own.ssh_doctor.execute({ machine: 'n' }, {})).text)
+    assert.match(report, /\[ok\] authentication: connected/)
+    assert.match(report, /\[FAIL\] shell: /)
+    // The stage that matters for the file tools is still reported.
+    assert.match(report, /\[ok\] sftp: subsystem works/)
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    server.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

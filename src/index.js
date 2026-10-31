@@ -2478,6 +2478,20 @@ function passphraseLine(st) {
       // Doctor authenticates and runs a command, so it has to leave the same trail
       // as any other use of the account; it used to log in silently.
       // The single record is written by finish().
+      // One implementation of the SFTP verdict: the shell can fail before this
+      // stage is reached, and an SFTP-only host needs to hear that its file tools
+      // work even though the command channel does not.
+      const checkSftp = async () => {
+        try {
+          await pool.list(alias, '.', { timeoutMs: 8000 })
+          say('sftp', 'ok', 'subsystem works')
+        } catch (err) {
+          const detail = redact(err && err.message ? err.message : String(err))
+          if (/subsystem/i.test(detail)) say('sftp', 'FAIL', detail)
+          else say('sftp', 'warn', 'subsystem answered, but the home directory could not be listed (' + detail + ')')
+        }
+      }
+
       try {
         await pool.connect(alias, { force: true })
         const e = pool.entry(alias)
@@ -2498,19 +2512,16 @@ function passphraseLine(st) {
         }
         const probe = await pool.exec(alias, 'echo doctor-ok', { timeoutMs: 8000 })
         const replied = String(probe.stdout || '').includes('doctor-ok')
-        say('authentication', replied ? 'ok' : 'FAIL', replied ? 'command channel works' : 'connected but no output')
-        if (!replied) say('shell', 'warn', 'the session opened but produced no stdout; the remote shell may be restricted')
-        // The file tools need the SFTP subsystem, which a server can refuse while
-        // exec still works. Without this stage the doctor passed such a machine and
-        // every ssh_list answered "Unable to start subsystem: sftp".
-        try {
-          await pool.list(alias, '.', { timeoutMs: 8000 })
-          say('sftp', 'ok', 'subsystem works')
-        } catch (err) {
-          const detail = redact(err && err.message ? err.message : String(err))
-          if (/subsystem/i.test(detail)) say('sftp', 'FAIL', detail)
-          else say('sftp', 'warn', 'subsystem answered, but the home directory could not be listed (' + detail + ')')
+        // Authentication is settled once the connection is up: it used to say
+        // FAIL with "connected but no output", blaming the credential for an
+        // empty shell response.
+        say('authentication', 'ok', replied ? 'command channel works' : 'connected')
+        if (!replied) {
+          say('shell', 'FAIL', 'connected, but \'echo doctor-ok\' produced no matching output' +
+            (String(probe.stdout || '').trim() === '' ? ' (the command returned nothing)' : '') +
+            ' — a restricted shell, a ForceCommand that ignores arguments, or an account with no shell')
         }
+        await checkSftp()
       } catch (err) {
         const message = redact(err && err.message ? err.message : String(err))
         // Authentication was attempted (or at least the connection was), so the
@@ -2524,6 +2535,9 @@ function passphraseLine(st) {
           // The host key stage already spoke: repeating it printed two lines.
           say('authentication', 'ok', 'connected')
           say('shell', 'FAIL', message)
+          // A host that refuses exec very often allows SFTP (an SFTP-only account);
+          // without this line the doctor left the reader thinking every tool was broken.
+          await checkSftp()
         } else if (/authentication|permission denied|publickey|password/i.test(message)) {
           say('host key', 'ok', 'accepted')
           say('authentication', 'FAIL', message)

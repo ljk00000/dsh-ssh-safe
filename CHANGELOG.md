@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.7.273 — 2026-11-01
+
+### Fixed — the doctor stopped at the shell and never reached sftp
+An SFTP-only account (no shell, file tools only) is common, and the doctor answered:
+```
+before  [ok] authentication: connected
+        [FAIL] shell: the server refused to run a command (Unable to exec) …
+        ← and nothing about sftp, so the reader thought every tool was broken
+
+after   [ok] authentication: connected
+        [FAIL] shell: the server refused to run a command (Unable to exec) …
+        [ok] sftp: subsystem works
+```
+The sftp verdict lived only on the healthy path. It is now one closure called from both, so a host that
+refuses exec still reports whether `ssh_read`, `ssh_list` and `ssh_write` work.
+
+### Fixed — an empty shell response was reported as a failed authentication
+```
+before  [FAIL] authentication: connected but no output
+after   [ok]   authentication: connected
+        [FAIL] shell: connected, but 'echo doctor-ok' produced no matching output (the command
+                      returned nothing) — a restricted shell, a ForceCommand that ignores
+                      arguments, or an account with no shell
+```
+The credential was accepted — the login succeeded — and the stage still said FAIL, blaming the
+password for an empty shell answer. The stage now reports what it knows (connected) and the shell stage
+carries the diagnosis.
+
+### My own mistakes
+- Three attempts at the same patch: the anchor for the sftp block was LF while the surrounding block was
+  CRLF, then the connect anchor was CRLF while I had built it with LF. I read the bytes only after the
+  second failure — the note from rounds 54 and 60 says to do that first.
+
+### Tests
+- One new live case: a server that accepts sessions, refuses `exec` and serves SFTP must produce
+  `[ok] authentication: connected`, `[FAIL] shell` and `[ok] sftp: subsystem works`.
+  Suite 859 / 854 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.272 — 2026-11-01
 
 ### Added — the page can clear a stored key passphrase
