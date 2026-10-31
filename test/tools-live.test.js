@@ -2319,3 +2319,51 @@ test('force-close stops a transfer that is already running', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('every operation settles when the turn is cancelled', async () => {
+  // Removing the signal argument from readRemoteFile kept tsc and the whole suite
+  // green: nothing asked whether a read stops when the caller aborts. All four now
+  // have to answer within a second, with a message that says what happened.
+  srv.vfs.putDir('/cx')
+  srv.vfs.putFile('/cx/small.txt', 'x'.repeat(400))
+  const attempt = async (name, args, stall, release) => {
+    const ctrl = new AbortController()
+    const startedAt = Date.now()
+    const settled = tools[name].execute(args, { signal: ctrl.signal }).then(
+      (r) => 'ok: ' + String(r.text),
+      (err) => 'ERR: ' + String(err.message),
+    )
+    stall()
+    setTimeout(() => ctrl.abort(), 150)
+    const outcome = await Promise.race([
+      settled,
+      new Promise((resolve) => setTimeout(() => resolve('STILL PENDING'), 8000)),
+    ])
+    release()
+    return { ms: Date.now() - startedAt, outcome }
+  }
+  try {
+    const read = await attempt('ssh_read', { machine: 't', path: '/cx/small.txt' },
+      () => { srv.vfs.control.stallReads = true }, () => { srv.vfs.control.stallReads = false })
+    assert.match(read.outcome, /reading .* was cancelled/)
+    assert.ok(read.ms < 3000, 'the read must not wait for sftpTimeoutMs, took ' + read.ms + 'ms')
+
+    const listed = await attempt('ssh_list', { machine: 't', path: '/cx' },
+      () => { srv.vfs.control.stallDirs = true }, () => { srv.vfs.control.stallDirs = false })
+    assert.match(listed.outcome, /listing .* was cancelled/)
+    assert.ok(listed.ms < 3000, 'the listing must stop, took ' + listed.ms + 'ms')
+
+    const wrote = await attempt('ssh_write', { machine: 't', path: '/cx/big.txt', content: 'y'.repeat(500000) },
+      () => { srv.vfs.control.stallWrites = true }, () => { srv.vfs.control.stallWrites = false })
+    assert.match(wrote.outcome, /writing .* was cancelled/)
+    assert.ok(wrote.ms < 3000, 'the write must stop, took ' + wrote.ms + 'ms')
+
+    const ran = await attempt('ssh_exec', { machine: 't', command: 'sleep 9' }, () => {}, () => {})
+    assert.match(ran.outcome, /cancelled at the caller request/)
+    assert.ok(ran.ms < 3000, 'the command must stop, took ' + ran.ms + 'ms')
+  } finally {
+    srv.vfs.control.stallReads = false
+    srv.vfs.control.stallDirs = false
+    srv.vfs.control.stallWrites = false
+  }
+})

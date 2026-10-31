@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.229 — 2026-11-01
+
+### Added (a gap I found in myself)
+- **A regression test for every cancellation path.** In 0.7.228 I deleted the `signal` argument from
+  `readRemoteFile` while tidying up, and `tsc` plus all 809 tests stayed green: nothing asked whether
+  a read stops when the caller aborts. Now all four answer within a second with the right message:
+  ```
+  read   161ms  reading /c/small.txt was cancelled
+  list   151ms  listing /c was cancelled
+  write  165ms  writing /c/big.txt was cancelled; the file was opened (which truncates it) but no
+                data was sent, so it is empty now …
+  exec   153ms  [cancelled at the caller request — the remote command was sent SIGTERM; …]
+  ```
+  The test was proved to catch the regression: with the argument removed again it fails with
+  `STILL PENDING` after 8 s instead of passing.
+
+### Verified, no change needed
+- Five cancelled commands left no zombie channels: the next five operations took 10 ms in total,
+  `Live connections: 1 / 4 max [t]`, one client on the server.
+- A cancelled operation does not touch the other operations on the same alias: the per-call signal is
+  combined with the connection's own, and only a forced close aborts the latter.
+
+### Note
+- No new defect was found in this round. Everything probed behaved as documented; the deliverable is
+  the missing coverage, which is what let the 0.7.228 slip through in the first place.
+
 ## 0.7.228 — 2026-11-01
 
 ### Fixed
