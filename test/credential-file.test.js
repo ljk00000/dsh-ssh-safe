@@ -100,3 +100,26 @@ test('a stored blob that is not DPAPI output is reported as unusable, not as a p
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a machine named __proto__ in the file is kept as a key, not lost to the prototype', () => {
+  // readCredentialFile() did data[alias] = entry; for '__proto__' that sets the
+  // prototype, so the machine vanished: keys [], problem '', and ssh_machines did
+  // not list it while the file plainly held it.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-cf-proto-'))
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    // Written as text: an object literal { __proto__: … } sets the prototype.
+    writeFileSync(
+      path.join(home, 'dsh-ssh-safe', 'credentials.json'),
+      '{"__proto__":{"host":"10.0.0.9","user":"root"},"normal":{"host":"10.0.0.8","user":"ops"}}',
+      'utf8',
+    )
+    const { data, problem } = readCredentialFile(home)
+    assert.equal(problem, '')
+    assert.deepEqual(Object.keys(data).sort(), ['__proto__', 'normal'])
+    assert.equal(Object.prototype.hasOwnProperty.call(data, '__proto__'), true)
+    assert.equal(data['__proto__'].host, '10.0.0.9')
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})

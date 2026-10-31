@@ -99,7 +99,12 @@ export function readCredentialFile(dshHome) {
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       for (const [alias, entry] of Object.entries(parsed)) {
         if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
-          data[String(alias).toLowerCase()] = entry
+          // defineProperty, not assignment: data["__proto__"] = entry sets the
+          // prototype instead of a key, so a hand-written file holding such an
+          // entry lost that machine with no warning and no problem text.
+          Object.defineProperty(data, String(alias).toLowerCase(), {
+            value: entry, enumerable: true, writable: true, configurable: true,
+          })
         }
       }
       return { data, problem: '' }

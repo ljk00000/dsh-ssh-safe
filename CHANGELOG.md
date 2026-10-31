@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.225 — 2026-11-01
+
+### Fixed
+- **A machine named `__proto__` in `credentials.json` was dropped without a word.** The reader did
+  `data[alias] = entry`, which for that one name sets the prototype instead of a key:
+  ```
+  file: {"__proto__":{"host":"10.0.0.9","user":"root"},"normal":{…}}
+  before: keys ["normal"], problem "", ssh_machines lists only normal,
+          connect __proto__ -> Machine "__proto__" is not configured
+  after : keys ["__proto__","normal"], ssh_machines lists both,
+          connect __proto__ -> … has no usable credentials (it is addressable)
+  ```
+  `Object.defineProperty` keeps it an own key. The page and `set-password` already refuse to create
+  such a name, so this only affects a hand-written file — which is exactly where a silent drop is
+  least expected.
+
+### Verified, no change needed
+- `normalizeAlias()` in the tools is trim + lowercase with no character check, so any key a file
+  holds is addressable by the same string; the stricter rule lives only on the two write paths.
+
+### My mistakes
+- The first probe built the store with an object literal `{ __proto__: … }`, which sets the
+  prototype and therefore wrote a file without the key. It "confirmed" the bug against a file that
+  never had it. Rewritten to write the JSON as text, and then run against both the old and the new
+  code to get a real before/after.
+
+### Tests
+- One new case: the file keeps `__proto__` as an own, enumerable key with its host intact.
+  Suite 806 / 801 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.224 — 2026-11-01
 
 ### Fixed
