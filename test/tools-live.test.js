@@ -2569,3 +2569,55 @@ test('a server without SFTP is named by the file tools and by the doctor', async
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a server that refuses exec is named by ssh_exec and by the doctor', async () => {
+  // ssh2 answers 'Unable to exec' with nothing about the machine, and the doctor
+  // reported it as [FAIL] connect, pointing at the connection instead of the shell.
+  const ssh2 = (await import('ssh2')).default
+  const hostKey = ssh2.utils.generateKeyPairSync('ed25519').private
+  const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
+    client.on('authentication', (ctx) => ctx.accept())
+    client.on('ready', () => {
+      client.on('session', (accept) => {
+        const session = accept()
+        session.on('exec', (acceptExec, rejectExec) => {
+          if (rejectExec) { rejectExec(); return }
+          const stream = acceptExec()
+          stream.close()
+        })
+      })
+    })
+  })
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  const port = server.address().port
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-noexec-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'n', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { n: { host: '127.0.0.1', port, user: 'tester', password: 'x' } },
+    })
+    const attempt = async (name, args) => {
+      try { return String((await own[name].execute(args, {})).text) } catch (err) { return 'ERR: ' + err.message }
+    }
+    const ran = await attempt('ssh_exec', { machine: 'n', command: 'echo hi' })
+    assert.match(ran, /the server refused to run a command/)
+    assert.match(ran, /ForceCommand|restricted shell|session limit/)
+    assert.doesNotMatch(ran, /^ERR: Unable to exec$/)
+    const doc = await attempt('ssh_doctor', { machine: 'n' })
+    assert.match(doc, /\[FAIL\] shell: the server refused to run a command/)
+    assert.doesNotMatch(doc, /\[FAIL\] connect/)
+    assert.match(doc, /\[ok\] authentication: connected/)
+    // One host key line, not two.
+    assert.equal((doc.match(/host key:/g) || []).length, 1)
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    server.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

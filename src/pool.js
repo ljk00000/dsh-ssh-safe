@@ -1124,7 +1124,19 @@ export class SshPool {
       }
 
       client.exec(command, (error, s) => {
-        if (error) return settle(null, new Error(redact(error.message)))
+        // ssh2 answers "Unable to exec" when the server refuses the request
+        // (ForceCommand, a restricted shell, a channel that cannot be opened).
+        // That names neither the machine nor what to do about it.
+        if (error) {
+          const message = redact(error.message)
+          if (/unable to exec/i.test(message)) {
+            return settle(null, new Error(
+              'the server refused to run a command (' + message + '); ssh_exec needs the exec ' +
+              'channel — a ForceCommand, a restricted shell or a session limit on the server can block it'
+            ))
+          }
+          return settle(null, new Error(message))
+        }
         stream = s
         const outDecoder = new StringDecoder('utf8')
         const errDecoder = new StringDecoder('utf8')

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.242 — 2026-11-01
+
+### Fixed
+- **A server that refuses the exec channel answered `Unable to exec`, and the doctor blamed `connect`.**
+  Measured against a minimal ssh2 server that accepts auth but rejects `exec`:
+  ```
+  ssh_exec  before: ERR: Unable to exec
+            after : ERR: the server refused to run a command (Unable to exec); ssh_exec needs the
+                    exec channel — a ForceCommand, a restricted shell or a session limit on the
+                    server can block it
+  doctor    before: [ok] configuration … [ok] host key … [FAIL] connect: Unable to exec
+            after : [ok] configuration … [ok] host key … [ok] authentication: connected
+                    [FAIL] shell: the server refused to run a command (…)
+  ```
+  The connection and the credentials were never the problem, so the failure now lands on the
+  `shell` stage. A duplicate `[ok] host key` line from the first version of this fix was removed
+  before the release — the host key stage had already spoken.
+
+### Tests
+- One new case builds that server with ssh2: `ssh_exec` names the refusal and the likely causes, the
+  doctor reports `[FAIL] shell` (not `connect`), `authentication` stays ok, and the host key line
+  appears exactly once. Suite 824 / 819 pass / 5 skipped / 0 fail, `tsc` clean.
+
 ## 0.7.241 — 2026-11-01
 
 ### Fixed
