@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.211 — 2026-10-31
+
+### Documented (no behaviour change)
+- **A file truncated while it is being read returns what had already arrived, silently.** Measured by
+  changing the file after the first SFTP chunk: a 200,000-byte file came back as 31,952 characters
+  with no note. That is the shape of every client that does not `stat` first, and this plugin
+  deliberately does not spend a round trip on the common path (the same reasoning as the read-beside-
+  write window documented in 0.7.201). Both READMEs now say so, with the `wc -c` check to run when
+  the size matters.
+- The mirror case — the file removed mid-read — could not be measured: my probe called a VFS method
+  that does not exist and the failed call made the server stop answering, so the read timed out with
+  the generic "the remote channel may have dropped" wording. Probe bug, not a plugin finding; noted
+  so the gap is not mistaken for coverage.
+
+### Verified for this release
+- 784 tests (779 pass, 5 skipped), `tsc` clean, deployed tree identical to the repo, `HEAD` pushed.
+
 ## 0.7.210 — 2026-10-31
 
 ### Fixed

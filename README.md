@@ -44,6 +44,7 @@
 - **长任务**：`commandTimeoutMs` 默认 30 秒，超时会向远端发送 `TERM`。跑训练、`apt upgrade` 这类长任务需要显式提高 `timeoutMs`。
 - **不支持二进制传输**：`ssh_read`/`ssh_write` 只处理 UTF-8 文本，单次上限 `maxFileBytes`（默认 1 MB）。
 - **读与写并发同一路径时，读可能看到 0 字节**：SFTP 的写入是先打开（截断）再写，所以在这个窗口里读会得到 `(empty file: … — 0 bytes)`。这不是数据丢失，写入完成后内容完整；要确认就在写入返回后再读一次。
+- **正在被改写的文件读到的是「读到的部分」**：`ssh_read` 不先 `stat`（普通读不额外多一个往返），所以文件若在读取过程中被截短，返回的是已经读到的内容，且**不会**附一句「比它开始时短」（实测：200 KB 的文件读成 32 KB 时就是静默返回）。要做到这一点必须先 stat——本插件刻意没有为常见操作加这个往返。需要确认大小就用 `ssh_exec { command: "wc -c <路径>" }` 复核后再读。
 - **不支持端口转发 / 跳板机 / 多机批量**：设计上只做「安全地跑命令和读写文件」。
 - **`denyPatterns` 是安全带，不是边界**：它能挡住手滑和常见的包装写法，但 shell 是图灵完备的。真正的隔离属于远端账号权限。
 - **命令输出里的方括号标记可能被伪造**：`ssh_exec` 用 `[stderr]` 标记输出流切换，并在末尾追加插件自己的说明（`[note]`、`[exit N]`、`[signal …]`、`[timed out …]`、`[output truncated …]`、`[binary file …]`）。命令输出按原样呈现，所以远端如果打印了同样开头的行，看上去会和这些标记一模一样。判断一条命令的结果请以**最后一行状态**为准（`[exit N]` / `[signal …]`）——那行是插件写在末尾的，不来自远端。
@@ -545,6 +546,7 @@ Nothing needs to be installed on the target host — no Python, no Node, no `rip
 
 - **Long-running tasks**: `commandTimeoutMs` defaults to 30 s and sends `TERM` on expiry. Training runs, `apt upgrade` and the like need an explicit higher `timeoutMs`.
 - **No binary transfer**: `ssh_read`/`ssh_write` handle UTF-8 text only, capped at `maxFileBytes` (1 MB by default).
+- **A file rewritten while it is being read yields the part that was read**: `ssh_read` does not `stat` first (an ordinary read pays no extra round trip), so a file truncated mid-read returns what had already arrived, with **no** "shorter than when it started" note (measured: a 200 KB file read as 32 KB, silently). Detecting that needs a stat, and this plugin deliberately does not pay that round trip on the common path. Check the size with `ssh_exec { command: "wc -c <path>" }` before reading when it matters.
 - **No port forwarding, jump hosts or fleet-wide fan-out**: by design this only runs commands and moves files, safely.
 - **`denyPatterns` is a seatbelt, not a boundary**: it stops slips and the common wrapper spellings, but the shell is Turing-complete. Real isolation belongs to the remote account's permissions.
 
