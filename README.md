@@ -296,6 +296,8 @@ ssh_connect { machine: "prod", trustHostKey: true }
 
 指纹会存进 `~/.dsh/dsh-ssh-safe/known_hosts.json`（权限 0600），内容只有主机、端口、指纹——**没有用户名、密码、密钥**。
 
+如果已经有自己的 OpenSSH `known_hosts`，可以把它填进 `knownHosts`：插件会**按 OpenSSH 格式只读校验**（普通条目、通配符、`|1|...` 哈希条目、`[host]:port`、`@revoked`），但**不会往这个文件里写**——新主机请用 `ssh-keyscan` 追加，因为写回一个自己只校验了一半的格式，正是信任库腐坏的方式。
+
 如果服务器的指纹**变了**，插件会拒绝连接并说明原因，而不是自动接受。这是防中间人攻击的核心行为。
 
 每台机器可以用 `DSH_SSH_<ALIAS>_HOST_KEY_POLICY` **单独覆盖**全局策略（收紧或放宽都行）：
@@ -595,6 +597,12 @@ requires an explicit `trustHostKey: true` on `ssh_connect`.
 
 Fingerprints are stored in `~/.dsh/dsh-ssh-safe/known_hosts.json` (mode 0600)
 and contain host, port and fingerprint only — never a username, password or key.
+
+An OpenSSH `known_hosts` file can be used instead through the `knownHosts`
+setting. It is verified **read-only** — plain, wildcard, `|1|...` hashed and
+`[host]:port` entries, plus `@revoked` — and never written to; add new hosts with
+`ssh-keyscan`, because writing back a format this plugin only partly validates is
+how trust stores rot.
 
 A **changed** host key fails the connection with an explanation rather than
 being accepted. That is the whole point of host verification.

@@ -73,6 +73,15 @@ export const Config = z.object({
     keyPassphrase: z.string().default(''),
     password: z.string().default(''),
     hostKeyPolicy: z.union(['', 'strict', 'tofu', 'off']).default(''),
+    /**
+     * Trust store for this machine. Empty uses the plugin's own
+     * <DSH_HOME>/dsh-ssh-safe/known_hosts.json.
+     *
+     * An OpenSSH known_hosts file is accepted too, and verified read-only: plain,
+     * wildcard, hashed and [host]:port entries, plus @revoked. It is never
+     * written to -- a new host is added with ssh-keyscan, because writing a
+     * format this plugin only half-validates is how trust stores rot.
+     */
     knownHosts: z.string().default(''),
   })).default({}),
 

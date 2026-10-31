@@ -12,7 +12,7 @@
 // where the platform supports it. It contains host, port and fingerprint only —
 // never a username, password, or key.
 
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync } from 'node:fs'
 import path from 'node:path'
 
@@ -105,6 +105,192 @@ export function keyId(host, port) {
 }
 
 /**
+ * Recognise an OpenSSH known_hosts file.
+ *
+ * The setting is called knownHosts, and that name means the OpenSSH file to
+ * everybody who has one. Pointing it at '~/.ssh/known_hosts' used to produce a
+ * JSON syntax error: true, useless, and it made the setting look broken.
+ */
+export function looksLikeOpenSshKnownHosts(text) {
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const parts = line.replace(/^@\S+\s+/, '').split(/\s+/)
+    if (parts.length < 3) continue
+    // host-patterns, key type, base64 blob
+    if (/^(ssh-|ecdsa-|sk-|rsa-sha2-|dsa-)/.test(parts[1]) && /^[A-Za-z0-9+/=]+$/.test(parts[2])) return true
+    return false
+  }
+  return false
+}
+
+/** Wildcards in a host pattern: '*' and '?', anchored, case-insensitive. */
+function globMatch(pattern, value) {
+  const escaped = pattern.replace(/[.*+?${}()|[\]\\]/g, '\\$&')
+    .replace(/\\\*/g, '.*')
+    .replace(/\\\?/g, '.')
+  try {
+    return new RegExp('^' + escaped + '$', 'i').test(value)
+  } catch {
+    return false
+  }
+}
+
+/** '|1|salt|hash' — HMAC-SHA1 of the host name, OpenSSH's hashed form. */
+function hashedEntryMatches(field, host) {
+  const parts = field.split('|')
+  if (parts.length !== 4 || parts[1] !== '1') return false
+  let salt
+  let want
+  try {
+    salt = Buffer.from(parts[2], 'base64')
+    want = Buffer.from(parts[3], 'base64')
+  } catch {
+    return false
+  }
+  if (salt.length === 0 || want.length === 0) return false
+  const got = createHmac('sha1', salt).update(host).digest()
+  return got.length === want.length && timingSafeEqual(got, want)
+}
+
+/**
+ * Does an entry's host field cover this host (and port)?
+ *
+ * Port 22 is spelled 'host'; any other port is '[host]:port', which is hashed
+ * and matched the same way OpenSSH does it.
+ */
+function entryCoversHost(field, host, port) {
+  const bracketed = '[' + host + ']:' + port
+  const candidates = port === 22 ? [host] : [bracketed, host]
+  for (const rawPattern of String(field).split(',')) {
+    const pattern = rawPattern.trim()
+    if (!pattern) continue
+    if (pattern.startsWith('|1|')) {
+      for (const candidate of candidates) if (hashedEntryMatches(pattern, candidate)) return true
+      continue
+    }
+    for (const candidate of candidates) if (globMatch(pattern, candidate)) return true
+  }
+  return false
+}
+
+/**
+ * Parse an OpenSSH known_hosts file into entries this plugin can check.
+ *
+ * '@revoked' lines are collected separately: a key listed there is refused
+ * outright. '@cert-authority' is skipped -- verifying certificates needs the CA
+ * key and a validity period, and pretending to check one would be worse than
+ * ignoring it.
+ *
+ * @param {string} text
+ * @returns {{entries: Array<{hostField: string, keyType: string, blob: Buffer}>,
+ *   revoked: Array<{hostField: string, keyType: string, blob: Buffer}>}}
+ */
+export function parseOpenSshKnownHosts(text) {
+  const entries = []
+  const revoked = []
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    let line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    let marker = ''
+    if (line.startsWith('@')) {
+      const match = /^@(\S+)\s+(.*)$/.exec(line)
+      if (!match) continue
+      marker = match[1]
+      line = match[2]
+    }
+    const parts = line.split(/\s+/)
+    if (parts.length < 3) continue
+    const hostField = parts[0]
+    const keyType = parts[1]
+    const encoded = parts[2]
+    if (!/^(ssh-|ecdsa-|sk-|rsa-sha2-|dsa-)/.test(keyType)) continue
+    if (!/^[A-Za-z0-9+/=]+$/.test(encoded)) continue
+    const blob = Buffer.from(encoded, 'base64')
+    if (blob.length === 0) continue
+    if (marker === 'revoked') revoked.push({ hostField, keyType, blob })
+    else if (marker === '') entries.push({ hostField, keyType, blob })
+  }
+  return { entries, revoked }
+}
+
+/**
+ * Verify a presented host key against an OpenSSH known_hosts file.
+ *
+ * Read-only on purpose: writing OpenSSH format back is a different promise, and
+ * appending a line our own parser cannot fully validate is how trust stores get
+ * corrupted. New hosts are added with ssh-keyscan, or by using the plugin's own
+ * store (drop the knownHosts setting).
+ */
+export function checkOpenSshHostKey({ text, file, host, port, keyBlob, policy, trustHostKey, fp }) {
+  const parsedFile = parseOpenSshKnownHosts(text)
+  const id = keyId(host, port)
+  const presented = fingerprint(keyBlob)
+  const covers = (entry) => entryCoversHost(entry.hostField, host, port)
+
+  for (const entry of parsedFile.revoked) {
+    if (covers(entry) && fingerprintsEqual(fingerprint(entry.blob), presented)) {
+      return {
+        ok: false,
+        reason: 'Host key verification failed: ' + id + ' is marked @revoked in ' + file +
+          ' with the fingerprint it presents (' + presented + '). Refusing to connect.',
+        fp,
+        firstSeen: false,
+      }
+    }
+  }
+
+  const matching = parsedFile.entries.filter(covers)
+  if (matching.length > 0) {
+    const same = matching.find((entry) => fingerprintsEqual(fingerprint(entry.blob), presented))
+    if (same) {
+      return { ok: true, reason: 'host key matches the entry in ' + file, fp, firstSeen: false }
+    }
+    return {
+      ok: false,
+      reason: 'HOST KEY CHANGED for ' + id + ': ' + file + ' records ' +
+        matching.map((entry) => fingerprint(entry.blob)).join(', ') + ', presented ' + presented +
+        '. This can mean the server was reinstalled — or that traffic is being intercepted. ' +
+        'Refusing to connect. If the server was legitimately rebuilt, update that entry after ' +
+        'verifying the new fingerprint out of band.',
+      fp,
+      firstSeen: false,
+    }
+  }
+
+  if (trustHostKey === true) {
+    return {
+      ok: true,
+      reason: 'trustHostKey accepted the key for this call; nothing was written to ' + file +
+        ' because it is an OpenSSH known_hosts file. Add the host with ssh-keyscan to stop being asked.',
+      fp,
+      firstSeen: true,
+    }
+  }
+  if (policy === 'tofu') {
+    return {
+      ok: false,
+      reason: 'Unknown host ' + id + ' with fingerprint ' + presented + '. ' + file +
+        ' is an OpenSSH known_hosts file, which this plugin verifies but does not write to. ' +
+        'Add the host with: ssh-keyscan -p ' + port + ' ' + host + ' >> "' + file + '" — after ' +
+        'confirming the fingerprint out of band — or call ssh_connect with trustHostKey: true ' +
+        'for this one connection.',
+      fp,
+      firstSeen: true,
+    }
+  }
+  return {
+    ok: false,
+    reason: 'Unknown host ' + id + ' with fingerprint ' + presented + '. This machine is not in ' +
+      file + ' (an OpenSSH known_hosts file, verified but not written by this plugin). Verify the ' +
+      'fingerprint out of band, then add it with: ssh-keyscan -p ' + port + ' ' + host + ' >> "' +
+      file + '" — or call ssh_connect with trustHostKey: true for this one connection.',
+    fp,
+    firstSeen: true,
+  }
+}
+
+/**
  * Compare two fingerprints without leaking their common prefix through timing.
  *
  * A JS string === short-circuits on the first differing byte. The value being
@@ -132,6 +318,36 @@ export function fingerprint(keyBlob) {
 export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKey, knownHostsFile }) {
   const fp = fingerprint(keyBlob)
   const file = knownHostsFile || storePath(dshHome)
+  // Verification is not requested at all here: policy off wins over everything,
+  // including a knownHosts file that would otherwise refuse.
+  if (policy === 'off') {
+    return { ok: true, reason: 'host key verification disabled by policy', fp, firstSeen: false }
+  }
+  // The setting is called knownHosts, and that is what people point at their
+  // OpenSSH file. Read it as one rather than answering with a JSON syntax error.
+  if (knownHostsFile) {
+    let text = null
+    try {
+      text = readFileSync(file, 'utf8')
+    } catch (err) {
+      const code = err && /** @type {{code?: string}} */ (err).code
+      if (code !== 'ENOENT') {
+        return {
+          ok: false,
+          reason: 'Host key verification failed: the known_hosts file ' + file + ' could not be read (' +
+            (code || (err && err.message) || 'unknown error') + ').',
+          fp,
+          firstSeen: false,
+        }
+      }
+      text = ''
+    }
+    if (text !== null && (text.trim() === '' || looksLikeOpenSshKnownHosts(text))) {
+      return checkOpenSshHostKey({
+        text, file, host, port, keyBlob, policy, trustHostKey: trustHostKey === true, fp,
+      })
+    }
+  }
   const id = keyId(host, port)
   const read = readStore(file)
   const store = read.store

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.74 — 2026-10-31
+
+### Added
+- **The `knownHosts` setting accepts an OpenSSH known_hosts file.** That is what
+  the name means to everybody who has one, and pointing it at `~/.ssh/known_hosts`
+  used to answer with a JSON syntax error (`Unexpected token 'g', "github.com"...`),
+  which made the setting look broken.
+  Supported: plain entries, comma-separated host patterns, `*` and `?` wildcards,
+  `[host]:port` for non-default ports, `|1|` hashed entries (HMAC-SHA1, the form
+  ssh uses by default), and `@revoked`. `@cert-authority` is skipped -- verifying
+  a certificate needs its CA and validity period, and pretending to check one is
+  worse than ignoring it.
+  The file is **read-only** here: `trustHostKey` accepts the key for that call and
+  says nothing was written, `tofu` refuses rather than pretend it recorded the key,
+  and the unknown-host message gives the `ssh-keyscan` command that adds it.
+  `hostKeyPolicy: "off"` still wins over everything.
+
+### Added — tests
+- Eight: format detection, plain/wildcard/bracketed/hashed matching, a changed key,
+  `@revoked`, unknown-host guidance, policy off, the parser dropping unusable lines,
+  and a JSON store passed as `knownHosts` still being read as one.
+
 ## 0.7.73 — 2026-10-31
 
 ### Fixed
