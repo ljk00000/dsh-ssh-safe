@@ -488,14 +488,22 @@ function sendJson(res, status, body) {
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = ''
+    let tooLarge = false
     req.on('data', (chunk) => {
+      if (tooLarge) return
       data += chunk
       if (data.length > 64 * 1024) {
         // 413, not 500: the caller sent too much, the server did nothing wrong.
+        //
+        // destroy() here destroyed the socket BEFORE the 413 could be written,
+        // so the caller saw a dropped connection ("other side closed") instead
+        // of the reason. Stop accumulating and let the response go out; the rest
+        // of the body is drained by the request itself.
+        tooLarge = true
+        data = ''
         const error = new Error('body too large')
         error.statusCode = 413
         reject(error)
-        req.destroy()
       }
     })
     req.on('end', () => {

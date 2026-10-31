@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.90 — 2026-10-31
+
+### Fixed
+- **The settings page answered a too-large request by dropping the connection.**
+  `readBody` called `req.destroy()` the moment the 64 KB limit was crossed, which
+  killed the socket before the 413 could be written. Measured with a 100 KB alias:
+  the caller got `fetch failed / other side closed` instead of a status code and a
+  reason. It now stops accumulating and answers
+  `413 {"error":"body too large"}`; the server keeps serving. The limit itself is
+  unchanged — that part was working.
+
+### Added — tests
+- A 100 KB body gets 413 with a reason, and `/api/state` still answers afterwards.
+
 ## 0.7.89 — 2026-10-31
 
 ### Fixed

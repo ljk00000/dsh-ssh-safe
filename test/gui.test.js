@@ -733,3 +733,28 @@ test('deleting a machine that the settings form defines says where it lives', { 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a body over the limit answers 413 instead of dropping the socket', async () => {
+  // readBody called req.destroy() the moment the limit was crossed, so the 413
+  // never reached the caller: the connection just closed. A 100 KB alias
+  // produced 'other side closed' instead of a reason.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-large-'))
+  const { child, base, token } = await start(home)
+  try {
+    const res = await fetch(base + '/api/save', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-gui-token': token },
+      body: JSON.stringify({ alias: 'x'.repeat(100 * 1024), host: 'h', user: 'u' }),
+    })
+    assert.equal(res.status, 413)
+    const body = await res.json()
+    assert.match(body.error, /body too large/)
+
+    // The server is still serving: the connection was dropped, not the process.
+    const state = await fetch(base + '/api/state', { headers: { 'x-gui-token': token } })
+    assert.equal(state.status, 200)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
