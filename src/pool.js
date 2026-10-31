@@ -580,10 +580,16 @@ export class SshPool {
           e.lastError = 'previous connection was dead; reconnecting'
         } else {
           e.lastUsedAt = Date.now()
+          // A ceiling exceeded while a command was running must be enforced once
+          // that command ends. Only a NEW connection used to evict, so reusing an
+          // alias left maxConnections-1 connections open indefinitely (measured:
+          // 'maxConnections: 1' kept 2 sockets after both went idle).
+          await this.evictIdle(Number(this.config.maxConnections), alias)
           return e.client
         }
       } else {
         e.lastUsedAt = Date.now()
+        await this.evictIdle(Number(this.config.maxConnections), alias)
         return e.client
       }
     }

@@ -6,6 +6,7 @@ import path from 'node:path'
 
 import { apply } from '../src/index.js'
 import { looksBinary } from '../src/sftp.js'
+import { SshPool } from '../src/pool.js'
 import { startServer, machineFor, alternateHostKey } from './helpers/local-ssh-server.js'
 
 // The twelve tool bodies are the largest untested part of src/index.js: they
@@ -1093,6 +1094,34 @@ test('the audit log records the end of a connection too', async () => {
   } finally {
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a ceiling exceeded while a command ran is enforced once it is idle again', async () => {
+  // Only a NEW connection evicted, so reusing an alias left maxConnections-1
+  // sockets open indefinitely (measured: maxConnections 1 kept 2 after both idle).
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-maxcfit-'))
+  const srv2 = await startServer()
+  const pool = new SshPool({
+    hostKeyPolicy: 'tofu', allowPlaintextPassword: true, connectTimeoutMs: 4000,
+    commandTimeoutMs: 4000, reconnectCooldownMs: 0, maxConnections: 1,
+    machines: { a: machineFor('a', srv2.port), b: machineFor('b', srv2.port) },
+  }, { dshHome: home })
+  try {
+    // a runs a command; b is used meanwhile, so both are connected at once.
+    const slow = pool.exec('a', 'sleep 0.4', {})
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    await pool.exec('b', 'echo b', {})
+    assert.equal(srv2.clientCount(), 2, 'the busy connection is protected')
+    await slow
+
+    // Both idle now: the next acquire trims back to the ceiling.
+    await pool.exec('b', 'echo again', {})
+    assert.equal(srv2.clientCount(), 1, 'the ceiling is enforced again')
+  } finally {
+    await pool.closeAll({ force: true })
+    await srv2.close()
     rmSync(home, { recursive: true, force: true })
   }
 })

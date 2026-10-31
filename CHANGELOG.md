@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.125 — 2026-10-31
+
+### Fixed
+- **`maxConnections` stayed exceeded after the command that caused it ended.** A
+  busy connection is deliberately not evicted, and the code said "the next acquire
+  evicts again, by which time those connections are idle" — but only a *new*
+  connection evicted. Reusing an alias returned early and never trimmed:
+  ```
+  maxConnections: 1, a runs a command, b is used meanwhile
+  b while a is busy → 2 connections (a protected, correct)
+  after both idle  → before: 2 connections, still 2 after another call on b
+                     after : 1 connection
+  ```
+  The reuse path enforces the ceiling now. A connection carrying work is still left
+  alone, so the busy command finishes; the trim happens on the next acquire once
+  everything is idle.
+
+### Verified, no change needed
+- Sequential use of two aliases with `maxConnections: 1` keeps exactly one socket.
+- An SFTP read on the same alias while a command runs works, and the connection
+  count stays within the ceiling once the work ends.
+- `ssh_config` reports the over-limit state with the reason and the aliases:
+  `Live connections: 2 / 1 max  (over the limit: the extra ones are running a command)  [a, b]`.
+
 ## 0.7.124 — 2026-10-31
 
 ### Added
