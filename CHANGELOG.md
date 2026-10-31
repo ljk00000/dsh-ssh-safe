@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.160 — 2026-10-31
+
+### Fixed
+- **`ssh_doctor` left no record when it stopped early.** Only a run that reached the
+  connection phase wrote one, so a run that stopped at the credentials or TCP step was
+  invisible — the log could not tell "never called" from "called and stopped early":
+  ```
+  three runs (healthy / closed port / no credentials)
+  before: 1 record   (only the healthy one)
+  after : 3 records  — ok / error "tcp — ECONNREFUSED" /
+                       error "credentials — no password, key or agent available …"
+  ```
+  One record per run, with the stage that stopped it.
+- **Redaction turned a doctor reason into its opposite.** The reason was built as
+  `stage: detail`, and `redact` masks the value after any key ending in `KEY`, so:
+  ```
+  before: "reason": "host key: <redacted> verified: hostKeyPolicy is \"off\" …"
+  after : "reason": "host key — NOT verified: hostKeyPolicy is \"off\" …"
+  ```
+  The record now reads as the opposite of what it used to imply.
+
+### Added
+- `warn` joins the documented outcomes (a doctor run that completed with warnings, e.g.
+  `hostKeyPolicy: off`). The README table and the test that keeps it honest both know it.
+
+### Noted
+- One full-suite run reported `delete removes the entry and keeps the others` (GUI) as
+  failed; it passes alone and the next full run was green. Flaky under parallel load —
+  tracked for a dedicated investigation rather than papered over.
+
 ## 0.7.159 — 2026-10-31
 
 ### Fixed

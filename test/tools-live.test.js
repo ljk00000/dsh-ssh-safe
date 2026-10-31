@@ -1725,7 +1725,7 @@ test('every audit record carries an outcome, and the README lists them all', () 
   // exactly the operations that were stopped on purpose. The README table had also
   // missed 'none' (nothing to close) until a probe produced it.
   const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8')
-  for (const outcome of ['ok', 'error', 'timeout', 'cancel', 'incomplete', 'blocked', 'none', 'pending', 'busy', 'unconfirmed']) {
+  for (const outcome of ['ok', 'error', 'warn', 'timeout', 'cancel', 'incomplete', 'blocked', 'none', 'pending', 'busy', 'unconfirmed']) {
     assert.ok(readme.includes('`' + outcome + '`'), 'the README must document the outcome ' + outcome)
   }
   for (const kind of ['connect', 'exec', 'read', 'write', 'list', 'close', 'doctor', 'refused']) {
@@ -1752,6 +1752,75 @@ test('a refused command is recorded with an outcome and a reason', async () => {
     assert.match(String(record.reason || ''), /execGuard/)
   } finally {
     await own.ssh_close?.execute?.({}, {}).catch(() => {})
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('every doctor run leaves exactly one record, naming the stage that stopped it', async () => {
+  // A run that stopped at the credentials or TCP step left no record at all, so the
+  // log could not tell 'never called' from 'called and stopped early'. The reason was
+  // also built as 'stage: detail', which redaction turned into 'host key: <redacted>
+  // verified' — the opposite of what happened.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-docfit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', allowPlaintextPassword: true, auditLog: true, reconnectCooldownMs: 0, hostKeyPolicy: 'tofu',
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: {
+        t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' },
+        dead: { host: '127.0.0.1', port: 1, user: 'tester', password: 'test-pass' },
+        nocred: { host: '127.0.0.1', port: srv2.port, user: 'tester' },
+      },
+    })
+    for (const alias of ['t', 'dead', 'nocred']) {
+      await own.ssh_doctor.execute({ machine: alias }, {})
+    }
+    const records = readFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'), 'utf8')
+      .trim().split('\n').map((line) => JSON.parse(line)).filter((r) => r.kind === 'doctor')
+    assert.equal(records.length, 3, 'one record per run: ' + JSON.stringify(records))
+    assert.deepEqual(records.map((r) => r.machine).sort(), ['dead', 'nocred', 't'])
+    assert.equal(records.find((r) => r.machine === 't').outcome, 'ok')
+    const dead = records.find((r) => r.machine === 'dead')
+    assert.equal(dead.outcome, 'error')
+    assert.match(String(dead.reason), /^tcp — /, JSON.stringify(dead.reason))
+    const nocred = records.find((r) => r.machine === 'nocred')
+    assert.match(String(nocred.reason), /^credentials — /, JSON.stringify(nocred.reason))
+  } finally {
+    await own.ssh_close.execute({ force: true }, {}).catch(() => {})
+    await srv2.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a warning-only doctor run records warn, and the reason survives redaction', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-docwarn-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const srv2 = await startServer()
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', allowPlaintextPassword: true, auditLog: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000, hostKeyPolicy: 'off',
+      machines: { t: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass' } },
+    })
+    await own.ssh_doctor.execute({ machine: 't' }, {})
+    const record = readFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'), 'utf8')
+      .trim().split('\n').map((line) => JSON.parse(line)).find((r) => r.kind === 'doctor')
+    assert.equal(record.outcome, 'warn')
+    assert.match(String(record.reason), /NOT verified/)
+    assert.doesNotMatch(String(record.reason), /<redacted>/, 'the reason must not be masked by its own wording')
+  } finally {
+    await own.ssh_close.execute({ force: true }, {}).catch(() => {})
     await srv2.close()
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous

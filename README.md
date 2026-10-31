@@ -272,6 +272,7 @@ DSH_SSH_PROD_KNOWN_HOSTS=~/.ssh/known_hosts.json
 | `cancel` | 调用方通过 `signal` 取消 |
 | `incomplete` | 连接在退出码返回前断开，输出不完整（仅 `ssh_exec`） |
 | `blocked` | 被 `execGuard` 或 `denyPatterns` 拦下（`kind: refused`） |
+| `warn` | 仅 `ssh_doctor`：检查完成，但有告警（如 `hostKeyPolicy: off`） |
 | `none` | 仅 `ssh_close`：本来就没有活动连接，无需关闭 |
 | `pending` / `busy` / `unconfirmed` | 仅 `ssh_close`：仍在建立、有命令在跑、关闭未能确认 |
 

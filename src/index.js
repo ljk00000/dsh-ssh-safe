@@ -2029,7 +2029,30 @@ function assertKnownArgs(args, known, toolName) {
       const m = machineDefinition(alias, { machines: cfg.machines, dshHome: credentialHome })
       const need = expectedEnv(alias)
       const lines = []
-      const say = (stage, verdict, detail) => lines.push('[' + verdict + '] ' + stage + (detail ? ': ' + detail : ''))
+      const doctorStartedAt = Date.now()
+      const verdicts = []
+      const say = (stage, verdict, detail) => {
+        verdicts.push({ stage, verdict, detail: detail || '' })
+        lines.push('[' + verdict + '] ' + stage + (detail ? ': ' + detail : ''))
+      }
+      // Exactly one record per run, whatever stage it stopped at. A run that failed
+      // at the credentials step left no trace at all, so the log could not tell
+      // 'never called' from 'called and stopped early'.
+      const finish = () => {
+        const fail = verdicts.find((v) => v.verdict === 'FAIL')
+        const warn = verdicts.find((v) => v.verdict === 'warn')
+        const outcome = fail ? 'error' : warn ? 'warn' : 'ok'
+        const chosen = fail || warn
+        audit.write({
+          kind: 'doctor', machine: alias, outcome,
+          // Not 'stage: detail': redaction masks the value after any key ending in
+          // KEY, so 'host key: NOT verified' was stored as 'host key: <redacted>
+          // verified' — which reads like the opposite of what happened.
+          ...(chosen ? { reason: auditText(alias, chosen.stage + ' — ' + chosen.detail).slice(0, 120) } : {}),
+          ms: Date.now() - doctorStartedAt,
+        })
+        return { text: lines.join('\n') }
+      }
 
       // 1. configuration
       const missing = []
@@ -2142,7 +2165,7 @@ function assertKnownArgs(args, known, toolName) {
       // A broken credential cannot be fixed by waiting, so diagnose no further.
       if (missing.length || auth.kind === 'none' || credentialProblem) {
         lines.push('', 'Stopped: fix the above before testing the network.')
-        return { text: lines.join('\n') }
+        return finish()
       }
 
       // 2. TCP reachability
@@ -2165,7 +2188,7 @@ function assertKnownArgs(args, known, toolName) {
       say('tcp', tcp.ok ? 'ok' : 'FAIL', tcp.detail)
       if (!tcp.ok) {
         lines.push('', 'Stopped: the host is unreachable, so authentication cannot be tested.')
-        return { text: lines.join('\n') }
+        return finish()
       }
 
       // 3. host key + 4. authentication, via a real connect attempt.
@@ -2176,12 +2199,7 @@ function assertKnownArgs(args, known, toolName) {
       const wasConnected = Boolean(pool.entries.get(alias)?.client)
       // Doctor authenticates and runs a command, so it has to leave the same trail
       // as any other use of the account; it used to log in silently.
-      const doctorStartedAt = Date.now()
-      const doctorRecord = (outcome, detail) => audit.write({
-        kind: 'doctor', machine: alias, outcome,
-        ...(detail ? { reason: auditText(alias, detail).slice(0, 120) } : {}),
-        ms: Date.now() - doctorStartedAt,
-      })
+      // The single record is written by finish().
       try {
         await pool.connect(alias, { force: true })
         const e = pool.entry(alias)
@@ -2198,14 +2216,12 @@ function assertKnownArgs(args, known, toolName) {
         }
         const probe = await pool.exec(alias, 'echo doctor-ok', { timeoutMs: 8000 })
         const replied = String(probe.stdout || '').includes('doctor-ok')
-        doctorRecord(replied ? 'ok' : 'error', replied ? '' : 'the session opened but produced no stdout')
         say('authentication', replied ? 'ok' : 'FAIL', replied ? 'command channel works' : 'connected but no output')
         if (!replied) say('shell', 'warn', 'the session opened but produced no stdout; the remote shell may be restricted')
       } catch (err) {
         const message = redact(err && err.message ? err.message : String(err))
         // Authentication was attempted (or at least the connection was), so the
         // attempt belongs in the log whether or not it worked.
-        doctorRecord('error', message)
         if (/host key|fingerprint|HOST KEY CHANGED|Unknown host/i.test(message)) {
           say('host key', 'FAIL', message)
           say('authentication', 'skip', 'host key was rejected first')
@@ -2230,7 +2246,7 @@ function assertKnownArgs(args, known, toolName) {
         }
       }
 
-      return { text: lines.join('\n') }
+      return finish()
     },
   })
 
