@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.7.284 — 2026-11-01
+
+### Hardened — the secret shapes that carried no keyword now have a test
+A bare value under an ambiguous name (`DATABASE_URL=xyz`) cannot be classified, but the shapes that carry
+a password are known, and nothing asserted them:
+```
+postgres://user:hunter2@db/app   → postgres://user:<redacted>@db/app
+redis://:letmein@cache:6379/0    → redis://:<redacted>@cache:6379/0
+Server=x;Password=t0psecret;     → Server=x;Password=<redacted>
+Authorization: Bearer eyJ…       → Authorization: <redacted>
+curl -u alice:hunter2 https://…  → curl -u alice:<redacted> https://…
+```
+The URL path and host survive, so the masked line is still readable.
+
+### Verified this round (no defect found)
+- Audit rotation with a small cap: five files (live + four generations), no `.5`, the retained range
+  contiguous, order ascending.
+- Port coercion from the credential file: `"22"`, `" 22 "` and `"022"` are 22; `22.5`, `0` and `70000`
+  are flagged `BAD PORT` while the endpoint still shows the offending value.
+- `ssh_list` paging: `offset: 3` continues, `offset: 99` says it is past the last of 8 entries,
+  `offset: -1` is refused, and `limit` is not a parameter (the refusal lists what is accepted).
+- The settings page escapes every machine field it renders (`& < > " '`), including `data-` attributes.
+- DPAPI passphrase round-trip for six shapes: 64 ASCII, 200 characters, CJK, emoji (surrogate pairs),
+  spaces and quotes.
+
+### My own mistakes — three wrong expectations before one right test
+1. I expected `Server=x;Password=abc;Database=y` to keep `;Database=y`. The value deliberately runs to the
+   end of the line: a password may itself contain `;`, so stopping at the separator would mask only its
+   first part and leak the rest. The product is right; my expectation was the unsafe one.
+2. I expected `Authorization: Bearer x` to keep the word `Bearer`; the rule masks the whole value. Keeping
+   the scheme word is cosmetic, and guessing where a token starts is not worth the risk.
+3. `Pwd=abc` is not masked. That is the documented boundary — `PWD`/`OLDPWD` carry directories — and I left
+   it alone rather than special-case a name that is also an ordinary shell variable.
+
+### Tests
+- One new case with the five shapes above.
+  Suite 868 / 863 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.283 — 2026-11-01
 
 ### Hardened — the `timeoutMs: 0` contract now has a test

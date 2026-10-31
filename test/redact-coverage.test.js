@@ -374,3 +374,29 @@ test('a file whose name ends in a space can be read, written and listed', () => 
   assert.equal(printable(' /d/name'), '" /d/name"')
   assert.equal(printable('a b'), 'a b')
 })
+
+test('a password inside a URL, a connection string or an auth header is masked', async () => {
+  // The bare-value rules cannot know that DATABASE_URL=xyz is a secret, but the
+  // shapes that carry one are known: user:pass@host, Password= in a connection
+  // string, and the token after Bearer/Basic. All three were unmasked before.
+  const { redact } = await import('../src/credentials.js')
+  const cases = [
+    ['postgres://user:hunter2@db.example:5432/app', 'postgres://user:<redacted>@db.example:5432/app'],
+    ['mysql://root:sw0rdfish@localhost/app', 'mysql://root:<redacted>@localhost/app'],
+    ['redis://:letmein@cache.example:6379/0', 'redis://:<redacted>@cache.example:6379/0'],
+    // The value runs to the end of the line on purpose: a password may itself
+    // contain ';', so stopping at the separator would mask only its first part.
+    // The cost is that the fields after the password disappear with it — the
+    // documented side to err on.
+    ['Server=x;User Id=sa;Password=t0psecret;', 'Server=x;User Id=sa;Password=<redacted>'],
+    // The whole value after the colon goes: the scheme word is not worth risking
+    // a rule that keeps part of a token. (The AUTH_HEADER=name form keeps
+    // 'Bearer' because the mask starts at the value, not at the keyword.)
+    ['Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.x.y', 'Authorization: <redacted>'],
+  ]
+  for (const [input, expected] of cases) {
+    assert.equal(String(redact(input)), expected, input)
+  }
+  // The URL path must survive: masking the whole line made the output useless.
+  assert.doesNotMatch(String(redact('postgres://user:hunter2@db.example:5432/app')), /hunter2/)
+})
