@@ -15,7 +15,7 @@
 // deadline is the only reliable backstop.
 
 import { posix } from 'node:path'
-import { printable } from './format.js'
+import { printable, printableText } from './format.js'
 import { Utf8Collector } from './buffer.js'
 import { normalizeRemotePath } from './remote-path.js'
 import { redact } from './credentials.js'
@@ -112,7 +112,11 @@ function clearAbort(signal, listener) {
  * ENOENT from EACCES.
  */
 function remoteError(err, target, operation) {
-  const message = redact(err && err.message ? err.message : String(err))
+  // The server writes this text: ssh2 puts the message from its SFTP STATUS
+  // packet straight into err.message, so a host (or something pretending to be
+  // one) controls those bytes. Escaped, and redacted first, like everything
+  // else that leaves this plugin.
+  const message = printableText(redact(err && err.message ? err.message : String(err)))
   // A relative path is resolved by sshd against the login user's home
   // directory, not against anything the caller passed earlier. Saying so turns
   // a bare "No such file: tmp/x" into something the caller can act on.
@@ -466,7 +470,8 @@ async function ensureRemoteDir(sftp, dir) {
       try {
         await callSftp(sftp, 'stat', probe)
       } catch {
-        throw new Error('could not create remote directory ' + probe + ': ' + redact(err && err.message ? err.message : String(err)))
+        throw new Error('could not create remote directory ' + printable(probe) + ': ' +
+          printableText(redact(err && err.message ? err.message : String(err))))
       }
     }
   }
@@ -885,7 +890,7 @@ export async function listRemoteDir(client, remotePath, { timeoutMs, signal }) {
         settle({ path: target, items: listingEntries(items) })
       })
     } catch (err) {
-      settle(null, new Error(redact(err && err.message ? err.message : String(err))))
+      settle(null, new Error(printableText(redact(err && err.message ? err.message : String(err)))))
     }
   })
 }

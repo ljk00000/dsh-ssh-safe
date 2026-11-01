@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.7.356 — 2026-11-01
+
+### Fixed — text a server sends in an SFTP error was printed raw
+This is the first defect in this project whose bytes a **remote host** chooses. ssh2 puts the message from an SFTP
+STATUS packet straight into `err.message`:
+```js
+// node_modules/ssh2/lib/protocol/SFTP.js:2854
+const err = new Error(errorMsg || STATUS_CODE_STR[errorCode] || 'Unknown status')
+```
+The plugin only redacted that text, so a host that answers every request with an escape sequence painted the
+terminal:
+```
+server answers STATUS(4, "server says \u001b[31mred")
+ssh_list   ERR: server says <ESC>[31mred: /
+ssh_read   ERR: server says <ESC>[31mred: /x
+ssh_write  ERR: server says <ESC>[31mred: /x
+after      ERR: server says \x1b[31mred: /x
+```
+`remoteError()` is the single place every file tool wraps an SFTP failure, so the fix is one line there —
+`printableText(redact(text))`, which escapes control characters and keeps backslashes readable. The two other
+places that passed a server message through (`could not create remote directory`, and the listing error) got the
+same treatment.
+
+### Verified this round (no defect found)
+- A hostile **identification string** (`ident: "SSH-2.0-Evil<ESC>[31m"`) never reaches a reply: ssh2 handles the
+  banner, and the plugin reports its own wording.
+- A hostile **disconnect description** does not either: after `client.disconnect("evil<ESC>[31mred reason")` the
+  tool said "the connection to \"box\" stopped answering before the operation finished (No response from server)".
+
+### My own mistakes
+1. I imported `{ utils, Server }` from `ssh2`; it is CommonJS, so the probe died with "Named export 'Server' not
+   found". `import ssh2 from 'ssh2'` is what the helper does.
+2. My first SFTP responder listened on `'sftp'`, which hands back ssh2's own parser: every request became
+   "Operation unsupported" and I nearly recorded the vector as closed. The loopback helper's comment says exactly
+   this ("Listen for the subsystem rather than the 'sftp' event"); `'subsystem'` is what makes the probe honest.
+3. My first patch added a second `import { printable, printableText }` line to `sftp.js`, which already imported
+   `printable` — `SyntaxError: Identifier 'printable' has already been declared`. I merged the two imports instead
+   of adding a line.
+
+### Tests
+- New (`test/server-text.test.js`): a server that refuses every SFTP request with an ANSI escape in its message;
+  `ssh_list`, `ssh_read` and `ssh_write` must show `\x1b[31m` and no raw escape.
+  Suite 946 / 941 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.355 — 2026-11-01
 
 ### Fixed — the over-cap audit note counted records that were not shown
