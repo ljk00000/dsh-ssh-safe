@@ -4710,3 +4710,52 @@ test('a listing that follows a directory link says whose contents they are', asy
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('ssh_doctor stops at a changed host key and marks the rest not reached', async () => {
+  // The doctor's refusal branch had no test: it printed '[skip] authentication: host
+  // key was rejected first' and the remaining stages 'not reached', and nothing pinned
+  // that. A regression here would report a shell or sftp result for a connection that
+  // never happened.
+  const first = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-doctor-changed-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const make = async () => {
+    const tools = {}
+    await apply(
+      { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined },
+      {
+        hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machineInventory: 'alias',
+        reconnectCooldownMs: 0, connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+        machines: { box: machineFor('box', first.port) },
+      },
+    )
+    return tools
+  }
+  let second = null
+  try {
+    const tools = await make({})
+    const ok = String((await tools.ssh_doctor.execute({ machine: 'box' }, {})).text)
+    assert.match(ok, /\[ok\] host key: SHA256:[A-Za-z0-9+/=]+ \(first contact: recorded now\)/, ok)
+    await tools.ssh_close.execute({ force: true }, {})
+    await Promise.race([first.close(), new Promise((resolve) => setTimeout(resolve, 600))])
+
+    second = await startServer({ port: first.port, key: alternateHostKey() })
+    const tools2 = await make({})
+    const refused = String((await tools2.ssh_doctor.execute({ machine: 'box' }, {})).text)
+    assert.match(refused, /\[FAIL\] host key: HOST KEY CHANGED/, refused)
+    assert.match(refused, /\[skip\] authentication: host key was rejected first/, refused)
+    assert.match(refused, /\[skip\] shell: not reached: the host key was rejected first/, refused)
+    assert.match(refused, /\[skip\] sftp: not reached: the host key was rejected first/, refused)
+    // The stages that did run must not claim success about the key.
+    assert.doesNotMatch(refused, /\[ok\] host key/, refused)
+    assert.doesNotMatch(refused, /127\.0\.0\.1:/, 'lean mode hides the address: ' + refused)
+    await tools2.ssh_close.execute({ force: true }, {})
+  } finally {
+    await Promise.race([first.close(), new Promise((resolve) => setTimeout(resolve, 600))])
+    if (second) await Promise.race([second.close(), new Promise((resolve) => setTimeout(resolve, 600))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

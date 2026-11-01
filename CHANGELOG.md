@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.397 — 2026-11-01
+
+### New — `ssh_doctor`'s refusal branch pinned (it had none)
+
+The coverage report listed `index.js:2912-2920` as unexecuted: the branch that runs when the host key is rejected.
+It is the one place where a doctor must stop instead of guessing:
+
+```
+[FAIL] host key: HOST KEY CHANGED for <host hidden>: recorded SHA256:SMzy…, presented SHA256:GSbq…
+[skip] authentication: host key was rejected first
+[skip] shell: not reached: the host key was rejected first
+[skip] sftp: not reached: the host key was rejected first
+```
+
+The test asserts those four lines, that no `[ok] host key` appears, and that lean mode hides the address.
+
+### Also
+
+- One line of that branch sat at column 1 inside an `if` block (`skipRemaining(...)`); indented.
+
+### Verified this round (no defect found)
+
+- The exec output cap is exact at the boundary: with `maxOutputChars: 1024`, `big 1024` prints all 1024
+  characters with no note, `big 1025` prints 1024 and says "1 more character was dropped from the end", `big 2000`
+  says 976 — the arithmetic matches the bytes.
+
+### My own mistake
+
+- My first cap probe ran `node -e …` through the test rig, which does not execute commands: every reply was
+  `ran: … / [exit 0]` with no output, and I read "no truncation note" for four sizes before noticing the body was
+  empty. The rig has a `big <n>` command for exactly this; the probe was rewritten to use it.
+
+### Tests
+
+- New: the doctor refusal above. Suite 987 / 982 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.396 — 2026-11-01
 
 ### Fixed — `ssh_credentials` blamed both fields for a machine that had one

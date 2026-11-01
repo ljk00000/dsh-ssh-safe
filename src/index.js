@@ -2915,7 +2915,7 @@ function passphraseLine(st) {
         if (/host key|fingerprint|HOST KEY CHANGED|Unknown host/i.test(message)) {
           say('host key', 'FAIL', message)
           say('authentication', 'skip', 'host key was rejected first')
-skipRemaining('not reached: the host key was rejected first')
+          skipRemaining('not reached: the host key was rejected first')
         } else if (/refused to run a command|unable to exec/i.test(message)) {
           // The connection and the credentials are fine; the server will not open an
           // exec channel. Reporting this under "connect" pointed at the wrong thing.
