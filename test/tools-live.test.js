@@ -4497,3 +4497,36 @@ test('a write through a symlinked directory says where the bytes went', async ()
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the audit trail says when a write went through a directory link', async () => {
+  // The record carried viaLinkDir from the start of 0.7.388, but the renderer only
+  // printed the fields it knew: 'why did /etc change?' had no answer in the trail.
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-audit-linkdir-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 4000, commandTimeoutMs: 4000, auditLog: true,
+      machines: { box: machineFor('box', server.port) },
+    })
+    server.vfs.putDir('/real')
+    server.vfs.putLink('/link', '/real')
+    await tools.ssh_write.execute({ machine: 'box', path: '/link/a.txt', content: 'hi' }, {})
+    const trail = String((await tools.ssh_audit.execute({ limit: 2 }, {})).text)
+    assert.match(trail, /via dir link \/link -> \/real/, trail)
+    // The same trail must not print a raw object or undefined for the new field.
+    for (const bad of ['[object Object]', 'undefined', 'NaN']) {
+      assert.doesNotMatch(trail, new RegExp(bad.replace(/[[\]]/g, '\\$&')), 'no ' + bad + ' in: ' + trail)
+    }
+    await tools.ssh_close.execute({ force: true }, {})
+  } finally {
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

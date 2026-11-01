@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.7.389 — 2026-11-01
+
+### Fixed — the audit trail dropped the directory-link field it had just been given
+
+0.7.388 records `viaLinkDir` on a write and the renderer printed only the fields it knew, so the trail said:
+
+```
+before   2026-11-01 … box write ok /link/a.txt
+             2B  mode 0666  23ms                 ← where it landed is missing
+after    … box write ok /link/a.txt
+             2B  mode 0666  via dir link /link -> /real  20ms
+```
+
+A record is only worth writing if it can be read back: "why did /etc change?" now has an answer in the trail.
+
+### Also — `SshPool.describe()` removed
+
+Nothing in `src/`, `scripts/` or `test/` called it (the `describe()` in `sftp.js` is a local closure). A method that
+no caller uses still reads like the supported way to resolve a machine, which invites a second implementation.
+
+### Verified this round (no defect found)
+
+- `ssh_list` / `ssh_read` type mismatches name both sides and the tool to use instead: `not a directory:
+  /real/a.txt (it is a file; use ssh_read)`, `not a file: /link (it is a directory; use ssh_list)` — including when
+  the path is a link.
+- `ssh_read` through a symlinked directory returns the content with no note, and that is deliberate: reading changes
+  nothing outside. The write note exists because a write does. Recorded here so the asymmetry is documented rather
+  than accidental.
+- `ssh_list` of a directory link lists the target under the path that was asked for (POSIX behaviour).
+
+### Tests
+
+- New: the audit trail names `via dir link /link -> /real`, and no `[object Object]` / `undefined` / `NaN` appears.
+  Suite 980 / 975 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.388 — 2026-11-01
 
 ### Fixed — a write through a symlinked *directory* said only "Wrote … to /link/a.txt"

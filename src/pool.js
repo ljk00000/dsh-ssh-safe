@@ -697,12 +697,6 @@ export class SshPool {
     }
   }
 
-  describe(alias) {
-    return machineDefinition(alias, {
-      machines: this.config.machines || {},
-      dshHome: this.#credentialHome,
-    })
-  }
 
   /**
    * Where the credential file may be read from.

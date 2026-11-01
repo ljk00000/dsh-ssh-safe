@@ -2231,6 +2231,9 @@ function blockingFileAbove(dir) {
         // very thing printable() exists to stop for commands and paths.
         if (r.mode) detail.push('mode ' + printable(field(r.mode)))
         if (r.linkTarget) detail.push('via link ' + printable(field(r.linkTarget)))
+        // The file was not a link; the directory was. The record carried this and the
+        // renderer dropped it, so 'why did /etc change?' had no answer in the trail.
+        if (r.viaLinkDir) detail.push('via dir link ' + printable(field(r.viaLinkDir)))
         const entriesText = Number.isFinite(r.entries)
           ? String(r.entries) + (r.entries === 1 ? ' entry' : ' entries')
           : ''
