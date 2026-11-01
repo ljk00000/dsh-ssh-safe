@@ -684,3 +684,26 @@ test('a moved machine makes the placeholder stale, without storing the address',
       'the hash must still detect the move with the address hidden')
   } finally { rmSync(dshHome, { recursive: true, force: true }) }
 })
+
+test('a registry title is escaped instead of printed raw', async () => {
+  // The title comes from the host's workspace registry, not from this plugin. A
+  // title holding a NUL and an ANSI escape printed both into the create reply, the
+  // remove reply and the remove error.
+  const registry = new FakeRegistry()
+  const evil = 'box\u0000\u001b[31mred'
+  const create = registry.create.bind(registry)
+  registry.create = async (where, title) => ({ ...(await create(where, title)), title: evil })
+  registry.delete = async () => { throw new Error('the service said no\u001b[2J') }
+  const { tools, restore } = await toolsFor({ DSH_SSH_GPU_HOST: 'h', DSH_SSH_GPU_USER: 'u' }, registry)
+  const control = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u001b]/
+  try {
+    const created = TEXT_OF(await tools.ssh_workspace.execute({ action: 'create', machine: 'gpu' }))
+    assert.doesNotMatch(created, control, 'the create reply carried a control character: ' + JSON.stringify(created))
+    assert.match(created, /box\\x00\\x1b\[31mred/, 'the title is still shown, escaped')
+
+    const removal = await tools.ssh_workspace.execute({ action: 'remove', machine: 'gpu' })
+      .then(() => '', (err) => String(err && err.message || err))
+    assert.match(removal, /失败/, 'the delete error must be reported: ' + removal)
+    assert.doesNotMatch(removal, control, 'the remove error carried a control character: ' + JSON.stringify(removal))
+  } finally { restore() }
+})

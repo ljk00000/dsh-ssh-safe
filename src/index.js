@@ -1866,7 +1866,11 @@ const trustedLine = (m) => {
             const after = listWorkspaces(registry)
             const landed = !after.error && Boolean(findWorkspace({ list: () => after.items }, dir))
             if (landed || created) {
-              registered = '已注册到侧栏工作区：「' + (workspace && workspace.title || remoteTitle(alias)) + '」'
+              // The title comes from the host's workspace registry, not from this plugin:
+      // treat it as text from elsewhere. A title holding a NUL and an ANSI escape
+      // printed them into the reply.
+      registered = '已注册到侧栏工作区：「' +
+        printable(String((workspace && workspace.title) || remoteTitle(alias))) + '」'
             } else {
               registered = '注册请求已发出，但工作区服务没有返回可用的工作区' +
                 (after.error ? '（读取注册表失败：' + after.error + '）' : '（注册表里查不到这个目录）') +
@@ -1913,14 +1917,16 @@ const trustedLine = (m) => {
         if (workspace && registry && typeof registry.delete === 'function') {
           try {
             const ok = await registry.delete(workspace.id)
+            // Same as the create reply: a registry title is not our text.
+            const shownTitle = printable(String(workspace.title || ''))
             removed = ok
-              ? '已从侧栏移除「' + workspace.title + '」'
-              : '工作区服务没有删除「' + workspace.title + '」（它可能已被别处移除；刷新侧栏确认）'
+              ? '已从侧栏移除「' + shownTitle + '」'
+              : '工作区服务没有删除「' + shownTitle + '」（它可能已被别处移除；刷新侧栏确认）'
           } catch (err) {
             // A bare "nope" from the registry named neither the alias nor what was
             // left half-done.
-            throw new Error('从侧栏移除「' + workspace.title + '」失败，注册记录仍在：' +
-              String(err && err.message ? err.message : err).slice(0, 200))
+            throw new Error('从侧栏移除「' + printable(String(workspace.title || '')) +
+              '」失败，注册记录仍在：' + printableText(String(err && err.message ? err.message : err).slice(0, 200)))
           }
         }
         let files

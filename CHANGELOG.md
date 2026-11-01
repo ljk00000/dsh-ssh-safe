@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.350 — 2026-11-01
+
+### Fixed — a workspace title from the registry was printed raw
+The sidebar title comes from the host's workspace registry (`ctx.get('workspaceRegistry')`), not from this plugin,
+so it is text from elsewhere. Three replies embedded it verbatim:
+```
+registry title: "box\u0000\u001b[31mred"
+before  已注册到侧栏工作区：「box<NUL><ESC>[31mred」
+after   已注册到侧栏工作区：「box\x00\x1b[31mred」
+also:   已从侧栏移除「…」 / 工作区服务没有删除「…」 / 从侧栏移除「…」失败，注册记录仍在：<registry error>
+```
+The registry's own error text is escaped too — it is another component's message, and it was truncated to 200
+characters but not neutralised.
+
+### Verified this round (no defect found)
+- The listing row (`已注册为工作区「…」`) already used `printable()`; only the create and remove paths were missed.
+- The placeholder directory paths in those messages are built from the DSH home and a sanitised alias, so they
+  carry no control characters of their own.
+
+### My own mistakes
+- My first probe faked the registry with `{ id, title, cwd }`; `findWorkspace` matches on `path`, so `remove`
+  answered "没有注册记录" and I nearly wrote that the remove path was unreachable. Reading the fake registry in
+  `remote-workspace.test.js` showed the right field.
+
+### Tests
+- New: a hostile title is escaped in the create reply, and a registry whose delete throws yields an escaped error.
+  Suite 940 / 935 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.349 — 2026-11-01
 
 ### Fixed — a setting name could carry control characters into two messages
