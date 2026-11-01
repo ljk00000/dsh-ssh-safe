@@ -2056,9 +2056,15 @@ function blockingFileAbove(dir) {
         : ''
       const lostPrefix = writeProblem ? writeProblem + '\n\n' : ''
       const { records, problem, total } = audit.recentDetailed(limit)
+      // 'Showing the newest 200 records' was wrong whenever the log held fewer: a
+      // limit of 1e300 over seven records claimed 200 were shown. The number shown is
+      // what the read returned.
+      const shown = records.length
       const capNote = requested > 200
-        ? 'Showing the newest 200' + (Number(total) > 200 ? ' of ' + total : '') + ' records: limit ' +
-          Math.floor(requested) + ' is above what this tool displays. Read audit.ndjson directly for more.\n\n'
+        ? 'Showing the newest ' + shown + (Number(total) > shown ? ' of ' + total : '') + ' records: limit ' +
+          Math.floor(requested) + ' is above what this tool displays (200 at most).' +
+          (Number(total) > shown ? ' Read audit.ndjson directly for the rest.' : ' That is every record in the log.') +
+          '\n\n'
         : ''
       // "No operations recorded yet" for a log that cannot be read is the one
       // answer that makes an operator stop looking.

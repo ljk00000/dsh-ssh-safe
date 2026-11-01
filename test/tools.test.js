@@ -1764,3 +1764,33 @@ test('a DSH home with a control character is escaped in the paths that are print
     else process.env.DSH_HOME = previous
   }
 })
+
+test('an over-cap audit limit says how many records were actually shown', async () => {
+  // With seven records and limit 1e300 the note said 'Showing the newest 200 records',
+  // which was simply false. It names what the read returned, and only mentions
+  // reading the file directly when there is more to read.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-audit-cap-note-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    const row = (i) => JSON.stringify({ at: '2026-11-01T00:00:00Z', kind: 'exec', outcome: 'ok', machine: 'm', command: 'echo ' + i })
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'),
+      Array.from({ length: 7 }, (_, i) => row(i)).join('\n') + '\n', 'utf8')
+    await apply(ctx, { hostKeyPolicy: 'tofu', auditLog: true })
+    const small = String((await tools.ssh_audit.execute({ limit: 1e300 }, {})).text)
+    assert.match(small, /Showing the newest 7 records: limit 1e\+300 is above what this tool displays \(200 at most\)\. That is every record in the log\./, small.split('\n')[0])
+
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'),
+      Array.from({ length: 300 }, (_, i) => row(i)).join('\n') + '\n', 'utf8')
+    const many = String((await tools.ssh_audit.execute({ limit: 1000 }, {})).text)
+    assert.match(many, /Showing the newest 200 of 300 records: limit 1000 is above what this tool displays \(200 at most\)\. Read audit\.ndjson directly for the rest\./)
+    assert.equal(many.split('\n').filter((line) => /echo \d/.test(line)).length, 200)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.355 — 2026-11-01
+
+### Fixed — the over-cap audit note counted records that were not shown
+When `limit` is above the 200-record display cap, `ssh_audit` explains the cap. That note said "Showing the newest
+200 records" no matter how many records existed:
+```
+log holds 7 records, limit: 1e300
+before   Showing the newest 200 records: limit 1e+300 is above what this tool displays. Read audit.ndjson directly for more.
+after    Showing the newest 7 records: limit 1e+300 is above what this tool displays (200 at most). That is every record in the log.
+
+log holds 300 records, limit: 1000
+before   Showing the newest 200 of 300 records: limit 1000 is above what this tool displays. Read audit.ndjson directly for more.
+after    Showing the newest 200 of 300 records: limit 1000 is above what this tool displays (200 at most). Read audit.ndjson directly for the rest.
+```
+It now names what the read returned, says the cap out loud, and only points at the file when there is more to
+read. This is the same shape as 0.7.330 ("the newest 20" and "all 20" looked alike), one branch further along.
+
+### Verified this round (no defect found)
+- The audit log rotates (4 MB per file, 4 older generations, so 20 MB at most), so reading it whole is bounded;
+  `total` counts across generations, so the "of N" half is right.
+- Every other `limit` shape answers correctly: `0` explains that nothing was requested, a float, a string, `null`
+  and `true` are refused as "must be an integer", `-1` as "must be 0 or more".
+
+### My own mistakes
+- I started the round believing the audit log had no rotation and was going to add rotation; the constructor has
+  capped and rotated it since before this session. I read the code before changing anything, which is the only
+  reason that did not become a bogus "fix".
+
+### Tests
+- New: seven records with a huge limit, then three hundred with `limit: 1000` — both notes checked, and exactly
+  200 rows rendered.
+  Suite 945 / 940 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.354 — 2026-11-01
 
 ### Fixed — three replies printed the DSH home as a raw path
