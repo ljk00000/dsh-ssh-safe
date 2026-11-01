@@ -47,6 +47,10 @@
 //     --after  "    allowPlaintextPassword: false," \
 //     --test test/gui.test.js                          # 0.7.406 — the page reads the setting
 //
+// If this run is killed (a timeout, Ctrl-C on the wrapper, a machine that goes
+// away), the file may be left mutated: 'git checkout -- <file>' restores it, and
+// the header of the run says which file was being edited.
+//
 // Exit 0 = caught (or skipped because the anchor was missing), 1 = not caught.
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -82,6 +86,11 @@ if (!original.includes(args.before)) {
 
 let caught = false
 let output = ''
+// finally covers the normal paths; this covers a throw from outside the try and a
+// process.exit() further down. A SIGKILL cannot be caught — see the header.
+process.on('exit', () => {
+  try { if (readFileSync(target, 'utf8') !== original) writeFileSync(target, original) } catch { /* nothing left to do */ }
+})
 try {
   writeFileSync(target, original.replace(args.before, args.after))
   try {

@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.7.419 — 2026-11-01
+
+### New — the audit tells a cancelled command from a timed-out one (pinned)
+
+Both end with "the remote command was sent SIGTERM", and the trail recorded them as different outcomes that nothing
+checked — a regression writing `error` for both would leave "was this cancelled or did it hang?" unanswerable:
+
+```
+2026-11-01 06:50:43Z box exec timeout sleep 3     1013ms    ← commandTimeoutMs
+2026-11-01 06:50:43Z box exec cancel sleep 5       268ms    ← the caller aborted
+2026-11-01 06:50:44Z box exec ok exit=0 echo after            ← the connection survived both
+```
+
+The test asserts both rows, and asserts that neither appears under the other’s command — swapping the two outcomes
+in `index.js` makes it fail (checked by mutation).
+
+### Changed — `scripts/mutation-check.mjs` survives a killed run
+
+Swapping `cancel`/`timeout` was done inline, and my wrapper call hit its own deadline mid-run: the script was killed
+before its `finally` restored the file, so `src/index.js` sat mutated until I noticed `git status` and ran
+`git checkout -- src/index.js`. The script now also restores in a `process.on('exit')` handler and its header says
+which command restores a file after a SIGKILL (which no handler can catch).
+
+### Verified this round (no defect found)
+
+- A machine defined in both places shows where each field came from:
+  `sources: host=config, port=file, user=config, password=file-dpapi`.
+- Cancelling a running command: "[cancelled at the caller request — … sent SIGTERM; the output above is what
+  arrived first]", the connection survives, and the next exec runs.
+
+### My own mistakes
+
+- The inline mutation had a wrong anchor (`outcome: outcomeOf(err)`), so it changed nothing and the test passed — the
+  third anchor mistake this month. Checking `git status` after every mutation is what caught the leaked one.
+- `commandTimeoutMs: 700` was rejected by the schema floor (1000) and the probe died before measuring anything.
+
+### Tests
+
+- New: the cancel/timeout audit rows above. Suite 1006 / 1001 pass / 5 skipped / 0 fail, run twice concurrently;
+  `tsc` clean.
+
 ## 0.7.418 — 2026-11-01
 
 ### Changed — four fixes are recorded as repeatable mutation checks

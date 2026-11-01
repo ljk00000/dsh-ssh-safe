@@ -5021,3 +5021,46 @@ test('maxListEntries: 0 means no cap, not an empty listing', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the audit tells a cancelled command from a timed-out one', async () => {
+  // Both end with 'the remote command was sent SIGTERM', and the audit recorded
+  // them as cancel / timeout — a distinction nothing pinned: a regression that
+  // wrote 'error' for both would leave 'was this cancelled or did it hang?'
+  // unanswerable from the trail.
+  const srv2 = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-audit-cancel-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  const own = {}
+  try {
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      box: { host: machineFor('box', srv2.port).host, port: srv2.port, user: machineFor('box', srv2.port).user, password: machineFor('box', srv2.port).password },
+    }), 'utf8')
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0, auditLog: true,
+      connectTimeoutMs: 4000, commandTimeoutMs: 1000,
+    })
+    const text = async (promise) => String(await promise.then((r) => r.text, (err) => 'ERR: ' + err.message))
+
+    const controller = new AbortController()
+    const doomed = text(own.ssh_exec.execute({ machine: 'box', command: 'sleep 5' }, { signal: controller.signal }))
+    setTimeout(() => controller.abort(), 250)
+    assert.match(await doomed, /\[cancelled at the caller request/)
+    assert.match(await text(own.ssh_exec.execute({ machine: 'box', command: 'sleep 3' }, {})), /\[timed out after 1000ms/)
+    // The connection survived both.
+    assert.match(await text(own.ssh_exec.execute({ machine: 'box', command: 'echo after' }, {})), /after/)
+
+    const audit = await text(own.ssh_audit.execute({ limit: 20 }, {}))
+    assert.match(audit, /exec cancel sleep 5/, audit)
+    assert.match(audit, /exec timeout sleep 3/, audit)
+    assert.doesNotMatch(audit, /exec cancel sleep 3/, 'a timeout must not be recorded as a cancel: ' + audit)
+    assert.doesNotMatch(audit, /exec timeout sleep 5/, 'a cancel must not be recorded as a timeout: ' + audit)
+    await own.ssh_close.execute({ force: true }, {})
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await Promise.race([srv2.close(), new Promise((resolve) => setTimeout(resolve, 1500))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})
