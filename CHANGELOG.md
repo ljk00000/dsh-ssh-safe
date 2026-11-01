@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.7.368 — 2026-11-01
+
+### New — `maxFileBytes` is measured in UTF-8 bytes, and that is now a test
+The existing boundary test used ASCII, where bytes and characters are the same number. For CJK text a
+`content.length` check would allow three times too much. Measured and pinned:
+```
+maxFileBytes = 1 MiB
+"汉" × 349,525  = 1,048,575 bytes   → Wrote 1,048,575 bytes
+"汉" × 350,000  = 1,050,000 bytes   → Refusing to write 1050000 bytes (maxFileBytes = 1048576)
+```
+
+### Verified this round (no defect found)
+
+- The read cap cuts on a character boundary: 400 × "汉" (1200 bytes) read with a 1024-byte ceiling returns 341
+  characters and **no** U+FFFD, and the same holds for a 4-byte emoji; the note says "the first 1024 bytes of a
+  larger file", which is what was read.
+- `ssh_write` refuses a lone UTF-16 surrogate with its index and code unit (`0xd800` at index 2), writes an empty
+  string as a 0-byte file, and preserves CRLF.
+- `ssh_doctor` takes no `password` argument, so the shadowed-session scenario cannot arise there; the doctor does
+  benefit from 0.7.367 because it connects through the same pool.
+
+### My own repeated mistake (third time)
+
+- I set `maxFileBytes: 1000` in a probe and the schema refused it (minimum 1024). That is the third round in a row
+  where I wrote a value below a schema minimum. The rule is now written down here: check the minimum before writing
+  the probe — `grep "z.number().int().min(" src/index.js` answers it in one command.
+
+### My other mistake
+
+- The first version of the new test assumed the fixture's ceiling was 1024 (as in my probe) when it is 1 MiB, and
+  failed with "Missing expected rejection". The test now uses sizes that fit the fixture.
+
+### Tests
+
+- New: the multibyte boundary above.
+  Suite 958 / 953 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.367 — 2026-11-01
 
 ### Fixed — a rejected connection did not say the supplied password had been shadowed

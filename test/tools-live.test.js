@@ -271,6 +271,23 @@ test('ssh_write refuses more than maxFileBytes and accepts exactly that much', a
   assert.match(wrote, /Wrote 1048576 bytes/)
   assert.equal(srv.vfs.getFile('/tmp/exact.txt').length, 1048576)
 })
+test('maxFileBytes counts UTF-8 bytes, not characters', async () => {
+  // A naive content.length check would allow three times too much for CJK text.
+  // This fixture allows 1 MiB, so 349,525 characters (1,048,575 bytes) fit and
+  // 350,000 (1,050,000 bytes) do not — same character count shape, different bytes.
+  srv.vfs.putDir('/mb')
+  const fits = '汉'.repeat(349525)
+  const allowed = await run('ssh_write', { path: '/mb/fits.txt', content: fits })
+  assert.match(allowed, /Wrote 1048575 bytes/)
+  assert.equal(srv.vfs.getFile('/mb/fits.txt').length, 1048575)
+  await assert.rejects(
+    () => run('ssh_write', { path: '/mb/too-big.txt', content: '汉'.repeat(350000) }),
+    /Refusing to write 1050000 bytes \(maxFileBytes = 1048576\)/,
+  )
+  assert.equal(srv.vfs.getFile('/mb/too-big.txt'), undefined, 'nothing may be written')
+})
+
+
 test('a command killed at the deadline keeps what it had already printed', async () => {
   const text = await run('ssh_exec', { command: 'slowout', timeoutMs: 250 })
   assert.match(text, /started/, 'stdout produced before the deadline must survive')
