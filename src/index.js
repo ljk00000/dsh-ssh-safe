@@ -2851,7 +2851,15 @@ function passphraseLine(st) {
           // plugin's store was consulted.
           say('host key', 'ok',
             (e.fingerprint || 'verified') + (e.hostKeyFirstSeen ? ' (first contact: recorded now)' : '') +
-            (m.knownHosts ? ' (against ' + expandHome(m.knownHosts) + ')' : ''))
+            // A local path, so printableText() (backslashes stay single). Under
+            // machineInventory: 'alias' the path is hidden: the failure path was
+            // fixed in 0.7.373, and this success-only line was missed — it is
+            // reachable only when the key is already trusted.
+            (m.knownHosts
+              ? ' (against ' + (cfg.machineInventory === 'alias'
+                ? '<path hidden>'
+                : printableText(expandHome(m.knownHosts))) + ')'
+              : ''))
         }
         const probe = await pool.exec(alias, 'echo doctor-ok', { timeoutMs: 8000 })
         const replied = String(probe.stdout || '').includes('doctor-ok')

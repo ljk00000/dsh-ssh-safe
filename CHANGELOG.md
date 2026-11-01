@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.7.376 — 2026-11-01
+
+### Fixed — the doctor's success line printed a trusted `knownHosts` path in lean mode
+`machineInventory: "alias"` hides host, port and paths. The **failure** path was fixed in 0.7.373; the success-only
+line, reachable only when the key is already trusted, was missed:
+```
+knownHosts: C:\…\kh-secret167     (a real OpenSSH entry for the host)
+machineInventory: "alias"
+ssh_doctor
+before   [ok] host key: SHA256:Bwn6… (against C:\Users\…\dsh-khok167-…\kh-secret167)
+after    [ok] host key: SHA256:Bwn6… (against <path hidden>)
+```
+The path is also escaped now (`printableText()`, so Windows backslashes stay single) — it was printed raw, and this
+line was outside the 0.7.347–0.7.365 escaping sweep because it needs a *successful* trusted connect to reach.
+`machineInventory: "full"` still names the file.
+
+### How it was found
+
+- Not by a probe: `node --test --experimental-test-coverage` reports 98.4% line coverage, and the uncovered list
+  named this line. Coverage of the **paths** is the part that decides whether the tests prove anything; that is a
+  better use of the tool than reading the percentage.
+
+### Verified this round (no defect found)
+
+- `AGENTS.md` and the marker written for a lean profile contain neither host, port nor user name.
+- `ssh_connect` with `auditLog: false` claims nothing about recording (`Connected: <host hidden> … Pool: 1 live /
+  8 max`).
+- A corrupt audit line is escaped and clipped: `[unreadable record] \x1b[31mRED\x1b[0m` and 100 KB of junk becomes
+  one ~120-character line; valid records around it still render.
+- `timeoutMs: 1000` against `sleep 3` stops at 1025 ms with `timed out after 1000ms …`, and the audit records
+  `timeout sleep 3 1018ms`.
+
+### Tests
+
+- New: lean mode answers `(against <path hidden>)`, full mode still names the file.
+  Suite 966 / 961 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.375 — 2026-11-01
 
 ### New — the exact-fit list boundary is a test

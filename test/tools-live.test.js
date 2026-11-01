@@ -4330,3 +4330,50 @@ test('exactly maxListEntries entries is not reported as truncated', async () => 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the doctor keeps a trusted knownHosts path out of the reply in lean mode', async () => {
+  // The failure path was fixed in 0.7.373; this is the success-only line
+  // ('[ok] host key: SHA256:… (against <path>)'), reachable only when the key is
+  // already trusted. Measured: it printed C:\…\kh-secret167 under
+  // machineInventory: 'alias'.
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-doctor-kh-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const knownHosts = path.join(home, 'kh-secret167')
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    // The OpenSSH file the plugin verifies but never writes: fill it in by hand.
+    const parsed = ssh2.utils.parseKey(testHostKey())
+    writeFileSync(knownHosts, '[127.0.0.1]:' + server.port + ' ssh-rsa ' +
+      parsed.getPublicSSH().toString('base64') + '\n', 'utf8')
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      box: { host: '127.0.0.1', port: server.port, user: 'tester', password: 'test-pass', knownHosts },
+    }), 'utf8')
+
+    const lean = {}
+    await apply({ tools: { register: (def) => { lean[def.name] = def } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'strict', allowPlaintextPassword: true, machineInventory: 'alias',
+      reconnectCooldownMs: 0, connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+    })
+    const text = String(await lean.ssh_doctor.execute({ machine: 'box' }, {})
+      .then((r) => r.text, (err) => 'ERR: ' + err.message))
+    assert.match(text, /\[ok\] host key: SHA256:\S+ \(against <path hidden>\)/, text)
+    assert.doesNotMatch(text, /kh-secret167/, 'the path must not appear: ' + text)
+    await lean.ssh_close.execute({ force: true }, {}).catch(() => {})
+
+    const full = {}
+    await apply({ tools: { register: (def) => { full[def.name] = def } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'strict', allowPlaintextPassword: true, machineInventory: 'full',
+      reconnectCooldownMs: 0, connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+    })
+    const shown = String((await full.ssh_doctor.execute({ machine: 'box' }, {})).text)
+    assert.match(shown, /\(against .*kh-secret167\)/, 'full mode still names the file: ' + shown)
+    await full.ssh_close.execute({ force: true }, {}).catch(() => {})
+  } finally {
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
