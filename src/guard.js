@@ -538,7 +538,12 @@ export function expandAssignments(command) {
 
 export function checkCommand(command, patterns, options = {}) {
   const list = Array.isArray(patterns) ? patterns : []
-  if (list.length === 0) return { blocked: false }
+  // An empty list used to return here, which also switched off the pipeline rule —
+  // 'denyPatterns: []' is documented as turning the pattern guard off, and the
+  // config summary said only that. pipeToShell is a separate setting: with it left
+  // at 'refuse', 'curl x | bash' must still be refused. A caller that passes no
+  // list at all has configured nothing and keeps the old answer.
+  if (!Array.isArray(patterns)) return { blocked: false }
 
   let raw = String(command ?? '')
   // See DATA_HEADS: for a command that only reads text, what is inside quotes

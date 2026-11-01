@@ -2072,3 +2072,23 @@ test('ssh_workspace records what it did, and the row names the action', async ()
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the config summary says the pipe rule survives an empty denyPatterns', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-deny-summary-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, { hostKeyPolicy: 'tofu', denyPatterns: [] })
+    const text = String((await tools.ssh_config.execute({}, {})).text)
+    assert.match(text, /0 pattern\(s\) — the destructive-command guard is OFF \(pipes into an interpreter are still refused\)/, text)
+    await apply(ctx, { hostKeyPolicy: 'tofu', denyPatterns: [], pipeToShell: 'allow' })
+    const allowed = String((await tools.ssh_config.execute({}, {})).text)
+    assert.match(allowed, /pipes into an interpreter are allowed/, allowed)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

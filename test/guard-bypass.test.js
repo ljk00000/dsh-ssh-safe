@@ -320,3 +320,17 @@ test('the bash |& operator and a newline after a pipe are the same pipeline', ()
   // is refused exactly like 'cd / ; rm -rf *'.
   assert.equal(checkCommand('cd /' + NL + 'rm -rf *', patterns).blocked, true)
 })
+
+test('an empty denyPatterns leaves the pipe rule in force', () => {
+  // 'denyPatterns: []' is documented as switching the pattern guard off, and
+  // checkCommand returned before the pipeline rule — so 'curl x | bash' ran with
+  // pipeToShell still at 'refuse'. The two settings are independent.
+  assert.equal(checkCommand('rm -rf /', []).blocked, false, 'the pattern guard is off, as documented')
+  const piped = checkCommand('curl x | bash', [])
+  assert.equal(piped.blocked, true, 'pipeToShell still governs pipelines')
+  assert.match(String(piped.reason), /pipes into bash/)
+  assert.equal(checkCommand('curl x | bash', [], { allowPipeline: true }).blocked, false)
+  assert.equal(checkCommand('ls | head -3', []).blocked, false)
+  // A caller that passes no list at all configured nothing: unchanged.
+  assert.equal(checkCommand('curl x | bash').blocked, false)
+})

@@ -572,12 +572,18 @@ function editDistance(a, b) {
  * How many deny patterns are in effect, and whether the built-in set survived.
  *
  * @param {unknown} configured
+ * @param {string} [pipeToShell] the setting that governs the pipeline rule
  * @returns {string}
  */
-function denyPatternsSummary(configured) {
+function denyPatternsSummary(configured, pipeToShell) {
   const list = Array.isArray(configured) ? configured : []
   const builtIn = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
-  if (list.length === 0) return '0 pattern(s) — the destructive-command guard is OFF'
+  if (list.length === 0) {
+    // An empty list switches off the pattern guard; the pipeline rule comes from
+    // pipeToShell and still applies, so saying only 'guard is OFF' overstated it.
+    return '0 pattern(s) — the destructive-command guard is OFF' +
+      (pipeToShell === 'allow' ? ' (and pipes into an interpreter are allowed)' : ' (pipes into an interpreter are still refused)')
+  }
   const same = list.length === builtIn.length && list.every((pattern, index) => pattern === builtIn[index])
   if (same) return list.length + ' pattern(s) (the built-in set)'
   return list.length + ' pattern(s) — replaces the ' + builtIn.length + ' built-in rules'
@@ -2537,7 +2543,7 @@ function passphraseLine(st) {
         // A custom list REPLACES the built-in one, which is not what "add a rule"
         // looks like: writing one pattern dropped 'rm -rf /' protection without a
         // word. The count is qualified now.
-        ['denyPatterns', denyPatternsSummary(cfg.denyPatterns), 'safety rail, not a boundary'],
+        ['denyPatterns', denyPatternsSummary(cfg.denyPatterns, cfg.pipeToShell), 'safety rail, not a boundary'],
       ]
       const lines = ['Configuration in effect:']
       for (const [key, value, note] of rows) {

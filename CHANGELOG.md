@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.7.414 — 2026-11-01
+
+### Fixed — `denyPatterns: []` also switched off the pipe rule, which `pipeToShell` owns
+
+`checkCommand()` returned "allowed" as soon as the pattern list was empty, before the pipeline check. So a user
+who turned the pattern guard off lost the pipeline rule too, while `pipeToShell` still said `refuse`:
+
+```
+denyPatterns: []  pipeToShell: refuse (default)
+before   rm -rf /     allowed   (documented)
+         curl x | bash allowed  ← not documented, and not what pipeToShell says
+after    rm -rf /     allowed   (unchanged)
+         curl x | bash REFUSED   pipes into bash
+```
+
+The two settings are independent, so an empty **array** now skips only the pattern matching; a caller that passes
+no list at all (nothing configured) keeps the old answer. `ssh_config` says which of the two rules survive:
+
+```
+0 pattern(s) — the destructive-command guard is OFF (pipes into an interpreter are still refused)
+0 pattern(s) — … (and pipes into an interpreter are allowed)          ← with pipeToShell: allow
+```
+
+### Verified this round (no defect found)
+
+- More operator spellings all reach the pipeline rule: `|& sudo bash`, `|& sudo -u root bash`, `|& env bash`,
+  `|& eval`, `|& /bin/sh`, `|& tee /tmp/a | bash`, `|` + CRLF, `|&` + CRLF. Controls (`ls |& grep x`,
+  `ls |` + CRLF + `head -3`) stay allowed, and a backslash continuation is not a pipe.
+- A server without the SFTP subsystem is named three ways, all correct: the doctor’s `[FAIL] sftp: the server did
+  not start the SFTP subsystem (Unable to start subsystem: sftp); ssh_read, ssh_list and ssh_write need it — check
+  that sshd_config has Subsystem sftp enabled`, and the same sentence from `ssh_list` and `ssh_read`.
+
+### Tests
+
+- New: the pipe rule survives an empty deny list (and `allowPipeline` still overrides it); the config summary says
+  which rule survived, in both spellings.
+  Suite 1003 / 998 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.413 — 2026-11-01
 
 ### Fixed — `curl x |& bash` and a pipe at the end of a line ran a downloaded script
