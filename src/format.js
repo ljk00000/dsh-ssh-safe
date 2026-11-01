@@ -106,7 +106,10 @@ export function exitLine(result) {
   const code = result ? result.code : null
   const signal = result ? result.signal : null
   if ((code === null || code === undefined) && typeof signal === 'string' && signal.length > 0) {
-    return '[signal ' + signal + ']'
+    // The name is the server's: ssh2 passes its exit-signal payload through
+    // untouched (`exit.signal = 'SIG' + data.signal`, no validation), so a host
+    // that answers with an escape sequence would print it here.
+    return '[signal ' + printableText(signal) + ']'
   }
   return '[exit ' + (code === null || code === undefined ? 'unknown' : code) + ']'
 }

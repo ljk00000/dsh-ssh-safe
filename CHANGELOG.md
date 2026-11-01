@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.7.357 — 2026-11-01
+
+### Fixed — a signal name a server chose was printed raw
+The same class as 0.7.356, one field over. ssh2 does not validate the signal name it receives:
+```js
+// node_modules/ssh2/lib/client.js:676
+channel.emit('exit', exit.code = null, exit.signal = `SIG${data.signal}`, …)
+```
+`exitLine()` printed it as it came, so a host that answers an exec with a signal name carrying an escape
+sequence painted the terminal:
+```
+server sends exit-signal "KILL\u001b[31mRED"
+before   [signal SIGKILL<ESC>[31MRED]
+after    [signal SIGKILL\x1b[31MRED]
+```
+`printableText()` keeps backslashes readable and escapes control characters; that is the whole change. The audit
+row already escaped `signal=` (0.7.342).
+
+### Verified this round (no defect found)
+- `exit-signal`'s **error message** field (`data.errorMessage`) never reaches the user: the pool captures only
+  code and signal, so there is nothing to escape.
+- The exit-signal path needed a hand-built packet: ssh2's server API refuses the name (`Invalid signal: …`,
+  validated against its own SIGNALS table), which is why this had never been probed.
+
+### My own mistakes
+1. My first attempt drove the fake server through `stream.signal(...)` — that is the *client*-only method ("Client-only
+   method called in server mode"), so nothing was sent and the reply said "connection closed before the command
+   reported an exit status". I read ssh2's Channel API before continuing instead of concluding the vector was closed.
+2. The second attempt added the name to `SIGNALS` and called `stream.signal` again, which failed the same way; the
+   server has to send the packet through the protocol object (`stream._client._protocol.exitSignal(...)`).
+3. I first titled the test "escaped in the reply and the audit row" while it only tested `exitLine()`, then kept the
+   title. Corrected to what the test measures.
+
+### Tests
+- New: `exitLine()` escapes a hostile signal name, and the three ordinary shapes still read `[signal SIGKILL]`,
+  `[exit 3]`, `[exit unknown]`.
+  Suite 947 / 942 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.356 — 2026-11-01
 
 ### Fixed — text a server sends in an SFTP error was printed raw

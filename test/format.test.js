@@ -88,3 +88,18 @@ test('an IPv6 literal is printed once, in brackets', async () => {
   assert.equal(formatHost('ssh://h'), '"ssh://h"')
   assert.equal(formatHost(''), '')
 })
+
+test('a signal name a server chose is escaped', () => {
+  // ssh2 passes the exit-signal payload through untouched:
+  //   client.js:676  exit.signal = `SIG${data.signal}`
+  // so the host writes this text. It used to reach the reply as
+  //   [signal SIGKILL<ESC>[31MRED]
+  // A unit test is enough: reaching this through the protocol needs a hand-built
+  // packet, and the escaping is a pure function. The audit row is covered by
+  // test/render-fuzz.test.js.
+  assert.equal(exitLine({ code: null, signal: 'SIGKILL' }), '[signal SIGKILL]')
+  assert.equal(exitLine({ code: null, signal: 'KILL' + String.fromCharCode(27) + '[31mred' }),
+    '[signal KILL\\x1b[31mred]')
+  assert.equal(exitLine({ code: 3 }), '[exit 3]')
+  assert.equal(exitLine({ code: null, signal: null }), '[exit unknown]')
+})
