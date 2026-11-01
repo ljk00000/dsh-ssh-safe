@@ -2396,7 +2396,15 @@ function passphraseLine(st) {
 
       lines.push('', 'Live connections: ' + stats.live +
         (stats.limit > 0 ? ' / ' + stats.limit + ' max' : ' (no limit)') +
-        (stats.overLimit ? '  (over the limit: the extra ones are running a command)' : '') +
+        // maxConnections is a keep-alive cap, not a hard limit: two calls in flight can
+        // hold two connections, and the pool trims back to the cap on the next acquire.
+        // '2 / 1 max' with no note read as a broken limit, and overLimit is only true
+        // while an extra one is busy — after the burst the note simply disappeared.
+        (stats.live > stats.limit && stats.limit > 0
+          ? '  (over the limit: ' + (stats.overLimit
+            ? 'the extra ones are running a command and are left alone'
+            : 'it is trimmed when the next call needs a slot') + ')'
+          : '') +
         (stats.aliases.length ? '  [' + stats.aliases.join(', ') + ']' : ''))
       if (cfg.auditLog === true) {
         lines.push('Audit log: ' + dshHome + (process.platform === 'win32' ? '\\' : '/') + 'dsh-ssh-safe' +

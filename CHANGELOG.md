@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.331 — 2026-11-01
+
+### Fixed — "Live connections: 2 / 1 max" with no explanation
+`maxConnections` is a **keep-alive cap**, not a hard concurrency limit: two calls in flight hold two
+connections and the pool trims back to the cap on the next acquire. The report only explained the overage while
+an extra connection was *busy*, so as soon as the burst ended the line read:
+```
+Before  Live connections: 2 / 1 max  [a, b]                          ← looks like a broken limit
+Now     Live connections: 2 / 1 max  (over the limit: it is trimmed when the next call needs a slot)  [a, b]
+        Live connections: 2 / 1 max  (over the limit: the extra ones are running a command and are left
+                                       alone)  [a, b]
+        Live connections: 1 / 1 max  [c]                             ← after the next call
+```
+
+### Verified this round (no defect found)
+- The trimming itself is correct: after the burst, the next call evicts both idle connections and the pool
+  settles at `1 / 1 max [c]`; repeated calls keep it there.
+- `maxConnections: 0` still renders "(no limit)" and never produces the note.
+
+### My own mistakes
+1. My first probe printed `Promise { <pending> }` for every line: I called an async helper without `await`
+   three times in a row, and briefly suspected the config tool.
+2. I read the first probe as "the note is missing entirely" when it was really "the note requires a busy
+   extra" — the second probe, with both commands still running, showed the original wording intact.
+
+### Tests
+- New: the over-cap line explains the busy overage, the idle overage, and returns to a plain `1 / 1 max`.
+  Suite 917 / 912 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.330 — 2026-11-01
 
 ### Added — ssh_audit says how many records the log holds

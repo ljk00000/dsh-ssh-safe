@@ -3842,3 +3842,40 @@ test('every close row carries a duration, whatever it decided', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('an over-cap pool says which kind of over it is', async () => {
+  // maxConnections is a keep-alive cap: two calls in flight hold two connections and
+  // the pool trims back on the next acquire. ssh_config printed '2 / 1 max' with no
+  // note at all once the burst ended, because the note required a BUSY extra — the
+  // line read as a broken limit.
+  const srv2 = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-maxconn-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'a', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000, maxConnections: 1,
+      machines: { a: machineFor('a', srv2.port), b: machineFor('b', srv2.port) },
+    })
+    const live = async () => String((await own.ssh_config.execute({}, {})).text)
+      .split('\n').find((line) => line.includes('Live connections')) || ''
+    const running = Promise.all(['a', 'b'].map((m) => own.ssh_exec.execute({ machine: m, command: 'sleep 1' }, {})
+      .catch(() => ({ text: '' }))))
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.match(await live(), /2 \/ 1 max  \(over the limit: the extra ones are running a command/)
+    await running
+    assert.match(await live(), /2 \/ 1 max  \(over the limit: it is trimmed when the next call needs a slot\)/)
+    await own.ssh_exec.execute({ machine: 'b', command: 'echo hi' }, {}).catch(() => ({ text: '' }))
+    const trimmed = await live()
+    assert.match(trimmed, /1 \/ 1 max/)
+    assert.doesNotMatch(trimmed, /over the limit/)
+  } finally {
+    await own.ssh_close.execute({ force: true }, {}).catch(() => {})
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await Promise.race([srv2.close(), new Promise((resolve) => setTimeout(resolve, 1000))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})
