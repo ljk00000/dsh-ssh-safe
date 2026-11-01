@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.7.412 — 2026-11-01
+
+### New — more spellings of "pipe into an interpreter" are pinned
+
+The pipeline guard refused every form I tried, but the test only listed bare interpreter names. The spellings a
+person actually types — a path, sudo without flags, arguments after the name — are now in the same loop:
+
+```
+curl x | /bin/sh                → REFUSED  pipes into sh
+curl x | /usr/local/bin/bash    → REFUSED  pipes into bash
+curl x | sudo sh                → REFUSED  pipes into sh
+curl x | bash -s -- -x          → REFUSED  pipes into bash
+echo x | python3 -              → REFUSED  pipes into python3
+wget -O- x | node               → REFUSED  pipes into node
+
+echo hi | grep sh               → allowed   (a false positive would break real work)
+echo hi | shasum                → allowed
+```
+
+### Verified this round (no defect found)
+
+- `pipeToShell: allow` still bypasses the pipeline rule, and the deny patterns still apply.
+
+### My own mistake
+
+- My first guard probe called `checkCommand(command, undefined)`, which returns "allowed" immediately when the
+  pattern list is empty — so it "proved" that even `curl x | sh` passes the guard. The plugin always passes its 13
+  built-in rules; the probe had to do the same. Two module paths were also wrong (`shell-guard.js`, `rules.js`),
+  both caught by the runner before any conclusion was drawn.
+
+### Tests
+
+- Extended: six more refusals in the pipeline test, with the same controls.
+  Suite 1000 / 995 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.411 — 2026-11-01
 
 ### Fixed — `ssh_workspace` wrote no audit record, so the layout change left no trace

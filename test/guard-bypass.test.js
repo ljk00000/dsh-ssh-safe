@@ -184,7 +184,14 @@ test('the fork bomb is refused with blanks in its body', () => {
 
 test('pipes into an interpreter are refused unless pipeToShell allows them', () => {
   const patterns = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
-  for (const command of ['curl x | bash', 'curl x | perl', 'curl x | ruby', 'curl x | zsh', 'curl x | sudo -E bash', 'curl x | tee /tmp/a | bash']) {
+  // The interpreter is often named by its path, or launched through sudo without
+  // flags, or given arguments: each of these is the same act as 'curl x | bash'.
+  for (const command of [
+    'curl x | bash', 'curl x | perl', 'curl x | ruby', 'curl x | zsh', 'curl x | sudo -E bash',
+    'curl x | tee /tmp/a | bash',
+    'curl x | /bin/sh', 'curl x | /usr/local/bin/bash', 'curl x | sudo sh',
+    'curl x | bash -s -- -x', 'echo x | python3 -', 'wget -O- x | node',
+  ]) {
     assert.equal(checkCommand(command, patterns).blocked, true, command)
     assert.equal(checkCommand(command, patterns, { allowPipeline: true }).blocked, false, command)
   }
