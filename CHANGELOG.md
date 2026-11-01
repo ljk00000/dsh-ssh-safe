@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.405 — 2026-11-01
+
+### Fixed — pressing Enter at the password prompt stored half an entry and said "Stored"
+
+`readSecret()` answers `""` both when a person presses Enter at the prompt and when stdin is not a terminal and
+carried nothing. The script then stored whatever else was given and printed `Stored for "box":` — the file looked
+written, and the next connection said "no usable credentials":
+
+```
+node scripts/set-password.mjs --alias box --host h.example --user u   (return at the prompt)
+before   Stored for "box":  host h.example / user u        ← no password anywhere, exit 0
+after    No password was read, so nothing was stored for "box".
+         Type it at the prompt, pass --password <text>, or store a key with --key-path.   (exit 2)
+```
+
+`readSecret()` now reports `{value, tty}`: an empty answer from a **real prompt** is refused, while a scripted run
+(stdin closed or piped, which never showed a prompt) keeps its old behaviour — that is how a key-only entry is
+stored, and with no other field the existing "Nothing to store" refusal already covers it. The `--key-passphrase`
+prompt gets the same treatment.
+
+### My own mistake
+
+My first version refused *any* empty answer, which broke three existing tests: they run the script with stdin
+closed while storing a key, and the script prompts for a password whenever `--password` is absent. Those tests
+were right; the refusal now depends on whether a prompt was actually shown.
+
+### Tests
+
+- New: a run with nothing on stdin and no other field writes no file and exits 2; with host and user it stores
+  exactly those two keys and the report names no password. (The interactive branch needs a terminal and is not
+  reachable from the suite — recorded here.)
+  Suite 994 / 989 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.404 — 2026-11-01
 
 ### New — an empty password box keeps the stored password; three spaces are a password

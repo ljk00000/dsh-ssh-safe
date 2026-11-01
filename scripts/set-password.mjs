@@ -62,7 +62,14 @@ function parseArgs(argv) {
   return out
 }
 
-/** Read a line without echoing it. Falls back to a normal read when not a TTY. */
+/**
+ * Read a line without echoing it. Falls back to a normal read when not a TTY.
+ *
+ * Resolves {value, tty}: whether a real prompt was shown decides what an empty
+ * answer means. A person pressing Enter at a prompt was asked for a password and
+ * gave none; a scripted run with stdin closed never asked and may legitimately
+ * store only a key or a host.
+ */
 function readSecret(question) {
   return new Promise((resolve, reject) => {
     const stdin = process.stdin
@@ -70,7 +77,7 @@ function readSecret(question) {
       let data = ''
       stdin.setEncoding('utf8')
       stdin.on('data', (chunk) => { data += chunk })
-      stdin.on('end', () => resolve(data.split(/\r?\n/)[0] || ''))
+      stdin.on('end', () => resolve({ value: data.split(/\r?\n/)[0] || '', tty: false }))
       stdin.on('error', reject)
       return
     }
@@ -86,7 +93,7 @@ function readSecret(question) {
           stdin.pause()
           stdin.removeListener('data', onData)
           process.stdout.write('\n')
-          resolve(value)
+          resolve({ value, tty: true })
           return
         }
         if (ch === '\u0003') {
@@ -338,11 +345,19 @@ if (args.user && String(args.user).trim()) entry.user = String(args.user).trim()
 if (args['key-path'] && String(args['key-path']).trim()) entry.keyPath = String(args['key-path']).trim()
 
 // --key-passphrase with no value means "prompt for it".
-const passphraseInput = typeof args['key-passphrase'] === 'string'
-  ? args['key-passphrase']
+const passphraseAnswer = typeof args['key-passphrase'] === 'string'
+  ? { value: args['key-passphrase'], tty: false }
   : args['key-passphrase'] === true
     ? await readSecret('Key passphrase for "' + alias + '" (input hidden): ')
-    : undefined
+    : null
+const passphraseInput = passphraseAnswer ? passphraseAnswer.value : undefined
+if (passphraseAnswer && passphraseAnswer.tty && String(passphraseInput) === '') {
+  // The same half-store as an empty password: a key with an empty passphrase is
+  // an unprotected key, and the entry said it had one.
+  console.error('No key passphrase was read, so nothing was stored for "' + alias + '".')
+  console.error('Type it at the prompt, or pass --key-passphrase <text>.')
+  process.exit(2)
+}
 if (passphraseInput !== undefined) {
   // A passphrase protects a key the same way a password protects an account, and it
   // used to be written in plaintext while the password beside it was DPAPI
@@ -416,7 +431,16 @@ if (args['clear-key-passphrase'] === true) {
 let secret = typeof args.password === 'string' ? args.password : undefined
 if (secret === undefined && (args.password === true || args.password === undefined)) {
   const typed = await readSecret('Password for "' + alias + '" (input hidden): ')
-  if (typed) secret = typed
+  if (typed.value) secret = typed.value
+  else if (typed.tty) {
+    // Nothing was typed: stdin was closed, piped nothing, or the user pressed
+    // Enter. The script stored host and user and printed 'Stored for "box"' with
+    // no password anywhere, so the file looked written and the next connection
+    // said 'no usable credentials'. Refuse instead of half-storing.
+    console.error('No password was read, so nothing was stored for "' + alias + '".')
+    console.error('Type it at the prompt, pass --password <text>, or store a key with --key-path.')
+    process.exit(2)
+  }
 }
 
 if (secret) {

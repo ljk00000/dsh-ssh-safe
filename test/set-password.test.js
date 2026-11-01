@@ -538,3 +538,29 @@ test('--dsh-home expands ~ and says when it disagrees with DSH_HOME', () => {
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('a run with nothing on stdin stores nothing instead of half an entry', async () => {
+  // The prompt reads stdin when it is not a terminal. With nothing piped it used to
+  // resolve '' and the script stored whatever else was given, printing 'Stored for
+  // "box"' — the file looked written and the next connection said 'no usable
+  // credentials'. With no other field it must refuse; a person pressing Enter at a
+  // real prompt is refused too, which needs a terminal and cannot be reached here.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-sp-empty-'))
+  try {
+    const withoutFields = runSetPassword(home, ['--alias', 'box'], undefined)
+    assert.equal(withoutFields.status, 2, withoutFields.stderr || withoutFields.stdout)
+    assert.match(withoutFields.stderr, /Nothing to store\. Pass --password/)
+    assert.equal(existsSync(path.join(home, 'dsh-ssh-safe', 'credentials.json')), false,
+      'nothing may be written')
+
+    // With other fields the entry is stored, and the report lists exactly what it
+    // holds — no password field, so nobody can believe one was stored.
+    const withFields = runSetPassword(home, ['--alias', 'box', '--host', 'h.example', '--user', 'u'], undefined)
+    assert.equal(withFields.status, 0, withFields.stderr || withFields.stdout)
+    const store = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
+    assert.deepEqual(Object.keys(store.box).sort(), ['host', 'user'])
+    assert.doesNotMatch(withFields.stdout, /passwordDpapi/, withFields.stdout)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
