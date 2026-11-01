@@ -2136,8 +2136,14 @@ function passphraseLine(st) {
   // Its own row: appending to the key line read as if the path were the passphrase.
   let line = '\n    passphrase ' + printable(source)
   if (problem) line += ' (UNUSABLE) — ' + printable(problem)
+  // The 'file' source was marked and the settings form was not, although both are
+  // plaintext: the report warned about one and stayed silent about the other.
   else if (source === 'file') {
     line += ' (plaintext — re-run scripts/set-password.mjs to store it encrypted)'
+  }
+  else if (source === 'config') {
+    line += ' (plaintext in the settings form — store it with scripts/set-password.mjs, or set the' +
+      ' KEY_PASSPHRASE environment variable, to keep it out of the config file)'
   }
   return line
 }

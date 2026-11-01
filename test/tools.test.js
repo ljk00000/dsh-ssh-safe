@@ -1408,3 +1408,18 @@ test('ssh_config does not report an unrecognised setting as a missing row', asyn
   assert.doesNotMatch(text, /Settings not shown above \(report this\): .*knownHosts/)
   assert.match(text, /Ignored settings \(not recognised, so they govern nothing\): knownHosts/)
 })
+
+test('a passphrase kept in the settings form is reported as plaintext', async () => {
+  // The credential file's plaintext passphrase was flagged and the settings form's
+  // was not, although both sit in cleartext next to a key path. ssh_machines says
+  // nothing about it either: ssh_credentials is the tool that answers 'where does
+  // this secret come from'.
+  const tools = {}
+  await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    hostKeyPolicy: 'tofu', allowPlaintextPassword: false,
+    machines: { k: { host: 'h.example', user: 'u', keyPath: '/home/u/.ssh/id_ed25519', keyPassphrase: 'pp' } },
+  })
+  const text = String((await tools.ssh_credentials.execute({}, {})).text)
+  assert.match(text, /passphrase config \(plaintext in the settings form/)
+  assert.match(text, /KEY_PASSPHRASE environment variable/)
+})

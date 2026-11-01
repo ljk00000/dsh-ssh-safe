@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.321 — 2026-11-01
+
+### Fixed — a passphrase kept in the settings form was not reported as plaintext
+`ssh_credentials` flags a plaintext passphrase from the credential file but said nothing about the one in the
+settings form, although it is the same cleartext secret in a file that is easier to read:
+```
+machines: { k: { keyPath: …, keyPassphrase: "pp" } }
+before  passphrase config
+after   passphrase config (plaintext in the settings form — store it with scripts/set-password.mjs, or set
+        the KEY_PASSPHRASE environment variable, to keep it out of the config file)
+```
+It stays usable on purpose: only *passwords* are refused while `allowPlaintextPassword` is off, and that is
+what the header says. The report just has to name the source honestly.
+
+### Verified this round (no defect found beyond the above)
+- A machine with every per-machine field set is described consistently: `ssh_machines` shows
+  `auth: key … (config)`, `hostKeyPolicy: strict`, `trust: OpenSSH known_hosts <path> — no entry … yet`, and
+  `sources: host=config, port=config, user=config, password=config, keyPath=config, keyPassphrase=config,
+  hostKeyPolicy=config, knownHosts=config`; `ssh_credentials` names the same machine, its ignored plaintext
+  password, its key, its passphrase and the host-key policy.
+- The ignored-password warning and the `password config (IGNORED: plaintext)` line agree, and neither
+  claims the credential is in use.
+
+### My own mistakes
+- I expected the config passphrase to be refused like the password and started to treat that as the bug;
+  reading `credentialFor()` showed the refusal applies to passwords only, by design. The real defect was the
+  silent report, not the resolution order.
+
+### Tests
+- One new case: the passphrase line names the settings form and the remedy.
+  Suite 906 / 901 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.320 — 2026-11-01
 
 ### Fixed — a top-level `knownHosts` was reported twice, once asking the user to report a bug
