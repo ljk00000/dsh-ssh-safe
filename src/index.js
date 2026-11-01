@@ -315,7 +315,8 @@ export async function apply(ctx, config) {
 
   if (suspicious.length > 0) {
     throw new Error(
-      'dsh-ssh-safe: unknown setting "' + suspicious[0][0] + '" — did you mean "' + suspicious[0][1] + '"? ' +
+      'dsh-ssh-safe: unknown setting "' + printable(String(suspicious[0][0])) +
+      '" — did you mean "' + suspicious[0][1] + '"? ' +
       'Fix the plugin config listed under "dsh-ssh-safe" in cordis.patch.yml. ' +
       'A misspelled security setting would otherwise be ignored while looking enabled.'
     )
@@ -2419,8 +2420,11 @@ function passphraseLine(st) {
         lines.push('', 'Settings not shown above (report this): ' + missing.join(', '))
       }
       if (ignoredSettings.length > 0) {
+        // These are key names from the config file, so they are file text: one with an
+        // ANSI escape printed it into the config report.
         lines.push('', 'Ignored settings (not recognised, so they govern nothing): ' +
-          ignoredSettings.join(', ') + ' — check the spelling against the README')
+          ignoredSettings.map((key) => printable(String(key))).join(', ') +
+          ' — check the spelling against the README')
       }
 
       if (cfg.useCredentialFile === true) {

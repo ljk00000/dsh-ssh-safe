@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.349 — 2026-11-01
+
+### Fixed — a setting name could carry control characters into two messages
+Setting names come from the config file, and YAML can quote a key holding anything. Two places echoed the name
+raw:
+```
+"hostKeyPoli\u0000y": x            a near-miss, so the load fails
+before  dsh-ssh-safe: unknown setting "hostKeyPoli<NUL>y" — did you mean "hostKeyPolicy"? …
+after   dsh-ssh-safe: unknown setting "hostKeyPoli\x00y" — …
+
+"auditRotate\u001b[31mBytes": 1      nothing like a setting, so ssh_config names it
+before  Ignored settings (not recognised, so they govern nothing): auditRotate<ESC>[31mBytes — …
+after   Ignored settings (not recognised, so they govern nothing): auditRotate\x1b[31mBytes — …
+```
+
+### Verified this round (no defect found)
+- The near-miss rule itself is deliberate and documented: a key within edit distance 2 of a real setting is
+  refused at load (so a typo in a security setting cannot govern nothing), while an unrelated key is accepted and
+  listed by `ssh_config` as ignored — the host may add metadata of its own.
+- A 49-site sweep of `throw new Error` messages found the two above; the rest interpolate values the plugin builds
+  itself (numbers, normalised aliases, `printable()`-wrapped text).
+
+### My own mistakes
+- My first probe used a key far from any setting and concluded "unknown settings are accepted silently". They are
+  not: `ssh_config` names them. The near-miss path, which is where the text is echoed, needed a key one character
+  away from a real setting.
+
+### Tests
+- New: a near-miss key with a NUL is quoted as `\x00`, and an ignored key with an ANSI escape is quoted as
+  `\x1b`, in both messages.
+  Suite 939 / 934 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.348 — 2026-11-01
 
 ### Fixed — the invalid-`denyPatterns` error quoted the pattern raw

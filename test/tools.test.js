@@ -1678,3 +1678,30 @@ test('an invalid denyPatterns entry is quoted safely, not raw', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a setting name with control characters is escaped in both messages', async () => {
+  // The name comes from the config file and is echoed in two places: the load-time
+  // near-miss error and the 'ignored settings' line of ssh_config. Both printed it
+  // raw, so a NUL or an ANSI escape arrived in the terminal.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-key-name-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    const near = await apply(ctx, { hostKeyPolicy: 'tofu', 'hostKeyPoli\u0000y': 'x' })
+      .then(() => '', (err) => String(err && err.message || err))
+    assert.match(near, /unknown setting "hostKeyPoli\\x00y"/, near)
+    assert.doesNotMatch(near, /\u0000/, 'the name must be escaped: ' + JSON.stringify(near))
+
+    await apply(ctx, { hostKeyPolicy: 'tofu', 'auditRotate\u001b[31mBytes': 1 })
+    const shown = String((await tools.ssh_config.execute({}, {})).text)
+    const line = shown.split('\n').find((l) => l.includes('Ignored settings')) || ''
+    assert.match(line, /auditRotate\\x1b\[31mBytes/, line)
+    assert.doesNotMatch(line, /\u001b/, 'the ignored name must be escaped')
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
