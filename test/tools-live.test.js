@@ -5064,3 +5064,45 @@ test('the audit tells a cancelled command from a timed-out one', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a command cut off by the peer is recorded as incomplete, not as a plain error', async () => {
+  // exec rows carry the outcome the reader filters by: exit / signal / cancel /
+  // timeout / incomplete. 'incomplete' (the peer went away mid-command) was the one
+  // nothing asserted, and it is the one that must not read like 'the command failed'
+  // — the command may well have kept running on the far side.
+  const srv2 = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-audit-dropped-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  const own = {}
+  try {
+    const machine = machineFor('box', srv2.port)
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      box: { host: machine.host, port: machine.port, user: machine.user, password: machine.password },
+    }), 'utf8')
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0, auditLog: true,
+      connectTimeoutMs: 4000, commandTimeoutMs: 20000,
+    })
+    const text = async (promise) => String(await promise.then((r) => r.text, (err) => 'ERR: ' + err.message))
+
+    const doomed = text(own.ssh_exec.execute({ machine: 'box', command: 'sleep 5' }, {}))
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    srv2.killClients()
+    const reply = await doomed
+    assert.match(reply, /closed before the command reported an exit status/, reply)
+    assert.match(reply, /the output above is partial/, reply)
+    assert.match(reply, /\[exit unknown\]/, reply)
+
+    const audit = await text(own.ssh_audit.execute({ limit: 10 }, {}))
+    assert.match(audit, /exec incomplete sleep 5/, audit)
+    assert.doesNotMatch(audit, /exec error sleep 5/, 'a dropped peer is not a failed command: ' + audit)
+    await own.ssh_close.execute({ force: true }, {})
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await Promise.race([srv2.close(), new Promise((resolve) => setTimeout(resolve, 1500))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})

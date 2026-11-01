@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.7.420 — 2026-11-01
+
+### New — a command cut off by the peer is recorded as `incomplete`, and that is pinned
+
+The exec outcomes the audit can carry are `ok`, `exit`, `signal`, `cancel`, `timeout` and `incomplete`; every one but
+`incomplete` had a test. It is the one a reader must not confuse with a failure — the command may still be running on
+the far side:
+
+```
+kill the client mid-command
+reply    [connection closed before the command reported an exit status — the output above is partial]
+         [exit unknown]
+audit    box exec incomplete sleep 5     415ms
+```
+
+The test asserts both the reply and the row, and that the row is not `exec error sleep 5`. Changing the mapping to
+`error` makes it fail (checked by mutation).
+
+### My own mistake
+
+My first mutation of this round was worthless: the scratch mutator I wrote ended with a
+`process.on('exit')` restore (copied from the hardened `mutation-check.mjs`), so it patched the file and put it back
+before the test process even started — the test passed and I briefly believed the new test was weak. A mutator must
+leave the file mutated; only the wrapper restores it. Re-run that way, the mutation was caught.
+
+### Verified this round (no defect found)
+
+- `exit 3` → `box exec exit=3 exit 3`; `kill` → `box exec signal=SIGKILL kill`; the peer dropping the connection →
+  `box exec incomplete sleep 5`. All three rows are distinct and readable.
+
+### Tests
+
+- New: the dropped-connection case above. Suite 1007 / 1002 pass / 5 skipped / 0 fail, run twice concurrently;
+  `tsc` clean.
+
 ## 0.7.419 — 2026-11-01
 
 ### New — the audit tells a cancelled command from a timed-out one (pinned)
