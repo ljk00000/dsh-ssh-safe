@@ -969,6 +969,34 @@ test('ssh_audit says how many records the log holds', async () => {
   }
 })
 
+test('an environment port still reaches a machine defined in the settings form', async () => {
+  // The schema defaulted port to 22, so every settings-form machine carried a
+  // 'configured' 22 before the resolver ran: DSH_SSH_<ALIAS>_PORT could never win,
+  // and ssh_machines reported port=config for a number nobody had typed. 0 means
+  // 'not set' now; the environment, then the file, then 22 decide.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-envport-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  process.env.DSH_SSH_FORMBOX_PORT = '2200'
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu',
+      machines: { formbox: { host: 'h.example', user: 'u' }, plain: { host: 'h2.example', user: 'u2' } },
+    })
+    const shown = String((await own.ssh_machines.execute({}, {})).text)
+    assert.match(shown, /u@h\.example:2200/, 'the environment port must be used: ' + shown)
+    assert.match(shown, /port=env/)
+    // A machine with no port anywhere still falls back to 22 and says so.
+    assert.match(shown, /u2@h2\.example:22(\s|$)/m)
+  } finally {
+    delete process.env.DSH_SSH_FORMBOX_PORT
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('a setting the plugin does not recognise is named, not silently ignored', async () => {
   // Near-misses are refused at load; a key that is nothing like a real setting is
   // left alone (the host may add metadata), but it used to vanish without a word,

@@ -72,7 +72,12 @@ export const Config = z.object({
    */
   machines: z.dict(z.object({
     host: z.string().default(''),
-    port: z.number().step(1).min(1).max(65535).default(22),
+    // 0 means 'not set': the environment, then the credential file, then 22 decide.
+    // A default of 22 here filled the value in for every machine before the
+    // resolver ran, so DSH_SSH_<ALIAS>_PORT could never take effect on a machine
+    // defined in this form, and the listing reported 'port=config' for a number
+    // nobody had typed.
+    port: z.number().step(1).min(0).max(65535).default(0),
     user: z.string().default(''),
     keyPath: z.string().default(''),
     keyPassphrase: z.string().default(''),

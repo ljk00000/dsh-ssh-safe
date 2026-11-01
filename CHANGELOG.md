@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.7.332 — 2026-11-01
+
+### Fixed — `DSH_SSH_<ALIAS>_PORT` never reached a machine defined in the settings form
+The machine schema defaulted `port` to 22, so every machine listed in the form carried a "configured" 22
+before the resolver ran. The environment could therefore never win, and the listing claimed a source the user had
+not written:
+```
+machines: { prod: { host: h.config, user: cfgu } }, DSH_SSH_PROD_PORT=2200
+before  cfgu@h.config:22     sources: port=config        <- nobody typed 22
+after   cfgu@h.config:2200   sources: port=env
+        (a machine with no port anywhere still falls back to 22)
+```
+`port: 0` now means "not set" — the environment, then the credential file, then 22 decide — and the resolver no
+longer needs the `env.port !== 22` special case it had been using to work around the default.
+
+### Fixed — a flaky store-lock test that said only "child exit 1"
+`withStoreLock serialises a counter across two processes` runs two children doing 40 locked increments each with
+the default 4-second wait; on a loaded machine that wait expired and the child died, and the test threw away its
+stderr. It failed once in a full run and passed 3/3 alone. The children now get a 30-second wait and their
+stderr is part of any failure message.
+
+### Verified this round (no defect found)
+- `ssh_write` mode handling: `600`/`0666`/`0644` applied and reported, a decimal `420` refused by the schema,
+  `999` refused with "mode must be octal digits like \"600\" or \"0644\"", and `mode: ""` treated as absent.
+- `ssh_list` paging: `maxListEntries: 2` gives "… 3 more entries not shown … pass offset: 2", offset 2 says
+  "… 1 more entry" (singular), offset 4 says "… 4 entries above not shown", offset 5/6 answer
+  "(offset 5 is past the last of 5 entries)", and a negative offset is refused by name.
+- NUL bytes in a path, a command or an alias are refused with a specific reason; empty paths are refused by
+  name for reads and default to the home directory for listings.
+- `ssh_doctor` while the retry gate is active dials anyway (the gate does not blind the diagnosis): with the
+  host brought back up it reports every stage ok.
+- Enormous `timeoutMs` values (2.5e9, 1e300, MAX_SAFE_INTEGER) do not become an instant timeout.
+
+### My own mistakes
+1. My first patch of the store-lock test produced `SyntaxError: missing ) after argument list` (mismatched
+   parentheses in the exit handler); the runner reported the file as a single failing test, which is how I
+   noticed within one run.
+2. I read the failing store-lock test as fallout from the port change at first, before reproducing it alone
+   three times.
+
+### Tests
+- New: the environment port reaches a settings-form machine, and a machine with no port anywhere still uses 22.
+  Suite 918 / 913 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.331 — 2026-11-01
 
 ### Fixed — "Live connections: 2 / 1 max" with no explanation

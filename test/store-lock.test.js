@@ -55,18 +55,30 @@ test('withStoreLock serialises a counter across two processes', async () => {
     'import { withStoreLock } from ' + JSON.stringify(lockUrl),
     'const file = process.argv[2]',
     'for (let i = 0; i < 40; i++) {',
+    // 40 locked increments from two processes: under a loaded machine a 4-second
+    // default wait was not enough and the child exited 1 ('child exit 1' was all the
+    // test could say, because its stderr was thrown away).
     '  withStoreLock(file, () => {',
     '    const n = JSON.parse(readFileSync(file).toString()).n',
     '    writeFileSync(file, JSON.stringify({ n: n + 1 }))',
-    '  })',
+    '  }, { waitMs: 30000 })',
     '}',
   ].join('\n')
   const scriptPath = path.join(home, 'count.mjs')
   writeFileSync(scriptPath, script)
   const run = () => new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [scriptPath, file, '40'], { cwd: root })
+    const child = spawn(process.execPath, [scriptPath, file, '40'], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''
+    child.stderr.on('data', (chunk) => { stderr += chunk })
     child.on('error', reject)
-    child.on('exit', (code) => (code === 0 ? resolve() : reject(new Error('child exit ' + code))))
+    child.on('exit', (code) => {
+      if (code === 0) {
+        resolve()
+        return
+      }
+      const detail = stderr ? ': ' + stderr.trim().split('\n')[0] : ''
+      reject(new Error('child exit ' + code + detail))
+    })
   })
   try {
     await Promise.all([run(), run()])
