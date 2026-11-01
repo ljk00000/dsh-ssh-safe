@@ -4110,3 +4110,38 @@ test('a per-call timeout above commandTimeoutMs wins, and omitting it uses the c
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a password sent with the call is not used silently when the config forbids it', async () => {
+  // allowSessionPassword defaults to off. A caller that passes `password` then got
+  // the stored credential and a plain success — which reads as 'my password
+  // worked'. The note names the setting; it must also survive redact(), so it
+  // cannot be written as 'allowSessionPassword: true' (that looks like a secret
+  // assignment and came out as '<redacted>').
+  const own = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-session-off-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    const machine = machineFor('box', own.port)
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      box: { host: machine.host, port: machine.port, user: machine.user, password: machine.password },
+    }), 'utf8')
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, allowSessionPassword: false,
+      reconnectCooldownMs: 0, connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+    })
+    const text = String((await tools.ssh_exec.execute({ machine: 'box', command: 'echo hi', password: 'typed-by-caller' }, {})).text)
+    assert.match(text, /ran: echo hi/)
+    assert.match(text, /allowSessionPassword is off/, 'the caller must be told: ' + text)
+    assert.doesNotMatch(text, /<redacted>/, 'the note must not be mangled by redaction: ' + text)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await own.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

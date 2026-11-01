@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.366 — 2026-11-01
+
+### Fixed — a password sent with a call was ignored without a word
+`allowSessionPassword` defaults to **off**, so a `password` argument is ignored unless the config turns it on. The
+reply said nothing, and a caller who passed a deliberately wrong password saw a successful command:
+```
+allowSessionPassword: false (the default)
+ssh_exec { machine: "box", command: "echo pw", password: "wrong-on-purpose" }
+before   ran: echo pw / [exit 0]                 ← reads as "my password worked"
+after    ran: echo pw / [exit 0]
+         [note] a password came with this call, but allowSessionPassword is off in the plugin config, so it was
+         not used — the call authenticated with the configured credential. Turn on allowSessionPassword in the
+         plugin config (it defaults to off) to let a tool call supply its own password; it is never written to disk.
+```
+This is the mirror of the warning that already existed for "supplied and allowed, but shadowed by a stored
+credential".
+
+### Verified this round (no defect found)
+
+- Hand-edited audit rows stay readable: `bytes: "12"`, `bytes: null`, `bytes: []`, `entries: "many"`,
+  `exitCode: "0"` and `exitCode: 3.5` are dropped instead of printing `12abc`, `[object Object]` or `NaN`;
+  `ms: 0` prints `0ms`, `ms: -1` is dropped. (`bytes: 1e30` does print `1e+30B` — nonsense in the record, faithfully
+  rendered.)
+- `ssh_workspace remove` when the registry answers "no such record": the reply says the service did not delete it,
+  says the placeholder was deleted, and does not claim the registration is gone.
+- Listing paging reconciles: cap 3 over 7 entries gives `3 + "… 4 more … pass offset: 3"`, `offset: 2` gives
+  `"… 2 above …"` + 3 rows + `"… 2 more … offset: 5"`, and `offset: 7` explains it is past the last entry.
+
+### My own mistake
+
+- My first wording wrote `Set allowSessionPassword: true` — the redactor read that as a secret assignment and the
+  reply showed `allowSessionPassword: <redacted>`. The note now says "turn on allowSessionPassword" and a test
+  asserts no `<redacted>` appears.
+
+### Tests
+
+- New: the note appears when a session password is refused by the config, and it survives redaction intact.
+  Suite 956 / 951 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.365 — 2026-11-01
 
 ### Fixed — a read-only workspace file was reported as "the directory could not be created"

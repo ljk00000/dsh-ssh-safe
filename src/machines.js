@@ -465,6 +465,17 @@ export function credentialFor(alias, {
   // exists therefore has no effect, which reads as "my new password worked"
   // when it was never tried. Say so instead of letting the caller believe it.
   const sessionOffered = allowSessionPassword === true && filled(sessionPassword)
+  // Sent but not allowed: allowSessionPassword defaults to off, so the password a
+  // caller typed was ignored and the stored credential was used. Silence reads as
+  // 'my password worked', which is a claim this plugin must not make.
+  if (filled(sessionPassword) && allowSessionPassword !== true) {
+    warnings.push(
+      'a password came with this call, but allowSessionPassword is off in the plugin config, ' +
+      'so it was not used — the call authenticated with the configured credential. Turn on ' +
+      'allowSessionPassword in the plugin config (it defaults to off) to let a tool call ' +
+      'supply its own password; it is never written to disk.'
+    )
+  }
   const warnShadowedSession = () => {
     if (!sessionOffered) return
     warnings.push(
