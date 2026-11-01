@@ -2405,7 +2405,13 @@ function passphraseLine(st) {
               ? 'file (IGNORED: plaintext)' + (st.envPassword ? ' — this connection uses env' : '')
                 : where(st.passwordSource)),
           '    key        ' + where(st.keyPathSource) +
-            (st.keyPath ? '  ' + printable(String(st.keyPath).replace(/^.*[\\/]/, '…/')) : '') +
+            // machineInventory: 'alias' promises that key paths are hidden; this line
+            // printed '…/id_prod_key', and a key's file name often names the host.
+            (st.keyPath
+              ? cfg.machineInventory === 'alias'
+                ? '  <path hidden>'
+                : '  ' + printable(String(st.keyPath).replace(/^.*[\\/]/, '…/'))
+              : '') +
             passphraseLine(st),
           '    host key   ' + printable(st.hostKeyPolicy) +
           (st.hostKeyPolicy && st.hostKeyPolicy !== '(global)' && machinePolicyIgnored({ hostKeyPolicy: st.hostKeyPolicy }, cfg)
@@ -2752,7 +2758,13 @@ function passphraseLine(st) {
       } else if (auth.kind === 'none') {
         say('credentials', 'FAIL', 'no password, key or agent available — set ' + need.auth[0])
       } else if (credentialProblem) {
-        say('credentials', 'FAIL', credentialProblem)
+        // The doctor is the tool a shared transcript most often contains, and the
+        // key path names the account. Under machineInventory: 'alias' the address is
+        // hidden everywhere else, so it is hidden here too.
+        const leanProblem = cfg.machineInventory === 'alias' && auth.keyPath
+          ? credentialProblem.split(String(auth.keyPath)).join('<path hidden>')
+          : credentialProblem
+        say('credentials', 'FAIL', leanProblem)
       } else {
         say('credentials', 'ok', auth.kind)
         // A private key anyone on the box can read is OpenSSH's own reason to

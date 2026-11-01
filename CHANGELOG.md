@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.372 — 2026-11-01
+
+### Fixed — `machineInventory: alias` did not hide key paths in two tools
+The setting says, in its own footer, that "host, port and key paths are hidden", and `ssh_machines` honours that.
+Two other tools did not:
+```
+credentials.json: { box: { …, keyPath: "C:/keys/lean163-id_prod_key" } }
+machineInventory: "alias"
+
+ssh_credentials   key        file  …/lean163-id_prod_key          ← the file name often names the host
+ssh_doctor        [FAIL] credentials: key file not found: C:/keys/lean163-id_prod_key   ← the full path
+after             key        file  <path hidden>
+                  [FAIL] credentials: key file not found: <path hidden>
+```
+`machineInventory: "full"` keeps the shortened `…/lean163-id_prod_key`.
+
+### Verified this round (no defect found)
+
+- `ssh_machines`, `ssh_config` and `ssh_workspace` never printed the host, user or key path in lean mode; I checked
+  five needles (`keyPath`, known-hosts path and three address fragments) across all three.
+- `ssh_audit` with `auditLog: false` explains what to change, and `ssh_config` reports `auditLog false` with the same
+  wording as every other row (`machineInventory "alias"   # full | alias`).
+
+### My own mistake
+
+- My first probe looked for the leak with only the address fragments, which `ssh_credentials` and the doctor do hide;
+  the key path only showed up when I added it to the needle list. A probe is only as good as its needles.
+
+### Tests
+
+- New: lean mode hides the key path in `ssh_credentials` and `ssh_doctor`, and full mode still shortens it to
+  `…/name`.
+  Suite 962 / 957 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.371 — 2026-11-01
 
 ### Fixed — the listing stayed silent about a marker that records another alias

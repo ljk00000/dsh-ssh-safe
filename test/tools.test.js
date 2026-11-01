@@ -1851,3 +1851,43 @@ test('machineInventory: alias keeps the host, port and user out of every reply',
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('machineInventory: alias also hides key paths in ssh_credentials and ssh_doctor', async () => {
+  // The setting promises 'host, port and key paths are hidden' (its own footer says
+  // so), but two tools printed the path: ssh_credentials showed '…/id_prod_key'
+  // — a key file name often names the host — and the doctor showed the full path.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-lean-key-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  const keyPath = path.join(tmpdir(), 'lean163-id_prod_key')
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      box: { host: 'hidden163.example', port: 2222, user: 'secretuser163', keyPath },
+    }), 'utf8')
+    await apply(ctx, { hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machineInventory: 'alias' })
+    const text = async (promise) => String(await promise.then((r) => (r && r.text !== undefined ? r.text : ''), (err) => 'ERR: ' + err.message))
+
+    const credentials = await text(tools.ssh_credentials.execute({}, {}))
+    assert.match(credentials, /<path hidden>/, 'the key path must be hidden: ' + credentials)
+    assert.doesNotMatch(credentials, /id_prod_key/, 'the file name leaks the same way: ' + credentials)
+
+    const doctor = await text(tools.ssh_doctor.execute({ machine: 'box' }, {}))
+    assert.doesNotMatch(doctor, /id_prod_key/, 'the doctor must hide it too: ' + doctor)
+    assert.match(doctor, /key file not found: <path hidden>/, doctor)
+
+    // And the full mode still shows what it always showed.
+    const shown = {}
+    await apply({ tools: { register: (def) => { shown[def.name] = def } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machineInventory: 'full',
+    })
+    const full = String((await shown.ssh_credentials.execute({}, {})).text)
+    assert.match(full, /…\/lean163-id_prod_key/, 'full mode keeps the path, shortened: ' + full)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
