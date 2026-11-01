@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.319 — 2026-11-01
+
+### Fixed — an empty `.json` knownHosts file was called an unverifiable format
+Follow-up to 0.7.318: that fix decided a *missing* `.json` path was the plugin store, but an **empty one**
+(`touch ~/.dsh/dsh-ssh-safe/known_hosts.json`) still fell into the OpenSSH branch, because that branch fires on
+"no entries" as well:
+```
+knownHosts: …/empty-store.json   (0 bytes)
+before  Host key verification failed: … is an OpenSSH known_hosts file, which this plugin verifies but does
+        not write to        ← what a machine with no host keys looks like
+after   Host key verification failed: the host key store … could not be parsed (Unexpected end of JSON
+        input) … Repair or remove that file …
+```
+The store is the file, not the format: an empty file has no content to detect, so its name decides — exactly
+as for a missing one. An empty **OpenSSH** file keeps its meaning (a fresh known_hosts with no entries yet,
+refused with the ssh-keyscan remedy), which the same test pins.
+
+### Verified this round (no defect found)
+- **Windows-edited OpenSSH files verify**: the same entry with LF, CRLF, a UTF-8 BOM, both at once, and a
+  comment above it — all connect under `hostKeyPolicy: strict`.
+- **Relative and `~` paths** are refused per tool with the right advice: `path must be absolute on the remote
+  host (received: rel/file.txt)` for reads and writes (with and without `createDirs`), and
+`SFTP does not expand "~" — use an absolute path such as /home/user/...` for `~/x.txt` and `~`.
+
+### My own mistakes
+- I checked the BOM/CRLF cases only because I remembered the credentials loader had a `stripBom`; the
+  known_hosts parser turned out to handle both already, and the probe found nothing. Recording that as a
+  clean result instead of assuming either way.
+
+### Tests
+- The empty-store branch is pinned next to the missing-store case.
+  Suite 904 / 899 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.318 — 2026-11-01
 
 ### Fixed — a `knownHosts` path to the plugin store refused every connection and was never created

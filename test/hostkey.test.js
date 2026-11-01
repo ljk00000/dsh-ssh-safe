@@ -433,6 +433,16 @@ test('a knownHosts path ending in .json is the plugin store, and a missing one i
     assert.equal(changed.ok, false)
     assert.match(changed.reason, /HOST KEY CHANGED/)
 
+    // An empty file has no content to detect either: an empty .json reached the
+    // OpenSSH branch and answered 'not in a format this plugin can verify'.
+    const emptyStore = path.join(home, 'empty-store.json')
+    writeFileSync(emptyStore, '')
+    const empty = checkHostKey({
+      dshHome: home, knownHostsFile: emptyStore, host: 'h', port: 22, keyBlob: keyA, policy: 'tofu',
+    })
+    assert.equal(empty.ok, false)
+    assert.match(empty.reason, /could not be parsed/)
+    assert.doesNotMatch(empty.reason, /does not write to/)
     // A missing OpenSSH path keeps its old meaning: read-only, tofu cannot pin it.
     const sshFile = path.join(home, 'openssh_known_hosts')
     const refused = checkHostKey({

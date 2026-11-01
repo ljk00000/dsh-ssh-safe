@@ -490,7 +490,11 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
       text = ''
       missing = true
     }
-    const jsonStorePath = missing && /\.json$/i.test(file)
+    // A missing path has no content to detect, and an empty one has none either: the
+    // name decides for both, because the plugin's store is the only JSON file this
+    // setting can point at. An empty .json file reached the OpenSSH branch and answered
+    // 'not in a format this plugin can verify', which is not what an empty store is.
+    const jsonStorePath = (missing || String(text).trim() === '') && /\.json$/i.test(file)
     // A file that is empty, or holds nothing but comments, is a perfectly valid
     // known_hosts with no entries yet ('touch ~/.ssh/known_hosts'). It used to fall
     // through to the 'not in a format this plugin can verify' branch and quote an
