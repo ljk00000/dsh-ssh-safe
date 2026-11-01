@@ -46,6 +46,7 @@ import { AuditLog, summarize } from './audit.js'
 import {
   findWorkspace,
   listWorkspaces,
+  markerFreshness,
   readMarker,
   remoteDir,
   remoteRoot,
@@ -1703,10 +1704,15 @@ function assertKnownArgs(args, known, toolName) {
                   '用 machine: "' + printable(marker.alias) + '" 打开它，或先删除 "' + printable(marker.alias) + '" 的工作区'
               : marker
                 ? (missingInstructions
+                  // The marker records a hash of the endpoint the instructions were
+                  // written for. A machine that moved keeps telling every new session about
+                  // the old host until someone re-runs create, and the row looked healthy.
                   ? '有占位目录，但 AGENTS.md 已被删除（说明文件缺失，会话学不到远端规则）；用 action: "create" 重建'
-                  : noService
-                    ? '有占位目录（当前 profile 没有 workspace 服务，无法注册到侧栏）'
-                    : '有占位目录，但未注册（用 action: "create" 注册）')
+                  : markerFreshness(marker, m) === 'stale'
+                    ? '有占位目录，但 AGENTS.md 还是旧地址的版本（机器配置变了）；用 action: "create" 刷新'
+                    : noService
+                      ? '有占位目录（当前 profile 没有 workspace 服务，无法注册到侧栏）'
+                      : '有占位目录，但未注册（用 action: "create" 注册）')
                 : dirIsFile
                   ? '同名路径已存在，但它是一个文件，不是目录；删掉那个文件再用 action: "create" 重建'
                   : dirExists

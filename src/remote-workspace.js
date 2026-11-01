@@ -22,6 +22,7 @@
 // from those two files, so a local tool pointed at it finds nothing to confuse
 // with the remote tree.
 
+import { createHash } from 'node:crypto'
 import { printable } from './format.js'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -155,6 +156,34 @@ export function remoteInstructions(alias, machine = {}, policy = 'strict', hideH
   return lines.join('\n')
 }
 
+/**
+ * A stable digest of the endpoint these instructions were written for.
+ *
+ * The hash, not the address: with machineInventory: alias the marker must not hold
+ * host, port or user, and a placeholder whose machine moved keeps telling sessions
+ * about the old host until someone re-runs create.
+ *
+ * @param {{host?: string, port?: number, username?: string}} machine
+ * @returns {string}
+ */
+export function endpointHash(machine = {}) {
+  const text = String(machine.username || '') + '@' + String(machine.host || '') + ':' +
+    String(machine.port || 22)
+  return createHash('sha256').update(text).digest('hex').slice(0, 16)
+}
+
+/**
+ * Whether the marker still describes this machine.
+ *
+ * @param {object|null} marker
+ * @param {{host?: string, port?: number, username?: string}} machine
+ * @returns {'' | 'stale' | 'unknown'} 'unknown' for a marker written before the hash existed
+ */
+export function markerFreshness(marker, machine = {}) {
+  if (!marker || typeof marker.endpointHash !== 'string' || marker.endpointHash === '') return 'unknown'
+  return marker.endpointHash === endpointHash(machine) ? '' : 'stale'
+}
+
 /** Read the marker of a placeholder directory, or null when it is not one. */
 export function readMarker(dshHome, alias) {
   try {
@@ -233,6 +262,10 @@ export function writeRemoteWorkspace(dshHome, alias, machine = {}, policy = 'str
   // readMarker() only ever reads .alias, so the endpoint fields were written and
   // never used -- except as the address that machineInventory: alias is meant to
   // keep out of sight, sitting in a file inside the agent's own workspace.
+  // A hash of the endpoint, always — including under machineInventory: alias, where
+  // the plain address is deliberately not written. It is what lets `list` notice that
+  // the machine has moved since the placeholder was generated, without putting the
+  // address into a file inside the agent's own workspace.
   writeFileSync(join(dir, MARKER), JSON.stringify({
     alias,
     ...(hideHost ? {} : {
@@ -240,6 +273,7 @@ export function writeRemoteWorkspace(dshHome, alias, machine = {}, policy = 'str
       port: machine.port || 22,
       username: machine.username || '',
     }),
+    endpointHash: endpointHash(machine),
     generatedAt: new Date().toISOString(),
   }, null, 2) + '\n', 'utf8')
   return { dir, created }

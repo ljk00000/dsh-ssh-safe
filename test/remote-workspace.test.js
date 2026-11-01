@@ -7,6 +7,7 @@ import path from 'node:path'
 import { apply } from '../src/index.js'
 import {
   findWorkspace,
+  markerFreshness,
   readMarker,
   remoteDir,
   remoteRoot,
@@ -653,4 +654,33 @@ test('removing a workspace does not delete files the user put there', () => {
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
+})
+
+test('a moved machine makes the placeholder stale, without storing the address', () => {
+  // The marker records a hash of the endpoint, so `list` can tell that AGENTS.md was
+  // written for a host the machine no longer has. Under machineInventory: alias the
+  // address itself must stay out of the file, and the hash keeps the check possible.
+  const dshHome = mkdtempSync(path.join(tmpdir(), 'dsh-ws-stale-'))
+  try {
+    const before = { host: 'old.example', port: 22, username: 'u' }
+    writeRemoteWorkspace(dshHome, 'box', before, 'tofu')
+    const marker = readMarker(dshHome, 'box')
+    assert.equal(typeof marker.endpointHash, 'string')
+    assert.equal(markerFreshness(marker, before), '', 'the endpoint it was written for is fresh')
+    assert.equal(markerFreshness(marker, { ...before, host: 'new.example' }), 'stale')
+    assert.equal(markerFreshness(marker, { ...before, port: 2222 }), 'stale')
+    assert.equal(markerFreshness(marker, { ...before, username: 'other' }), 'stale')
+    // A marker from before the hash existed makes no claim either way.
+    assert.equal(markerFreshness({ alias: 'box' }, before), 'unknown')
+    assert.equal(markerFreshness(null, before), 'unknown')
+
+    // Lean mode: no address in the file, still detects the move.
+    writeRemoteWorkspace(dshHome, 'box', before, 'tofu', true)
+    const lean = readMarker(dshHome, 'box')
+    assert.equal('host' in lean, false, 'the address must stay out: ' + JSON.stringify(lean))
+    assert.equal('username' in lean, false)
+    assert.equal(typeof lean.endpointHash, 'string')
+    assert.equal(markerFreshness(lean, { ...before, host: 'new.example' }), 'stale',
+      'the hash must still detect the move with the address hidden')
+  } finally { rmSync(dshHome, { recursive: true, force: true }) }
 })

@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.336 — 2026-11-01
+
+### Fixed — a placeholder whose machine moved kept teaching sessions the old host
+`writeRemoteWorkspace` refreshes `AGENTS.md` on every create, and its own comment says instructions naming the old
+endpoint are worse than none. But nothing noticed the gap: a machine whose host or port changed after the
+placeholder was made kept a healthy-looking row in `ssh_workspace action: "list"`, while every session opened
+there read instructions for the address it used to have.
+```
+create box (host old.example)          -> placeholder written
+change machines.box.host to new.example
+list   before  有占位目录（当前 profile 没有 workspace 服务，无法注册到侧栏）
+       after   有占位目录，但 AGENTS.md 还是旧地址的版本（机器配置变了）；用 action: "create" 刷新
+create box                              -> refreshed
+```
+The marker now stores `endpointHash` — a digest of `user@host:port`, never the address — so the check also works
+under `machineInventory: alias`, where the plain endpoint is deliberately kept out of the file. A marker written
+before this version has no hash and is reported as "unknown" rather than as fresh or stale.
+
+### Verified this round (no defect found)
+- Path-type defaults (`keyPath`, `keyPassphrase`, `knownHosts`) default to an empty string and are treated as
+  absent, so `DSH_SSH_<ALIAS>_*` still wins — the port was the only field with a non-empty default.
+- `ssh_workspace remove` cannot reach outside the placeholder through a symlink: Node recursive remove deletes
+  the link, not its target, and the marker check refuses a directory the plugin did not create.
+
+### My own mistakes
+- My first probe printed the endpoint line instead of the state line and I briefly read "no stale message" as a
+  missing feature; printing the whole row showed the message was there.
+
+### Tests
+- New: freshness is empty for the current endpoint and "stale" for a moved host, port or user; a marker without
+  a hash is "unknown"; the lean marker holds no address yet still detects the move.
+  Suite 922 / 917 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.335 — 2026-11-01
 
 ### Fixed — `set-password.mjs --port 0` was refused
