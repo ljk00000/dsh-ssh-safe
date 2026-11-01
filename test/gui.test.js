@@ -1568,3 +1568,27 @@ test('a temp file a crashed save left behind is swept, a live one is not', async
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a taken --port says how to fix it, not just the errno', async () => {
+  // 'listen EADDRINUSE: address already in use 127.0.0.1:4191' is true and tells
+  // the user nothing they can act on. The port is the one startup failure a
+  // second flag fixes, so the message names both ways out.
+  const { spawnSync } = await import('node:child_process')
+  const net = await import('node:net')
+  const blocker = net.createServer((socket) => { socket.on('error', () => {}) })
+  await new Promise((resolve) => blocker.listen(0, '127.0.0.1', resolve))
+  const port = blocker.address().port
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-port-'))
+  try {
+    const result = spawnSync(process.execPath, [script, '--no-open', '--port', String(port), '--dsh-home', home], {
+      encoding: 'utf8', timeout: 20000,
+    })
+    assert.equal(result.status, 1)
+    assert.ok(result.stderr.includes('127.0.0.1:' + port + ' '), 'the message must name the port: ' + result.stderr)
+    assert.ok(/--port 0|--port 设为 0/.test(result.stderr), 'the message must offer --port 0: ' + result.stderr)
+    assert.doesNotMatch(result.stderr, /EADDRINUSE/)
+  } finally {
+    blocker.close()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

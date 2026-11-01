@@ -1230,6 +1230,17 @@ server.listen(port, '127.0.0.1', () => {
 })
 
 server.on('error', (err) => {
+  // A taken port is the one startup failure the user can fix in a second, and the
+  // raw errno ('listen EADDRINUSE: address already in use') says nothing about how.
+  const code = err && err.code
+  if (code === 'EADDRINUSE') {
+    console.error('无法启动: 端口 127.0.0.1:' + port + ' 已被占用。换一个 --port，或把 --port 设为 0 让系统挑空闲端口。')
+    process.exit(1)
+  }
+  if (code === 'EACCES') {
+    console.error('无法启动: 没有权限监听端口 127.0.0.1:' + port + '（1024 以下的端口通常需要管理员）。换一个 1024 以上的端口。')
+    process.exit(1)
+  }
   console.error('无法启动: ' + err.message)
   process.exit(1)
 })

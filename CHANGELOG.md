@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.322 — 2026-11-01
+
+### Fixed — a taken port answered with the raw errno
+`scripts/gui.mjs --port 4191` against a port that is already in use printed Node's error and stopped:
+```
+before  无法启动: listen EADDRINUSE: address already in use 127.0.0.1:4191
+after   无法启动: 端口 127.0.0.1:4191 已被占用。换一个 --port，或把 --port 设为 0 让系统挑空闲端口。
+```
+An occupied port is the one startup failure a second flag fixes, so the message names both ways out. A
+privileged port that cannot be bound (`EACCES`) now says so too instead of showing its errno. Other startup
+errors keep the plain message.
+
+### Verified this round (no defect found)
+- **`ssh_doctor` with an unusable key** stops at the right stage: a missing key file is
+  `[FAIL] credentials: key file not found: …`, a file that is not a key is
+  `[FAIL] credentials: key file does not look like a private key: …`, and every later stage reads
+  `[skip] … not reached: fix the problem above first` — including a configured passphrase, which does not
+  turn the report into "auth failed".
+- **`ssh_audit` limit boundaries**: `limit: 0` answers "no records were requested. Pass a positive limit, or
+  omit it to see the 20 most recent operations." (and 20 is the real default); a negative limit is refused by
+  name; `limit: 100000` answers "Showing the newest 200 records: limit 100000 is above what this tool
+  displays"; on an empty log it still says "No operations recorded yet."
+- **Small path edges**: reading a directory is "not a file: /d (it is a directory; use ssh_list)", writing
+  onto one says the same, listing a file is "not a directory: /f.txt (it is a file; use ssh_read)", an empty
+  command is "command is required" and a blank one is named as whitespace; `maxBytes: 0` means "use the
+  configured cap", as its description says; a 2048-byte write over `maxFileBytes: 1024` is refused with the
+  remedy.
+
+### My own mistakes
+1. The first version of the new test wrote the port into a **regex literal**:
+   `/端口 127\.0\.0\.1:' + String(port) + ' 已被占用/` matches the literal text `' + String(port) + '`, so it
+   could never pass. It builds the string and uses `includes` now.
+2. I read the TAP output with a UTF-8 reader after `*>` had written it as UTF-16, so my first look at the
+   result was mojibake I briefly took for part of the failure.
+
+### Tests
+- One new case: an occupied port exits 1 with the port named and `--port 0` offered, and no `EADDRINUSE`.
+  Suite 907 / 902 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.321 — 2026-11-01
 
 ### Fixed — a passphrase kept in the settings form was not reported as plaintext
