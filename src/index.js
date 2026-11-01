@@ -867,7 +867,9 @@ const trustedLine = (m) => {
       // real misconfiguration.
       const code = err && /** @type {{code?: string}} */ (err).code
       if (code === 'ENOENT') return 'not trusted yet (no fingerprint recorded)'
-      return 'known-hosts store unreadable (' + (code || 'parse error') + '): ' + file
+      // A local path, so printableText() rather than printable(): backslashes stay
+      // single, and a control character in a hand-edited knownHosts value is escaped.
+      return 'known-hosts store unreadable (' + (code || 'parse error') + '): ' + printableText(file)
     }
     // A knownHosts override is usually an OpenSSH file. Parsing it as this
     // plugin's JSON store answered "store unreadable (parse error)" for a file
@@ -891,7 +893,7 @@ const trustedLine = (m) => {
     try {
       raw = JSON.parse(stripBom(text))
     } catch {
-      return 'known-hosts store unreadable (parse error): ' + file
+      return 'known-hosts store unreadable (parse error): ' + printableText(file)
     }
     const recKey = String(m.host) + ':' + (m.port || 22)
     // An entry that exists but is null or not an object is a damaged record, not

@@ -12,6 +12,25 @@ import { dpapiAvailable } from '../src/dpapi.js'
 import { SshPool } from '../src/pool.js'
 import { machineFor, alternateHostKey, testHostKey, testKeyPair } from './helpers/local-ssh-server.js'
 
+/**
+ * Remove a test directory, waiting for the page process to let go of it.
+ *
+ * child.kill() returns before Windows closes the child's handles, so an
+ * immediate rmSync failed with 'EPERM, Permission denied' in about one run in
+ * two under load. The retry is bounded so a real leak still fails the test.
+ */
+function removeHome(dir) {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    try {
+      rmSync(dir, { recursive: true, force: true })
+      return
+    } catch (err) {
+      if (attempt === 39) throw err
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
+    }
+  }
+}
+
 // The page is a separate process on purpose: the plugin keeps no listening
 // socket. These tests drive the real server, so they cover the parts that matter
 // beyond the UI: the token check, that a saved password never comes back out of
@@ -92,7 +111,7 @@ test('the page is served only with the token', async () => {
     assert.match(html, /DPAPI/, 'the page explains how passwords are stored')
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -118,7 +137,7 @@ test('a query-string token opens the page but not the API', async () => {
     assert.equal(existsSync(path.join(home, 'dsh-ssh-safe', 'credentials.json')), false)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -130,7 +149,7 @@ test('an API call without the token is refused', async () => {
     assert.equal(res.status, 403)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -144,7 +163,7 @@ test('state starts empty and names the credential file', async () => {
     assert.match(s.body.credentialFile, /credentials\.json$/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -167,7 +186,7 @@ test('a saved machine shows up without its password', async () => {
     assert.doesNotMatch(JSON.stringify(s.body), /passwordDpapi/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -195,7 +214,7 @@ test('a credential file that does not parse is reported and never overwritten', 
     assert.equal(readFileSync(file, 'utf8'), broken, 'the file is untouched, byte for byte')
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -216,7 +235,7 @@ test('a slack credential file still saves and keeps its other entries', async ()
     assert.equal(after.keep.host, 'keep.example')
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -242,7 +261,7 @@ test('a password is stored encrypted and never returned', { skip: dpapiAvailable
     assert.doesNotMatch(JSON.stringify(s.body), new RegExp(secret), 'state never carries the value')
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -259,7 +278,7 @@ test('an unreachable host is reported, not thrown', async () => {
     assert.match(text, /已停止/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -283,7 +302,7 @@ test('port 0 means "not set" here too, as it does in the plugin', async () => {
     assert.equal(tooBig.status, 400)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -296,7 +315,7 @@ test('a bad port is rejected before anything is written', async () => {
     assert.equal(existsSync(path.join(home, 'dsh-ssh-safe', 'credentials.json')), false)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -311,7 +330,7 @@ test('delete removes the entry and keeps the others', async () => {
     assert.deepEqual(s.body.machines.map((m) => m.alias), ['b'])
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -328,7 +347,7 @@ test('shutdown ends the process', async () => {
     assert.equal(code, 0, 'it exits cleanly; output: ' + output().slice(0, 300))
   } finally {
     try { child.kill() } catch {}
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -344,7 +363,7 @@ test('an alias that collides with Object.prototype is refused, not silently drop
     assert.deepEqual(state.body.machines, [], 'nothing was saved')
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 test('a request for another Host is refused', async () => {
@@ -365,7 +384,7 @@ test('a request for another Host is refused', async () => {
     assert.equal(status, 421, 'a Host header that is not this machine must be refused')
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -391,7 +410,7 @@ test('saving a machine stores the password encrypted, never in plaintext', { ski
     assert.ok(!JSON.stringify(state.body).includes('plain-text-secret'), 'state must not carry the password')
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -405,7 +424,7 @@ test('save validates the alias and the port', async () => {
     assert.equal((await call(base, token, '/api/save', { alias: 'p', host: 'h', port: 'abc' })).status, 400)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -423,7 +442,7 @@ test('delete removes an entry and state follows', async () => {
     assert.ok(!after.body.machines.some((m) => m.alias === 'gone'))
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -440,7 +459,7 @@ test('unknown routes are 404 and malformed bodies are 400', async () => {
     assert.equal(bad.status, 400, 'a malformed body is the caller error')
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 test('two saves at the same time both survive', async () => {
@@ -462,7 +481,7 @@ test('two saves at the same time both survive', async () => {
     assert.ok(store.beta, 'beta missing, keys: ' + JSON.stringify(Object.keys(store)))
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 test('an oversized body is refused with 413', async () => {
@@ -480,7 +499,7 @@ test('an oversized body is refused with 413', async () => {
     assert.ok(!existsSync(path.join(home, 'dsh-ssh-safe', 'credentials.json')), 'nothing may be stored')
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 test('the test button walks every stage against a reachable server', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
@@ -512,7 +531,7 @@ test('the test button walks every stage against a reachable server', { skip: dpa
   } finally {
     child.kill()
     await srv.close()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -531,7 +550,7 @@ test('the test button reports an unreachable host instead of hanging', { skip: d
     assert.match(text, /已停止/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 test('an unauthenticated probe does not keep the page alive', async () => {
@@ -546,7 +565,7 @@ test('an unauthenticated probe does not keep the page alive', async () => {
     assert.equal(code, 0, 'the page should still have exited on its own')
   } finally {
     try { child.kill() } catch {}
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -565,7 +584,7 @@ test('an authenticated call keeps the page alive', async () => {
     assert.equal(early, 'alive', 'the page must still be running after the touches')
   } finally {
     try { child.kill() } catch {}
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 test('machines from the settings form are listed and outrank the file', async () => {
@@ -604,7 +623,7 @@ test('machines from the settings form are listed and outrank the file', async ()
     assert.ok(saved.body.warnings.some((w) => w.includes('设置界面')), JSON.stringify(saved.body))
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -619,7 +638,7 @@ test('a settings file with no plugin entry is simply ignored', async () => {
     assert.deepEqual(state.body.machines, [])
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -655,7 +674,7 @@ test('the test button gives up when connectTimeoutMs says so', async () => {
     child.kill()
     for (const socket of sockets) { try { socket.destroy() } catch {} }
     await new Promise((resolve) => blackhole.close(resolve))
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -680,7 +699,7 @@ test('the test button honours useCredentialFile: false', async () => {
     assert.match(text, /\[FAIL\] 配置/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 test('saving replaces the credential file atomically', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
@@ -701,7 +720,7 @@ test('saving replaces the credential file atomically', { skip: dpapiAvailable() 
     assert.equal(parsed.m19.host, '10.0.0.19')
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 test('an alias that cannot be used is refused, not silently rewritten', async () => {
@@ -727,7 +746,7 @@ test('an alias that cannot be used is refused, not silently rewritten', async ()
     assert.deepEqual(aliases, ['prod'], 'only the trimmed, lower-cased alias is stored')
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 test('quoted values and trailing comments in the settings form parse like YAML', async () => {
@@ -762,7 +781,7 @@ test('quoted values and trailing comments in the settings form parse like YAML',
     assert.equal(odd.host, '10.0.0.6')
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 test('useCredentialFile: false hides the file and warns when saving', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
@@ -795,7 +814,7 @@ test('useCredentialFile: false hides the file and warns when saving', { skip: dp
     assert.ok(saved.body.warnings.some((w) => w.includes('useCredentialFile 为 false')), JSON.stringify(saved.body.warnings))
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 test('a field that is not text is refused instead of stringified into the file', async () => {
@@ -827,7 +846,7 @@ test('a field that is not text is refused instead of stringified into the file',
     assert.deepEqual(saved.good, { host: '10.0.0.5', user: 'deploy', port: 2222 })
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 test('deleting a machine that the settings form defines says where it lives', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
@@ -864,7 +883,7 @@ test('deleting a machine that the settings form defines says where it lives', { 
     assert.ok(unknown.body.warnings.some((w) => w.includes('没有可删除的内容')), JSON.stringify(unknown.body))
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -889,7 +908,7 @@ test('a body over the limit answers 413 instead of dropping the socket', async (
     assert.equal(state.status, 200)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -921,7 +940,7 @@ test('the test button refuses to call a changed host key a pass', { skip: dpapiA
   } finally {
     child.kill()
     await second.close()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -962,7 +981,7 @@ test('a port that the settings form will override is announced on save', async (
     assert.doesNotMatch(same.body.warnings.join('\n'), /port 在 DSH 设置界面里定义/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -996,7 +1015,7 @@ test('an invalid settings-form port is reported, not replaced by 22', async () =
     assert.equal(tested.body.ok, false)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1020,7 +1039,7 @@ test('repeated save/delete cycles never lose an operation to a busy file', async
     }
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1049,7 +1068,7 @@ test('a bad --port or --idle-ms is refused with a message, not a stack trace', a
       assert.doesNotMatch(result.stderr, /at Server|RangeError|at ModuleJob/, JSON.stringify(args) + ' must not print a stack trace')
     }
   } finally {
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1086,7 +1105,7 @@ test('the settings parser reads whatever indentation the file uses', async () =>
     assert.equal(state.body.machinesProblem, '')
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1107,7 +1126,7 @@ test('flow-style machines say so instead of looking like none', async () => {
     assert.match(state.body.machinesProblem, /cannot edit/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1130,7 +1149,7 @@ test('a machine written on one line is reported, not dropped', async () => {
     assert.match(state.body.machinesProblem, /inliney/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1155,7 +1174,7 @@ test('a plugin id with a comment or quotes is still the plugin entry', async () 
       assert.equal(state.body.machinesProblem, '')
     } finally {
       child.kill()
-      rmSync(home, { recursive: true, force: true })
+      removeHome(home)
     }
   }
 })
@@ -1186,7 +1205,7 @@ test('two plugin entries are read but reported as ambiguous', async () => {
     assert.match(state.body.machinesProblem, /Remove the duplicate/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1209,7 +1228,7 @@ test('testing an alias nothing defines says so instead of blaming the form', asy
     assert.match(incomplete.body.lines.join('\n'), /缺少主机或用户/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1250,7 +1269,7 @@ test('a per-machine hostKeyPolicy does not become the global one', { skip: dpapi
     assert.doesNotMatch(off, /已记录，校验通过/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
     await srv.close()
   }
 })
@@ -1276,7 +1295,7 @@ test('delete and test use the same alias rule as save', { skip: dpapiAvailable()
     assert.match(tested.body.error, /别名只能用/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1303,7 +1322,7 @@ test('a non-object JSON body is refused with 400, not a 500', { skip: dpapiAvail
     assert.equal(empty.status, 400)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1350,7 +1369,7 @@ test('the page can clear a stored password', async () => {
     assert.doesNotMatch(JSON.stringify(state.body), /pw2/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1388,7 +1407,7 @@ test('the page names why TCP failed instead of saying the host is unreachable', 
     assert.match(dnsText, /主机名解析不了/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1418,7 +1437,7 @@ test('the page explains a refused command channel instead of printing ssh2 text'
   } finally {
     child.kill()
     server.close()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1450,7 +1469,7 @@ test('the page names the recorded fingerprint and the remedy when the key change
   } finally {
     child.kill()
     await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1200))])
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1490,7 +1509,7 @@ test('the page explains a credential problem instead of pasting a Node error', a
   } finally {
     child.kill()
     await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1200))])
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1531,7 +1550,7 @@ test('the page can clear a stored key passphrase', async () => {
     assert.equal(bad.status, 400)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1560,7 +1579,7 @@ test('the page says when it stopped instead of leaving stages out', async () => 
   } finally {
     child.kill()
     await Promise.race([srv2.close(), new Promise((r) => setTimeout(r, 1200))])
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1589,7 +1608,7 @@ test('a temp file a crashed save left behind is swept, a live one is not', async
     assert.match(output(), /已清理上次写入残留的临时文件: credentials\.json\.tmp-99999/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1613,7 +1632,7 @@ test('a taken --port says how to fix it, not just the errno', async () => {
     assert.doesNotMatch(result.stderr, /EADDRINUSE/)
   } finally {
     blocker.close()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1643,7 +1662,7 @@ test('a machine field the plugin refuses to load is named, not rendered as text'
     assert.match(state.body.machinesProblem, /quoted text/)
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1670,7 +1689,7 @@ test('a machine whose value is a plain string is named as such, not as a flow ma
     assert.equal(state.body.machines.find((m) => m.alias === 'good')?.host, 'h.example', 'the good machine still shows')
   } finally {
     child.kill()
-    rmSync(home, { recursive: true, force: true })
+    removeHome(home)
   }
 })
 
@@ -1696,7 +1715,7 @@ test('a misspelled page option is refused instead of ignored', async () => {
     const good = await run(['--no-open', '--port', '0', '--dsh-home', home, '--idle-ms', '5000'])
     assert.match(good.out, /http:\/\/127\.0\.0\.1:\d+/, 'the accepted options must work: ' + good.out)
     if (good.code === null) return
-  } finally { rmSync(home, { recursive: true, force: true }) }
+  } finally { removeHome(home) }
 })
 
 test('--help prints the usage and exits 0 instead of being refused', async () => {
@@ -1722,5 +1741,5 @@ test('--help prints the usage and exits 0 instead of being refused', async () =>
     assert.ok(declared, 'the idle default must be a named constant')
     const value = Function('return ' + declared[1])()
     assert.match(help.out, new RegExp('default: ' + value + '.'), 'help must quote the real default')
-  } finally { rmSync(home, { recursive: true, force: true }) }
+  } finally { removeHome(home) }
 })

@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.7.347 — 2026-11-01
+
+### Fixed — `ssh_machines` printed a control character from the known-hosts path
+The fuzz that found 0.7.342 and 0.7.343 is now a test, and it found one more field the moment it ran: the
+"known-hosts store unreadable" warning embedded the path from the credential file verbatim.
+```
+credentials.json: { m1: { host: h, knownHosts: "\u0000\u001b[31mred" } }
+before      known-hosts store unreadable (ERR_INVALID_ARG_VALUE): <NUL><ESC>[31mred
+after       known-hosts store unreadable (ERR_INVALID_ARG_VALUE): \x00\x1b[31mred
+```
+Both places that build that warning use `printableText()` now — the path is local, so backslashes stay single,
+exactly like the key path fixed in 0.7.343.
+
+### Fixed — the page tests failed to clean up on Windows roughly one run in two
+`child.kill()` returns before Windows closes the child's handles, and the immediate `rmSync(home)` then failed
+with `EPERM, Permission denied` — in the cleanup, after the assertions had passed. All 63 cleanup sites now go
+through a bounded retry helper.
+
+### New — the render fuzz is a regression test
+`test/render-fuzz.test.js` feeds 80 random hostile audit records and 12 hostile credential entries through
+`ssh_audit`, `ssh_machines` and `ssh_credentials`, with a fixed seed, and asserts that no line carries a raw
+control character, `[object Object]`, `undefined` or `NaN`.
+
+### Verified this round (no defect found)
+- Symlink handling could not be exercised: the loopback VFS has no `symlink` method, so those paths stay covered
+  only by the SFTP-layer unit tests.
+- Wrong-kind paths give specific errors: listing a file ("not a directory … use ssh_read"), reading a directory,
+  writing to a directory, writing under a file with createDirs, and listing under a file.
+- Every schema setting is read somewhere (no accepted-but-dead configuration), and `/api/state` carries no
+  password, passphrase or DPAPI blob — only sources and paths.
+
+### Tests
+- New: the render fuzz (two tests). Suite 937 / 932 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean;
+  `gui.test.js` twice in a row without a cleanup failure.
+
 ## 0.7.346 — 2026-11-01
 
 ### Fixed — the doctor used the right policy but never said the machine's value was ignored
