@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.7.379 — 2026-11-01
+
+### Fixed — an unremovable stale lock spun forever instead of timing out
+`acquireStoreLock()` breaks a stale lock by deleting it and retrying. The retry used `continue`, which skipped
+**both** the deadline check and the wait:
+```js
+if (existsSync(target) && isStale(target)) {
+  try { rmSync(target, { force: true }) } catch { /* another process may have won */ }
+  continue                    // ← no deadline, no sleep
+}
+```
+If the removal keeps failing — a non-empty directory at `<store>.lock`, or a file another process holds open on
+Windows — the loop never returns. Measured with `waitMs: 120` against a stale lock that is a non-empty directory:
+```
+before   never returned (the probe had to be killed at its 120s deadline; the loop is a
+         synchronous busy spin, so even a setTimeout guard in the same process cannot fire)
+after    timedOut after 125 ms
+```
+`scripts/set-password.mjs` and `scripts/gui.mjs` both take this lock, so a stray directory at that path froze the
+password script and the settings page instead of reporting a timeout.
+
+### Verified this round (no defect found)
+
+- A lock left by a dead process is still broken promptly; `withStoreLock` still serialises a counter across two
+  processes, and two page instances saving at once keep both machines.
+
+### A flake I could not reproduce
+
+- One of the two concurrent suite runs failed `test/blocked-by-file.test.js` as a whole file (`test failed`, no
+  individual test named). It passed 5/5 alone and in both concurrent runs afterwards. That file has no obvious
+  race (fresh `mkdtemp`, its own server), so I recorded it rather than "fixed" a line I could not measure.
+
+### Tests
+
+- New: a stale lock that cannot be removed times out (125 ms, not a hang).
+  Suite 969 / 964 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.378 — 2026-11-01
 
 ### Fixed — a *read* failure of the host-key store was reported as a write failure

@@ -186,3 +186,28 @@ test('the lock and its writes also work on a network share', async (t) => {
     rmSync(base, { recursive: true, force: true })
   }
 })
+
+test('an unremovable stale lock times out instead of spinning forever', () => {
+  // Measured before the fix: acquireStoreLock({ waitMs: 120 }) with a non-empty
+  // directory at the lock path never returned — the stale branch 'continue'd before
+  // the deadline check and before the wait, so the loop was a synchronous busy spin
+  // (even a setTimeout guard in the same process could not fire). Now: 125 ms.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-lock-stale-'))
+  const file = path.join(home, 'credentials.json')
+  const target = file + '.lock'
+  try {
+    mkdirSync(target)
+    writeFileSync(path.join(target, 'child'), 'x')
+    const old = new Date(Date.now() - 120_000)
+    utimesSync(target, old, old)
+    const started = Date.now()
+    const lock = acquireStoreLock(file, { waitMs: 120 })
+    const elapsed = Date.now() - started
+    assert.equal(lock.timedOut, true, 'an unremovable stale lock is a timeout, not a lock')
+    assert.ok(elapsed < 3000, 'it must return promptly, took ' + elapsed + 'ms')
+    lock.release()
+  } finally {
+    rmSync(target, { recursive: true, force: true })
+    rmSync(home, { recursive: true, force: true })
+  }
+})

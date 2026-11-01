@@ -95,6 +95,13 @@ export function acquireStoreLock(file, options = {}) {
     }
     if (existsSync(target) && isStale(target)) {
       try { rmSync(target, { force: true }) } catch { /* another process may have won */ }
+      // Whether or not the removal worked, this pass must not bypass the deadline.
+      // An unremovable stale lock — a non-empty directory at the lock path, or a file
+      // another process keeps open on Windows — spun here forever: `continue` skipped
+      // both the deadline check and the wait, so the caller hung at 100% CPU and even a
+      // setTimeout guard in the same process could not run.
+      if (Date.now() >= deadline) return { path: target, timedOut: true, release() {} }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pollMs)
       continue
     }
     if (Date.now() >= deadline) {
