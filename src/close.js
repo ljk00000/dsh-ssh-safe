@@ -38,7 +38,21 @@ export function closeClient(client, timeoutMs = 1500) {
       resolve(confirmed)
     }
 
-    const timer = setTimeout(() => finish(false), timeoutMs)
+    // A peer that never answers the disconnect leaves end() half-closed: our FIN is
+    // out, theirs never comes, and the pool has already dropped its reference. The
+    // socket then sits in FIN_WAIT until the OS times it out, so destroy it here —
+    // 'the entry was reset' must not mean 'the socket is still open'.
+    const timer = setTimeout(() => {
+      // client.destroy() is not enough: ssh2 guards it with isWritable(), and end()
+      // has already ended the writable side, so it returned without doing anything.
+      // The socket itself is the thing to close.
+      try {
+        const socket = client && client._sock
+        if (socket && typeof socket.destroy === 'function') socket.destroy()
+        else if (typeof client.destroy === 'function') client.destroy()
+      } catch { /* already gone */ }
+      finish(false)
+    }, timeoutMs)
 
     try {
       if (typeof client.once === 'function') client.once('close', () => finish(true))

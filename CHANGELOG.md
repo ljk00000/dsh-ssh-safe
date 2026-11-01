@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.7.323 — 2026-11-01
+
+### Fixed — an unconfirmed close left the socket half-open
+`closeClient()` waits `closeTimeoutMs` for the peer to confirm a close and then reports `unconfirmed`, which
+`ssh_close` shows as "… the entry was reset so the next call reconnects". The entry was reset, but the socket
+was not: `client.end()` only half-closes, and ssh2's own `destroy()` is guarded by `isWritable()`, which
+`end()` has already made false — so it returned without destroying anything and the connection sat in
+FIN_WAIT until the OS timed it out. Measured against a peer that stops answering: 4 open sockets after the
+close, 3 after the fix.
+```
+after   Requested close for t but the peer did not confirm; the entry was reset so the next call reconnects.
+        (and the socket is destroyed now, not left half-closed)
+```
+The timeout now destroys the socket itself. A control run with that line disabled makes the new test fail and
+the test process hang on the open socket, which is the leak made visible.
+
+### Fixed — six tests generated a fresh ed25519 key and were flaky under load
+`Malformed OpenSSH private key` / `Malformed OpenSSH public key` appeared in one of two concurrent full-suite
+runs, in a different test each time: the helper's own comment says ssh2's ed25519 generator occasionally
+produces a key its parser then rejects, and the tests written after that note did it anyway. They now share
+`testKeyPair()` — one RSA pair per process, proven to parse before it is handed out.
+
+### Verified this round (no defect found)
+- **The settings page against a blocked credential file**: with `credentials.json` replaced by a directory,
+  `/api/save` and `/api/clear-password` answer `409` with "无法读取 … credentials.json：EISDIR … ——为避免把它整个
+  覆盖掉，本页不会写入", and `/api/state` carries the same text as `fileProblem` so the page can show it.
+
+### My own mistakes
+1. I first "fixed" the leak with `client.destroy()` and the socket count did not move — the ssh2 source showed
+   the `isWritable()` guard, which is exactly why `end()` had made it useless.
+2. My new close test asserted the **server** end closed, which a plain half-open `net` server never reports;
+   after fixing that it still passed for the wrong reason until I moved the listener to our own socket.
+3. Both full-suite runs were started in the same `cmd /c` line, so the two suites competed for CPU and one of
+   them hit an unrelated ed25519 flake; I read that as my change at first.
+
+### Tests
+- New: an unconfirmed close destroys the socket (fails without the fix). New: `testKeyPair()` replaces six
+  inline ed25519 generations.
+  Suite 908 / 903 pass / 5 skipped / 0 fail, run twice **concurrently**; `tsc` clean.
+
 ## 0.7.322 — 2026-11-01
 
 ### Fixed — a taken port answered with the raw errno

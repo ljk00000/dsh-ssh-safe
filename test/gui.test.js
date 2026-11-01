@@ -10,7 +10,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dpapiAvailable } from '../src/dpapi.js'
 import { SshPool } from '../src/pool.js'
-import { machineFor, alternateHostKey, testHostKey } from './helpers/local-ssh-server.js'
+import { machineFor, alternateHostKey, testHostKey, testKeyPair } from './helpers/local-ssh-server.js'
 
 // The page is a separate process on purpose: the plugin keeps no listening
 // socket. These tests drive the real server, so they cover the parts that matter
@@ -1404,7 +1404,7 @@ test('the page names the recorded fingerprint and the remedy when the key change
   const { createHash } = await import('node:crypto')
   const { encryptDpapi } = await import('../src/dpapi.js')
   const srv2 = await startServer()
-  const otherPublic = ssh2.utils.generateKeyPairSync('ed25519').public
+  const otherPublic = testKeyPair().public
   const blob = Buffer.from(otherPublic.split(' ')[1], 'base64')
   const recorded = 'SHA256:' + createHash('sha256').update(blob).digest('base64').replace(/=+$/, '')
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-guihk-'))

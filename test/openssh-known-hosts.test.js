@@ -8,6 +8,7 @@ import path from 'node:path'
 import ssh2 from 'ssh2'
 
 import { checkHostKey, fingerprint, looksLikeOpenSshKnownHosts, parseOpenSshKnownHosts } from '../src/hostkey.js'
+import { testKeyPair } from './helpers/local-ssh-server.js'
 
 // The setting is called knownHosts, which means the OpenSSH file to everybody who
 // has one. Pointing it at ~/.ssh/known_hosts used to answer with a JSON syntax
@@ -22,7 +23,7 @@ before(() => {
   home = mkdtempSync(path.join(tmpdir(), 'dsh-openssh-kh-'))
   mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
   file = path.join(home, 'known_hosts')
-  const { public: pub } = ssh2.utils.generateKeyPairSync('ed25519')
+  const pub = testKeyPair().public
   blob = Buffer.from(String(pub).trim().split(/\s+/)[1], 'base64')
   b64 = blob.toString('base64')
 })

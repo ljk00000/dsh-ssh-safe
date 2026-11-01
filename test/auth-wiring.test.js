@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import ssh2 from 'ssh2'
 import { SshPool } from '../src/pool.js'
+import { testKeyPair } from './helpers/local-ssh-server.js'
 
 // The credential-to-connectConfig mapping in SshPool#open was reachable only
 // through a real network handshake, so no test ever ran it. It named four
@@ -75,7 +76,7 @@ test('a password typed into the settings form reaches ssh2 when plaintext is all
 test('a key configured in the settings form is read and passed', async () => {
   const dshHome = home()
   const keyPath = join(dshHome, 'id_test')
-  writeFileSync(keyPath, ssh2.utils.generateKeyPairSync('ed25519').private)
+  writeFileSync(keyPath, testKeyPair().private)
   const sink = []
   const pool = pooling(dshHome, sink, {
     machines: { keyed: { host: 'h.invalid', user: 'u', keyPath } },

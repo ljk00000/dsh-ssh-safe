@@ -9,7 +9,7 @@ import { apply } from '../src/index.js'
 import { looksBinary } from '../src/sftp.js'
 import { SshPool } from '../src/pool.js'
 import ssh2 from 'ssh2'
-import { startServer, machineFor, alternateHostKey, testHostKey } from './helpers/local-ssh-server.js'
+import { startServer, machineFor, alternateHostKey, testHostKey, testKeyPair } from './helpers/local-ssh-server.js'
 
 // The twelve tool bodies are the largest untested part of src/index.js: they
 // only run with a working connection, and the unit suite has none. These drive
@@ -2223,7 +2223,7 @@ test('a .pub file, a directory or junk as keyPath is explained, not passed to ss
   // directory, read'.
   const ssh2 = (await import('ssh2')).default
   const dir = mkdtempSync(path.join(tmpdir(), 'dsh-keypath-'))
-  const pair = ssh2.utils.generateKeyPairSync('ed25519')
+  const pair = testKeyPair()
   const pub = path.join(dir, 'id.pub')
   const junk = path.join(dir, 'junk.pem')
   const asDir = path.join(dir, 'ssh-dir')
@@ -2274,7 +2274,7 @@ test('the doctor and the connection agree about a .pub file and a directory keyP
   const srv2 = await startServer()
   const own = {}
   try {
-    const pair = ssh2.utils.generateKeyPairSync('ed25519')
+    const pair = testKeyPair()
     const pub = path.join(home, 'id_ed25519.pub')
     const asDir = path.join(home, 'ssh-dir')
     writeFileSync(pub, pair.public)
@@ -2986,7 +2986,7 @@ test('no listing tool ever prints a password, a key body or file content', async
   // credentials'). Promises in prose need a test or they rot.
   const srv2 = await startServer()
   const ssh2 = (await import('ssh2')).default
-  const pair = ssh2.utils.generateKeyPairSync('ed25519')
+  const pair = testKeyPair()
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-nopromise-'))
   const previous = process.env.DSH_HOME
   process.env.DSH_HOME = home

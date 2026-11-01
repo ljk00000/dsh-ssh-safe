@@ -57,6 +57,27 @@ export function alternateHostKey() {
 }
 let cachedAltKey = null
 
+/**
+ * A key pair for tests that need a private key or a public-key line.
+ *
+ * Six tests generated their own ed25519 key and were flaky under load: ssh2's
+ * ed25519 generator occasionally produces a key its own parser then rejects
+ * ('Malformed OpenSSH private key'). One RSA pair per process, proven to parse
+ * before it is handed out, is deterministic.
+ *
+ * @returns {{private: string, public: string}}
+ */
+export function testKeyPair() {
+  if (cachedPair) return cachedPair
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const pair = utils.generateKeyPairSync('rsa', { bits: 2048 })
+    if (utils.parseKey(pair.private) instanceof Error) continue
+    cachedPair = pair
+    return pair
+  }
+  throw new Error('could not generate a key pair ssh2 can parse')
+}
+let cachedPair = null
 export function startServer({ port = 0, user = 'tester', password = 'test-pass', key = null, sftp = true } = {}) {
   const hostKey = key || hostKeyOnce()
   const vfs = createVfs()
