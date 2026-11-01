@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.341 — 2026-11-01
+
+### Fixed — the annotation cap warned about failures that were never withheld
+The script annotates at most 25 failing tests, and the warning fired on the 25th either way:
+```
+30 failures  ::warning::more than 25 tests failed; further names are in the log   (true, but unnamed)
+25 failures  ::warning::more than 25 tests failed; further names are in the log   <- false, nothing withheld
+after   30 failures  ::warning::30 tests failed; only the first 25 are annotated here, the rest are named in the log
+        25 failures  (no warning: every failure was annotated)
+```
+The total is counted up front (the log is already in memory), so the number is the real one.
+
+### Verified this round (no defect found)
+- The workflow runs the tests under `shell: bash` with `tee`, so CI hands the annotator UTF-8; the UTF-16
+  decoding from 0.7.340 is for the human running the same command in PowerShell, and both paths are now tested.
+- A 24-failure log produces exactly 24 annotations and no cap warning.
+
+### My own mistakes
+- My first fix kept the warning at exactly 25 and merely reworded it; the probe with 25 failures showed the
+  claim was still false ("the rest are named in the log" with no rest), so the warning is now conditional.
+
+### Tests
+- New: 30 failures give 25 annotations plus a warning naming 30; exactly 25 give 25 annotations and no warning.
+  Suite 930 / 925 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.340 — 2026-11-01
 
 ### Fixed — the CI annotator read only UTF-8, and lost the file link on Windows

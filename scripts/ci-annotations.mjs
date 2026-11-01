@@ -46,6 +46,9 @@ try {
 // A log written by PowerShell may start with a byte-order mark, which would
   // make the first "not ok" line unmatchable.
 const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/)
+// Counted up front so the cap warning can be true: it used to fire on the 25th
+// annotation with 'more than 25 tests failed' even when exactly 25 had failed.
+const failures = lines.filter((line) => /^not ok \d+ - /.test(line)).length
 let reported = 0
 for (let i = 0; i < lines.length; i++) {
   const start = /^not ok \d+ - (.*)$/.exec(lines[i])
@@ -81,7 +84,11 @@ for (let i = 0; i < lines.length; i++) {
   console.log('::error' + attribute + '::' + message)
   reported += 1
   if (reported >= 25) {
-    console.log('::warning::more than 25 tests failed; further names are in the log')
+    // Nothing was withheld when exactly 25 failed, so there is nothing to warn about.
+    if (failures > 25) {
+      console.log('::warning::' + failures + ' tests failed; only the first 25 are annotated here,' +
+        ' the rest are named in the log')
+    }
     break
   }
 }

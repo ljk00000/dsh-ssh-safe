@@ -71,3 +71,32 @@ test('a missing log is reported by name', () => {
     assert.match(out.stdout, /::error::ci-annotations: .*not-there\.txt/)
   } finally { rmSync(home, { recursive: true, force: true }) }
 })
+
+test('the 25-annotation cap says how many actually failed, and stays quiet at 25', () => {
+  // The warning fired on the 25th annotation with 'more than 25 tests failed', even
+  // when exactly 25 had failed and nothing was withheld.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-ann-cap-'))
+  const build = (count) => {
+    const lines = ['TAP version 13']
+    for (let i = 1; i <= count; i++) {
+      lines.push('not ok ' + i + ' - failure ' + i)
+      lines.push("  error: 'boom ' + i")
+    }
+    lines.push('1..' + count)
+    return lines.join('\n')
+  }
+  try {
+    const many = path.join(home, 'many.txt')
+    writeFileSync(many, build(30), 'utf8')
+    const out = run(many)
+    const errors = out.stdout.split('\n').filter((l) => l.startsWith('::error::'))
+    assert.equal(errors.length, 25, 'at most 25 annotations: ' + errors.length)
+    assert.match(out.stdout, /::warning::30 tests failed; only the first 25 are annotated here/)
+
+    const exact = path.join(home, 'exact.txt')
+    writeFileSync(exact, build(25), 'utf8')
+    const exactOut = run(exact)
+    assert.equal(exactOut.stdout.split('\n').filter((l) => l.startsWith('::error::')).length, 25)
+    assert.doesNotMatch(exactOut.stdout, /::warning::/, 'nothing was withheld, so no warning: ' + exactOut.stdout)
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
