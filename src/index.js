@@ -743,6 +743,21 @@ function assertKnownArgs(args, known, toolName) {
    * which cannot work: create() refuses it for missing host and user, and remove()
    * never gets that far. Advice that cannot be followed is worse than none.
    */
+  /**
+   * Which fields a half-configured machine is missing, by env-var name.
+   *
+   * ssh_credentials said 'needs host and user' for a machine that already had a
+   * user, so the reader added the field that was set. Naming them follows
+   * ssh_machines' MISSING line and gives the same instruction in both places.
+   */
+  const missingFieldsLabel = (name, def) => {
+    const need = expectedEnv(name)
+    const missing = []
+    if (!def || !def.host) missing.push(need.required[0])
+    if (!def || !def.username) missing.push(need.required[1])
+    return missing.length ? missing.join(', ') : (need.required[0] + ', ' + need.required[1])
+  }
+
   const machineUsable = (name) => {
     try {
       const def = machineDefinition(name, { machines: cfg.machines, dshHome: credentialHome })
@@ -2406,11 +2421,14 @@ function passphraseLine(st) {
         head.push(
           '',
           // Escaped like the inventory: these values come from a config file.
-          '• ' + printable(alias) + '  ' + (lean
-            ? (st.configured ? '<host hidden>' : 'INCOMPLETE (needs host and user)')
-            : (st.configured
-              ? printable(st.username || '?') + '@' + printable(formatHost(st.host || '?')) + ':' + printable(st.port)
-              : 'INCOMPLETE (needs host and user)')),
+          // 'needs host and user' was printed for a machine that had one of them: the
+          // reader added the field that was already set. Name the missing ones, the
+          // way ssh_machines' MISSING line does.
+          '• ' + printable(alias) + '  ' + (st.configured
+            ? (lean
+              ? '<host hidden>'
+              : printable(st.username || '?') + '@' + printable(formatHost(st.host || '?')) + ':' + printable(st.port))
+            : 'INCOMPLETE (missing ' + missingFieldsLabel(alias, st) + ')'),
           // A source that is present but ignored must not be reported as the
           // source: the line said 'config' and only the next line admitted it was
           // never used.

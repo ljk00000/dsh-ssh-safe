@@ -1964,3 +1964,37 @@ test('an alias whose env carries only a user is listed, not silently dropped', a
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('an incomplete machine names the field it is missing, not both', async () => {
+  // ssh_credentials printed 'INCOMPLETE (needs host and user)' for a machine whose
+  // user was set, so the reader added a field that already existed. ssh_machines had
+  // named them all along (MISSING: …); both tools agree now.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-incomplete-'))
+  const previous = process.env.DSH_HOME
+  const saved = {}
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, { hostKeyPolicy: 'tofu', allowPlaintextPassword: true })
+    const setEnv = (name, value) => {
+      saved[name] = process.env[name]
+      process.env[name] = value
+    }
+    setEnv('DSH_SSH_HALFONLY_USER', 'someone')
+    setEnv('DSH_SSH_EMPTY_KEY_PATH', '/tmp/not-a-key.pem')
+    const text = String((await tools.ssh_credentials.execute({}, {})).text)
+    const line = (alias) => text.split('\n').find((l) => l.includes('• ' + alias)) || ''
+    assert.match(line('halfonly'), /INCOMPLETE \(missing DSH_SSH_HALFONLY_HOST\)/, line('halfonly'))
+    assert.doesNotMatch(line('halfonly'), /HALFONLY_USER/, 'the user is set: ' + line('halfonly'))
+    assert.match(line('empty'), /missing DSH_SSH_EMPTY_HOST, DSH_SSH_EMPTY_USER/, line('empty'))
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.396 — 2026-11-01
+
+### Fixed — `ssh_credentials` blamed both fields for a machine that had one
+
+```
+DSH_SSH_HALFONLY_USER=someone
+before   • halfonly  INCOMPLETE (needs host and user)      ← the user is set
+after    • halfonly  INCOMPLETE (missing DSH_SSH_HALFONLY_HOST)
+         • empty     INCOMPLETE (missing DSH_SSH_EMPTY_HOST, DSH_SSH_EMPTY_USER)
+```
+
+A reader following the old line added a user that already existed. `missingFieldsLabel()` names what is actually
+missing, using the same env-var names as `ssh_machines`' `MISSING:` line, so the two tools now give one instruction
+instead of two.
+
+### My own mistake
+
+My first edit computed the replacement text and never wrote it to disk — the cell ended after the `replace()` and
+the next probe happily printed the old wording. I read that as "the replacement did not apply" only because I
+checked the output instead of trusting the edit. (The helper added in the same pass *was* written, so the file was
+half-edited for a moment; both parts are in the same commit now.)
+
+### Verified this round (no defect found)
+
+- `ssh_workspace list` renders a half-configured alias as `• half someone@?:22` without crashing on the missing
+  host, and `ssh_credentials` / `ssh_machines` / `ssh_config` all survive the newly discoverable aliases.
+
+### Tests
+
+- New: one missing field is named alone; two are named together. Suite 986 / 981 pass / 5 skipped / 0 fail, run
+  twice concurrently; `tsc` clean.
+
 ## 0.7.395 — 2026-11-01
 
 ### Fixed — a machine whose env carried only a user vanished from `ssh_machines`
