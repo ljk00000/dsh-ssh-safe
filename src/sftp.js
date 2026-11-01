@@ -582,6 +582,46 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, 
   })
 }
 
+/** The most ancestors one write inspects for a link (one lstat each). */
+const ANCESTOR_LINK_HOPS = 8
+
+/**
+ * Find the closest ancestor directory of `target` that is a symlink.
+ *
+ * A write names a path; the bytes land wherever the server's link traversal puts
+ * them, which for '/a/b/c.txt' can be a link at '/a', not only at '/a/b'. Walking
+ * from the closest ancestor upward means the first hit is the one that decides
+ * the destination; the rest of the path is appended to its final target.
+ *
+ * @param {any} sftp session
+ * @param {string} target the path that was written
+ * @returns {Promise<{path: string, target: string, landedAt: string}|null>}
+ */
+async function findLinkedAncestor(sftp, target) {
+  if (typeof sftp.lstat !== 'function' || typeof sftp.readlink !== 'function') return null
+  const parts = posix.normalize(target).split('/').filter(Boolean)
+  if (parts.length < 2) return null
+  const file = parts.pop()
+  const from = Math.max(1, parts.length - ANCESTOR_LINK_HOPS + 1)
+  for (let depth = parts.length; depth >= from; depth -= 1) {
+    const dir = '/' + parts.slice(0, depth).join('/')
+    let attrs = null
+    try { attrs = await callSftp(sftp, 'lstat', dir) } catch { return null }
+    if (!attrs || typeof attrs.isSymbolicLink !== 'function' || !attrs.isSymbolicLink()) continue
+    let raw
+    try { raw = String(await callSftp(sftp, 'readlink', dir)) } catch { return null }
+    const firstHop = posix.normalize(raw.startsWith('/') ? raw : posix.join(posix.dirname(dir), raw))
+    const targetDir = (await followLinkChain(sftp, dir, firstHop)) || firstHop
+    const below = parts.slice(depth).concat([file]).join('/')
+    return {
+      path: dir,
+      target: targetDir,
+      landedAt: posix.normalize(targetDir + '/' + below),
+    }
+  }
+  return null
+}
+
 /** The most link targets one listing resolves (one readlink each). */
 const LINK_TARGET_LIMIT = 40
 
@@ -626,7 +666,7 @@ async function followLinkChain(sftp, link, first) {
  * @param {string} remotePath
  * @param {string|Buffer} content
  * @param {{timeoutMs: number, createDirs?: boolean, signal?: AbortSignal, mode?: number}} options
- * @returns {Promise<{bytes: number, path: string, linkTarget?: string, linkFinalTarget?: string, parentLink?: {path: string, target: string}, mode?: number, modeRequested?: number}>}
+ * @returns {Promise<{bytes: number, path: string, linkTarget?: string, linkFinalTarget?: string, parentLink?: {path: string, target: string, landedAt: string}|null, mode?: number, modeRequested?: number}>}
  *   `linkTarget` is set when the path was a symlink (where the bytes went);
  *   `mode` is the permission bits the file ended up with
  */
@@ -754,25 +794,12 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
           // recorded it, and masking it away reported a file that is not the one
           // on disk.
           if (attrs && typeof attrs.mode === 'number') mode = attrs.mode & 0o7777
-          // The file itself was not a link: the DIRECTORY it went into may be. Writing
-          // '/home/u/live/app.conf' through a 'live -> /etc/app' link put the bytes in
-          // /etc/app/app.conf while the reply named only the path it was given.
+          // The file itself was not a link: a DIRECTORY on its way may be. Writing
+          // '/home/u/live/app.conf' through 'live -> /etc/app' put the bytes in
+          // /etc/app/app.conf while the reply named only the path it was given, and
+          // a link further up ('/home -> /srv/home') was not looked at either.
           if (!linkTarget && typeof sftp.lstat === 'function') {
-            const parent = dirnameOf(target)
-            if (parent && parent !== '/') {
-              const parentAttrs = await callSftp(sftp, 'lstat', parent)
-              if (parentAttrs && typeof parentAttrs.isSymbolicLink === 'function' && parentAttrs.isSymbolicLink() &&
-                typeof sftp.readlink === 'function') {
-                const rawParent = String(await callSftp(sftp, 'readlink', parent))
-                const firstHop = posix.normalize(rawParent.startsWith('/')
-                  ? rawParent
-                  : posix.join(posix.dirname(parent), rawParent))
-                parentLink = {
-                  path: parent,
-                  target: (await followLinkChain(sftp, parent, firstHop)) || firstHop,
-                }
-              }
-            }
+            parentLink = await findLinkedAncestor(sftp, target)
           }
         }
       } catch { /* the link may be gone again; the write itself succeeded */ }

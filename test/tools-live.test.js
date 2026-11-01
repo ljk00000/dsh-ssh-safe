@@ -4486,6 +4486,16 @@ test('a write through a symlinked directory says where the bytes went', async ()
     assert.match(text, /the file was written there \(\/real\/a\.txt\)/, text)
     assert.equal(server.vfs.stat('/real/a.txt').size, 5, 'the bytes land in the real directory')
 
+    // The link can be two levels up: '/home2 -> /srv' with a write to
+    // '/home2/app/a.txt' lands in /srv/app/a.txt, and only walking the ancestors
+    // finds it.
+    server.vfs.putDir('/srv/app')
+    server.vfs.putLink('/home2', '/srv')
+    const deep = String((await tools.ssh_write.execute({ machine: 'box', path: '/home2/app/a.txt', content: 'deep' }, {})).text)
+    assert.match(deep, /the directory \/home2 is a symbolic link to \/srv/, deep)
+    assert.match(deep, /the file was written there \(\/srv\/app\/a\.txt\)/, deep)
+    assert.equal(server.vfs.stat('/srv/app/a.txt').size, 4, 'the bytes land under the real directory')
+
     // An ordinary directory says nothing extra.
     const plain = String((await tools.ssh_write.execute({ machine: 'box', path: '/real/b.txt', content: 'x' }, {})).text)
     assert.doesNotMatch(plain, /symbolic link/, plain)

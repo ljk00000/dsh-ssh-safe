@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.393 — 2026-11-01
+
+### Fixed — a link two levels up was still invisible to a write
+
+0.7.388 checked only the immediate parent, so this case still lied:
+
+```
+/srv/app/  and  /home2 -> /srv
+ssh_write { path: "/home2/app/a.txt", content: "deep" }
+before   Wrote 4 bytes to /home2/app/a.txt (mode 0666)
+after    Wrote 4 bytes to /home2/app/a.txt (mode 0666)
+         [note] the directory /home2 is a symbolic link to /srv; the file was written there (/srv/app/a.txt)
+```
+
+`findLinkedAncestor()` walks from the closest ancestor upward (capped at 8 by `ANCESTOR_LINK_HOPS`, one `lstat`
+each), stops at the first link, follows its chain, and appends the rest of the path to compute `landedAt` — the
+exact file the bytes reached. The reply and the audit line (`viaLinkDir`) both use it.
+
+### Boundary still documented, not hidden
+
+The walk stops at 8 ancestors and takes the **closest** link: a link above that depth is not reported. Two extra
+round trips on a three-level path is the price; a pathologically deep tree gets a bounded answer instead of a slow
+one.
+
+### Tests
+
+- The existing symlink-directory test grew the two-level case (`/home2 -> /srv`, write `/home2/app/a.txt`), and
+  asserts the bytes are under `/srv/app/`. Suite 983 / 978 pass / 5 skipped / 0 fail, run twice concurrently;
+  `tsc` clean.
+
 ## 0.7.392 — 2026-11-01
 
 ### New — the "HOST KEY CHANGED" refusal pinned, including under `machineInventory: "alias"`

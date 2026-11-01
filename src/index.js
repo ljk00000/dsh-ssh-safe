@@ -1590,7 +1590,7 @@ const trustedLine = (m) => {
         : r.parentLink
           ? '\n[note] the directory ' + printable(r.parentLink.path) + ' is a symbolic link to ' +
             printable(r.parentLink.target) + '; the file was written there (' +
-            printable(String(r.parentLink.target).replace(/\/$/, '') + '/' + String(r.path).split('/').pop()) + ')'
+            printable(r.parentLink.landedAt || String(r.parentLink.target).replace(/\/$/, '') + '/' + String(r.path).split('/').pop()) + ')'
           : ''
       // The mode the file ended up with decides who can read what was just
       // written; the server applies its umask, so it is not always the one asked
