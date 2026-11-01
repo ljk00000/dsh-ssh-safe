@@ -22,7 +22,22 @@ if (!file) {
 
 let text = ''
 try {
-  text = readFileSync(file, 'utf8')
+  // Not always UTF-8: `node --test --test-reporter=tap > log.txt` in PowerShell
+  // writes UTF-16LE, and every TAP line then carries NUL bytes. The script's own
+  // fallback said 'the test run failed but no "not ok" line was captured' about a
+  // log that named the failing test on line 1 -- a wrong diagnosis, which is worse
+  // than no annotation.
+  const buffer = readFileSync(file)
+  if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) {
+    text = buffer.toString('utf16le', 2)
+  } else if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+    text = buffer.toString('utf8', 3)
+  } else if (buffer.includes(0)) {
+    // UTF-16 without a BOM still has NUL bytes in ASCII text.
+    text = buffer.toString('utf16le')
+  } else {
+    text = buffer.toString('utf8')
+  }
 } catch (err) {
   console.log('::error::ci-annotations: ' + ESCAPE(err.message))
   process.exit(0)
@@ -57,7 +72,10 @@ for (let i = 0; i < lines.length; i++) {
     const loc = /^\s{2}location:\s*'(.*)'$/.exec(line)
     if (loc && !location) location = loc[1]
   }
-  const where = /test[\\/]([^\\/]+\.test\.js)/.exec(location)
+  // TAP escapes backslashes in a Windows path (C:\\x\\test\\a.test.js), so the
+  // separator can appear once or twice. One backslash was the only shape handled,
+  // which is why every annotation from a Windows run was missing its file= link.
+  const where = /test[\\/]{1,2}([^\\/]+\.test\.js)/.exec(location)
   const attribute = where ? ' file=test/' + where[1] : ''
   const message = ESCAPE('failing test: ' + name + (detail ? ' — ' + detail.replace(/^'|'$/g, '') : ''))
   console.log('::error' + attribute + '::' + message)

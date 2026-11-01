@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.7.340 — 2026-11-01
+
+### Fixed — the CI annotator read only UTF-8, and lost the file link on Windows
+`scripts/ci-annotations.mjs` turns a TAP log into GitHub annotations, so a failing run page names the test. It had
+no test of its own, and two silent failures lived in it:
+```
+node --test --test-reporter=tap > log.txt      # PowerShell writes UTF-16LE
+before  ::error::the test run failed but no "not ok" line was captured   <- the log named it on line 3
+after   ::error::failing test: deliberately failing for a TAP sample — this must fail
+
+Windows TAP location:  location: 'C:\\repo\\test\\tools.test.js:42:1'   (TAP escapes the backslashes)
+before  ::error::failing test: …                                        <- no file= link
+after   ::error file=test/tools.test.js::failing test: …
+```
+The reader now decodes UTF-8 (with or without a BOM) and UTF-16LE (with or without one), and the location match
+accepts a doubled separator. A log that really has no `not ok` line still says so.
+
+### Verified this round (no defect found)
+- `ssh_config` reports every security switch as it takes effect (`execGuard`, `pipeToShell`, `denyPatterns`,
+  `machineInventory`, `auditLog`), and a one-pattern `denyPatterns` really does replace the built-ins — as the
+  report says.
+- A server without the SFTP subsystem: the doctor fails exactly that stage and says what to check, while
+  `ssh_read`/`ssh_list`/`ssh_write` refuse with the same explanation and `ssh_exec` still works.
+- A connection killed mid-command answers in ~2 ms with "connection closed before the command reported an exit
+  status", and the next call reconnects transparently.
+- Broken key paths are diagnosed before dialling: missing file, a directory, and no credential at all each get
+  their own message with the env var to set.
+- The `maxOutputChars` boundary is exact across two streams (payload 5028: cap 1024 drops 4004, 1025 drops 4003,
+  1030 drops 3998) — and already pinned by an existing test, which my probe rediscovered rather than added to.
+- The five live suites (215 tests) passed three runs in a row with no flakes.
+
+### My own mistakes
+1. My first probe of the annotator used my own PowerShell redirect and I read the UTF-16 breakage as a bug report
+   about the log, not about the reader; decoding both encodings is the honest fix either way.
+2. I left a deliberately failing `test/zz-tmp-fail.test.js` behind to produce a TAP sample, and the full suite
+   picked it up — two runs failed on it before I deleted it.
+
+### Tests
+- New `test/ci-annotations.test.js`: UTF-8 and UTF-16 logs both produce the annotation with its `file=` link, a
+  clean log says so, and a missing file is named.
+  Suite 929 / 924 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.339 — 2026-11-01
 
 ### Fixed — an audit row for a gated read ended in a dangling fragment
