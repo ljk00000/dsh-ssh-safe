@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.7.409 — 2026-11-01
+
+### Fixed — a known_hosts file that only trusts a CA read as "nothing here for this host"
+
+`@cert-authority` lines are not used for verification (honest: checking a host certificate needs the CA key and a
+validity period), but they were also not *mentioned*. A user whose file authenticates hosts through a CA got:
+
+```
+before   Unknown host box.example:22 … the file is an OpenSSH known_hosts file …
+         ← reads as "your file has no entry for this host", which is wrong
+after    Unknown host box.example:22 … The file has an @cert-authority line covering this host: this plugin does
+         not verify host certificates, so a certificate signed by that CA cannot be accepted here. …
+```
+
+`parseOpenSshKnownHosts()` now returns `certAuthorities`, and both refusals (strict and tofu) mention a CA line that
+covers the host — wildcards included, through the same `entryCoversHost()`. A CA line for some other host stays
+silent. Nothing secret is added under `machineInventory: alias`.
+
+### My own mistakes
+
+- I wrote `parsedFile.certAuthorities.some((entry) => covers(entry))` before checking the names in scope — `covers`
+  is a predicate that takes an entry, so the arrow function was wrong (it would pass the entry as the callback's
+  first argument anyway, but it also read as if `covers` were a boolean). Fixed to `.some(covers)`.
+- The first probe printed only the first 200 characters of the reason, so the new sentence was cut off and I
+  almost concluded the change had no effect. Same mistake as an earlier round: print the whole string.
+- `tsc` failed with 3 errors even though the suite was green: the parser's JSDoc still declared the old return
+  shape. Fixed the JSDoc (this is the sixth time a new result field needed its type comment updated — checked
+  before reporting this time, but only after the first green run).
+
+### Tests
+
+- New: a CA-only file is refused with the explanation under both policies; a CA line for another host does not
+  appear; the parser keeps CA lines separate from entries and revocations.
+  Suite 998 / 993 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.408 — 2026-11-01
 
 ### New — the page and the tools resolve a machine identically (pinned)

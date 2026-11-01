@@ -256,17 +256,22 @@ function entryCoversHost(field, host, port) {
  * Parse an OpenSSH known_hosts file into entries this plugin can check.
  *
  * '@revoked' lines are collected separately: a key listed there is refused
- * outright. '@cert-authority' is skipped -- verifying certificates needs the CA
+ * outright. '@cert-authority' is not used for verification -- that needs the CA
  * key and a validity period, and pretending to check one would be worse than
- * ignoring it.
+ * ignoring it -- but it IS reported, so a refusal can say why a file OpenSSH
+ * would accept verifies nothing here.
  *
  * @param {string} text
  * @returns {{entries: Array<{hostField: string, keyType: string, blob: Buffer}>,
- *   revoked: Array<{hostField: string, keyType: string, blob: Buffer}>}}
+ *   revoked: Array<{hostField: string, keyType: string, blob: Buffer}>,
+ *   certAuthorities: Array<{hostField: string, keyType: string}>}}
  */
 export function parseOpenSshKnownHosts(text) {
   const entries = []
   const revoked = []
+  // Kept so the refusal can say WHY a file OpenSSH would accept verifies nothing
+  // here: a certificate-signed host key is not something this plugin checks.
+  const certAuthorities = []
   for (const raw of String(text || '').split(/\r?\n/)) {
     let line = raw.trim()
     if (!line || line.startsWith('#')) continue
@@ -287,9 +292,10 @@ export function parseOpenSshKnownHosts(text) {
     const blob = Buffer.from(encoded, 'base64')
     if (blob.length === 0) continue
     if (marker === 'revoked') revoked.push({ hostField, keyType, blob })
+    else if (marker === 'cert-authority') certAuthorities.push({ hostField, keyType })
     else if (marker === '') entries.push({ hostField, keyType, blob })
   }
-  return { entries, revoked }
+  return { entries, revoked, certAuthorities }
 }
 
 /**
@@ -412,6 +418,11 @@ export function checkOpenSshHostKey({ text, file, host, port, keyBlob, policy, t
       reason: 'Unknown host ' + id + ' with fingerprint ' + presented + '. ' + file +
         ' is an OpenSSH known_hosts file, which this plugin verifies but does not write to. ' +
         storeNote +
+        // The same note as the strict refusal: a certificate-only file looks empty.
+        (parsedFile.certAuthorities.some(covers)
+          ? 'The file has an @cert-authority line covering this host: this plugin does not verify host ' +
+            'certificates, so a certificate signed by that CA cannot be accepted here. '
+          : '') +
         // machineInventory: 'alias' promises the host, the port and the paths stay out of
         // the transcript, and the keyscan line carried all three.
         (lean
@@ -433,6 +444,13 @@ export function checkOpenSshHostKey({ text, file, host, port, keyBlob, policy, t
     reason: 'Unknown host ' + id + ' with fingerprint ' + presented + '. ' +
       file + ' is an OpenSSH known_hosts file, which this plugin verifies but does not write to. ' +
       storeState(file) +
+      // A file that only lists @cert-authority is not empty: OpenSSH would verify a
+      // host certificate with it and this plugin cannot, so 'Unknown host' alone
+      // reads as 'your file has nothing for this host' when it does.
+      (parsedFile.certAuthorities.some(covers)
+        ? 'The file has an @cert-authority line covering this host: this plugin does not verify host ' +
+          'certificates, so a certificate signed by that CA cannot be accepted here. '
+        : '') +
       (lean
         ? 'Verify the fingerprint out of band, then add it with ssh-keyscan (the host and port are ' +
           'in the machine settings) — or call ssh_connect with trustHostKey: true for this one connection.'

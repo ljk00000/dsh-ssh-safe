@@ -140,3 +140,29 @@ test('a JSON store passed as knownHosts is still read as one', () => {
   const ok = checkHostKey({ dshHome: home, knownHostsFile: jsonFile, keyBlob: blob, policy: 'strict', host: 'json.example', port: 22 })
   assert.equal(ok.ok, true)
 })
+
+test('a file that only trusts a CA says so instead of looking empty', () => {
+  // OpenSSH verifies a host certificate with an '@cert-authority' line; this plugin
+  // does not verify certificates at all. The refusal said 'Unknown host … the file
+  // is an OpenSSH known_hosts file', which reads as 'your file has nothing for this
+  // host' — the opposite of the truth.
+  writeFileSync(file, '@cert-authority *.example ssh-ed25519 ' + b64 + '\n')
+  for (const policy of ['strict', 'tofu']) {
+    const refused = verdict({ host: 'box.example', port: 22, policy })
+    assert.equal(refused.ok, false, policy)
+    assert.match(refused.reason, /@cert-authority line covering this host/, refused.reason)
+    assert.match(refused.reason, /does not verify host certificates/, refused.reason)
+  }
+
+  // A CA line for some other host is not this host's business.
+  writeFileSync(file, '@cert-authority *.other.example ssh-ed25519 ' + b64 + '\n')
+  const other = verdict({ host: 'box.example', port: 22, policy: 'strict' })
+  assert.equal(other.ok, false)
+  assert.doesNotMatch(other.reason, /@cert-authority/, other.reason)
+
+  // The parser keeps them, without treating them as entries or revocations.
+  const parsed = parseOpenSshKnownHosts(readFileSync(file, 'utf8'))
+  assert.deepEqual(parsed.entries, [])
+  assert.deepEqual(parsed.revoked, [])
+  assert.deepEqual(parsed.certAuthorities.map((entry) => entry.hostField), ['*.other.example'])
+})
