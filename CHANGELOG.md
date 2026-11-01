@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.348 — 2026-11-01
+
+### Fixed — the invalid-`denyPatterns` error quoted the pattern raw
+When a `denyPatterns` entry is not a valid regular expression the plugin refuses to load and says why. That
+message embedded the pattern twice, unescaped and unclipped:
+```
+denyPatterns: ["\u0000\u001b[31mred("]
+before  … is not a valid regular expression (Invalid regular expression: /<NUL><ESC>[31mred(/: …): <NUL><ESC>[31mred( …
+after   … (Invalid regular expression: /\x00\x1b[31mred(/: …): \x00\x1b[31mred( …
+
+denyPatterns: ["a…×(500) + "("]   1307 characters before, 495 now (each copy clipped with an ellipsis)
+```
+`printableText()` is the right escaper here: it keeps the backslashes a regex needs readable and escapes control
+characters.
+
+### Verified this round (no defect found)
+- `apply` refuses a non-regex `denyPatterns` entry (it does not silently skip it), refuses an empty entry (it would
+  match every command), and `ssh_config` summarises the list without echoing any pattern.
+- The other validation messages were already safe: an arktype failure quotes types, not values, and alias text
+  goes through the normaliser that strips control characters.
+
+### My own mistakes
+- My first probe used the *valid* patterns path and printed nothing for `denyPatterns` in `ssh_config`, which I read
+  as "the report hides the rules". The summary line was there; I had filtered for the word "pattern" in lower case
+  and the line says `denyPatterns  "3 pattern(s) …"`.
+
+### Tests
+- New: a hostile pattern is quoted escaped (`\x00\x1b[31mred\(`), the message carries no raw control character, and a
+  500-character pattern is clipped instead of echoed twice.
+  Suite 938 / 933 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.347 — 2026-11-01
 
 ### Fixed — `ssh_machines` printed a control character from the known-hosts path

@@ -340,9 +340,19 @@ export async function apply(ctx, config) {
   const broken = invalidPatterns(configuredPatterns)
   if (broken.length > 0) {
     const first = broken[0]
+    // Both strings are configuration text: a pattern holding a NUL and an ANSI
+    // escape printed them raw into the host's error output, and a 500-character
+    // pattern was echoed twice for a 1307-character message. printableText() keeps
+    // backslashes (a regex reads correctly) and clips what is shown.
+    const shownPattern = printableText(first.pattern.length > 80
+      ? first.pattern.slice(0, 77) + '...'
+      : first.pattern)
+    const shownMessage = printableText(first.message.length > 160
+      ? first.message.slice(0, 157) + '...'
+      : first.message)
     throw new Error(
       'dsh-ssh-safe: invalid configuration — denyPatterns[' + first.index + '] is not a valid regular expression (' +
-      first.message + '): ' + first.pattern +
+      shownMessage + '): ' + shownPattern +
       '. That rule would be skipped silently, so the plugin refuses to load. ' +
       'Fix or remove the entry in the plugin config listed under "dsh-ssh-safe" in cordis.patch.yml.'
     )

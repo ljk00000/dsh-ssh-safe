@@ -1652,3 +1652,29 @@ test('the workspace instructions and ssh_credentials describe the policy in effe
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('an invalid denyPatterns entry is quoted safely, not raw', async () => {
+  // The message is the host's error output. It embedded the pattern twice, raw:
+  // a NUL and an ANSI escape printed as themselves, and a 500-character pattern
+  // produced a 1307-character message.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-pattern-msg-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const ctx = { tools: { register: () => {} }, effect: () => {}, get: () => undefined }
+  try {
+    const hostile = await apply(ctx, { hostKeyPolicy: 'tofu', denyPatterns: ['\u0000\u001b[31mred('] })
+      .then(() => '', (err) => String(err && err.message || err))
+    assert.match(hostile, /is not a valid regular expression/)
+    assert.doesNotMatch(hostile, /\u0000|\u001b/, 'no raw control character may be quoted: ' + JSON.stringify(hostile))
+    assert.match(hostile, /\\x00\\x1b\[31mred\(/, 'the content is still there, escaped')
+
+    const long = await apply(ctx, { hostKeyPolicy: 'tofu', denyPatterns: ['a'.repeat(500) + '('] })
+      .then(() => '', (err) => String(err && err.message || err))
+    assert.ok(long.length < 700, 'a long pattern must not be echoed twice: ' + long.length)
+    assert.match(long, /\.\.\./)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
