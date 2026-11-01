@@ -535,7 +535,7 @@ test('list names the alias a placeholder belongs to instead of suggesting create
     writeFileSync(path.join(dir, 'AGENTS.md'), '# beta')
 
     const text = String((await own.ssh_workspace.execute({ action: 'list' }, {})).text)
-    assert.match(text, /有占位目录，但属于别名 "beta"（不是 "alpha"）/)
+    assert.match(text, /有占位目录，但 marker 里记的别名是 "beta"（不是 "alpha"）/)
     assert.doesNotMatch(text, /但未注册（用 action: "create" 注册）/)
   } finally {
     if (previous === undefined) delete process.env.DSH_HOME
@@ -869,6 +869,47 @@ test('a marker naming a machine that no longer exists gives advice that works', 
     writeFileSync(markerPath, JSON.stringify(marker, null, 2) + '\n')
     const usable = await text(tools.ssh_workspace.execute({ action: 'remove', machine: 'box', deleteFiles: true }, {}))
     assert.match(usable, /要删它，请用 machine: "other"/, usable)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('the listing reports a marker that records another alias', async () => {
+  // The row said '已注册为工作区' and nothing else, while create and remove both
+  // refused because the marker named a different alias. The list is where a user
+  // looks first, and it is the one place that stayed silent.
+  const home = mkdtempSync(join(tmpdir(), 'dsh-ws-marker-list-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const registry = { items: [], list() { return this.items.slice() }, async create(p, t) { const w = { id: 'w', path: p, title: t }; this.items.push(w); return w }, async delete() { return true } }
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => registry }
+  try {
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      machines: { box: { host: 'h.example', user: 'u' }, other: { host: 'h2.example', user: 'u2' } },
+    })
+    const text = async (promise) => String(await promise.then((r) => (r && r.text !== undefined ? r.text : ''), (err) => 'ERR: ' + err.message))
+    await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
+    const dir = remoteDir(home, 'box')
+    const markerPath = join(dir, '.dsh-remote-workspace.json')
+    const marker = JSON.parse(readFileSync(markerPath, 'utf8'))
+    const write = (alias) => writeFileSync(markerPath, JSON.stringify({ ...marker, alias }, null, 2) + '\n')
+
+    // A machine this profile cannot use: say what works instead of 'use machine: X'.
+    write('ghost')
+    const ghost = await text(tools.ssh_workspace.execute({}, {}))
+    assert.match(ghost, /marker 里记的别名是 "ghost"/, ghost)
+    assert.match(ghost, /不是这个 profile 里可用的机器/, ghost)
+    assert.match(ghost, /改回 "box"/, 'the way out must be named')
+
+    // A real machine: the original advice stays.
+    write('other')
+    const other = await text(tools.ssh_workspace.execute({}, {}))
+    assert.match(other, /用 machine: "other" 打开它/, other)
+    assert.doesNotMatch(other, /不是这个 profile 里可用的机器/)
   } finally {
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous

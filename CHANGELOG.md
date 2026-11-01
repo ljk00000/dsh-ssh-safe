@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.371 — 2026-11-01
+
+### Fixed — the listing stayed silent about a marker that records another alias
+`create` and `remove` refuse a placeholder whose marker names a different alias (0.7.370 made their advice
+followable), but the row a user looks at first said only:
+```
+before   • box  u@h.example:22
+            已注册为工作区「远程 · box」              ← nothing wrong, apparently
+after    • box  u@h.example:22
+            已注册为工作区「远程 · box」，但 marker 里记的别名是 "ghost"（不是 "box"），而那个别名不是这个
+            profile 里可用的机器：create 和 remove 都会被拒绝。把 marker 里的 alias 改回 "box"，或者删掉这个目录
+```
+The mismatch is reported whether or not the directory is registered (the registered branch used to win), and when
+the recorded alias is a machine the profile can use, the row keeps the original "use machine: X" wording.
+
+### My own mistakes (two, both mine, both caught)
+
+1. My first version computed the note eagerly (`const elsewhereNote = … printable(marker.alias) …`), which threw
+   `Cannot read properties of null` for **every** machine without a marker — a fresh listing would have been
+   broken for anyone. The test written in the same round crashed on it before the change left the machine.
+2. Rewording the row broke an existing test that pinned the old sentence
+   (`有占位目录，但属于别名 "beta"（不是 "alpha"）`). The suite found it; I updated the assertion to the new wording
+   instead of reverting the clearer text.
+
+### Tests
+
+- New: the listing reports a ghost alias with a way out, and keeps the "use machine: other" wording for a real one.
+  Suite 961 / 956 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.370 — 2026-11-01
 
 ### Fixed — a placeholder whose marker named a deleted machine gave advice nobody could follow

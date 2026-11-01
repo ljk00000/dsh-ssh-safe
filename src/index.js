@@ -1747,15 +1747,27 @@ const trustedLine = (m) => {
           // backslash, never found one, and reported every healthy placeholder as
           // having lost its instructions.
           const missingInstructions = dirExists && !existsSync(joinPath(dir, 'AGENTS.md'))
+          // A marker that records another alias breaks create and remove, so it is
+          // reported whether or not the directory is registered: the registered row
+          // used to say everything was fine while both actions refused. When the
+          // recorded alias is not a machine this profile can use, 'use machine: X' is
+          // advice nobody can follow — say what does work instead.
+          const markerElsewhere = marker && typeof marker.alias === 'string' && marker.alias && marker.alias !== alias
+          const elsewhereUsable = markerElsewhere ? machineUsable(marker.alias) : false
+          // Built only when there is a mismatch: the eager version dereferenced a
+          // null marker and took the whole listing down with a TypeError.
+          const elsewhereNote = !markerElsewhere ? '' :
+            'marker 里记的别名是 "' + printable(marker.alias) + '"（不是 "' + printable(alias) + '"）' +
+              (elsewhereUsable
+                ? '；用 machine: "' + printable(marker.alias) + '" 打开它，或先删除 "' + printable(marker.alias) + '" 的工作区'
+                : '，而那个别名不是这个 profile 里可用的机器：create 和 remove 都会被拒绝。把 marker 里的 alias 改回 "' +
+                  printable(alias) + '"，或者删掉这个目录')
           const state = registryRead.error
             ? '无法读取工作区服务，无法判断是否已注册（' + registryRead.error + '）'
-            : workspace
-              ? '已注册为工作区「' + printable(String(workspace.title || '')) + '」'
-              : (marker && typeof marker.alias === 'string' && marker.alias && marker.alias !== alias)
-                // 'use create to register it' cannot work here: create refuses a
-                // directory that records another alias. Say whose it is instead.
-                ? '有占位目录，但属于别名 "' + printable(marker.alias) + '"（不是 "' + printable(alias) + '"）；' +
-                  '用 machine: "' + printable(marker.alias) + '" 打开它，或先删除 "' + printable(marker.alias) + '" 的工作区'
+            : markerElsewhere
+              ? (workspace ? '已注册为工作区「' + printable(String(workspace.title || '')) + '」，但 ' : '有占位目录，但 ') + elsewhereNote
+              : workspace
+                ? '已注册为工作区「' + printable(String(workspace.title || '')) + '」'
               : marker
                 ? (missingInstructions
                   // The marker records a hash of the endpoint the instructions were
