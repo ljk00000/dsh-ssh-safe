@@ -1944,3 +1944,42 @@ test('the test button honours allowPlaintextPassword from the profile', async ()
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a machine whose only credential is an agent is not reported as having none', async () => {
+  // The page passed useAgent: false, so an agent-only machine failed with '没有可用的
+  // 密码或私钥' while ssh_exec connected through that agent a second later. The
+  // plugin's own resolver has the agent on by default; the page now agrees.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-agent-'))
+  const server = await startServer()
+  const machine = machineFor('agentonly', server.port)
+  // A machine with no password and no key: only the agent could authenticate it.
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+    agentonly: { host: machine.host, port: machine.port, user: machine.user },
+  }), 'utf8')
+  // A socket path that does not answer: the point is which message comes back.
+  const fakeSock = path.join(home, 'agent.sock')
+  const previousSock = process.env.SSH_AUTH_SOCK
+  process.env.SSH_AUTH_SOCK = fakeSock
+  const { child, base, token } = await start(home)
+  try {
+    const result = await call(base, token, '/api/test', { alias: 'agentonly' })
+    const lines = (result.body.lines || []).map(String)
+    assert.equal(result.body.ok, false, lines.join(' | '))
+    // It must not claim there is no credential at all: the agent is one, so the
+    // credential stage has to pass and the failure has to come from the socket.
+    assert.equal(lines.some((line) => /没有可用的密码或私钥/.test(line)), false,
+      'the agent is a credential source: ' + lines.join(' | '))
+    assert.equal(lines.some((line) => /^\[FAIL\] 凭据/.test(line)), false,
+      'the credential stage must pass: ' + lines.join(' | '))
+    // ssh2 names the unusable socket, which is where this fake path leads.
+    assert.ok(lines.some((line) => /socket|cygwin/i.test(line)),
+      'the failure comes from the agent socket: ' + lines.join(' | '))
+  } finally {
+    try { child.kill() } catch {}
+    if (previousSock === undefined) delete process.env.SSH_AUTH_SOCK
+    else process.env.SSH_AUTH_SOCK = previousSock
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})

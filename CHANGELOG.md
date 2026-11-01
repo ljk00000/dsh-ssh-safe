@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.407 — 2026-11-01
+
+### Fixed — the page never used the SSH agent, so an agent-only machine looked credential-less
+
+The same class as yesterday's plaintext bug, one source further down the list. `credentialFor()` ran with
+`useAgent: false`, while the plugin's own resolver has the agent on by default:
+
+```
+machine with host/user and nothing else; SSH_AUTH_SOCK set
+before   测试结论: false   没有可用的密码或私钥，请在上方填写密码后保存
+         ← ssh_exec through the same agent connects a second later
+after    凭据阶段通过；失败只来自那个（假的）socket:
+         [FAIL] 连接: Invalid cygwin unix socket path
+```
+
+The page now passes `useAgent: true`. It is started from the user's shell, so it sees the same `SSH_AUTH_SOCK`, and
+`connectOptions()` already knew how to build an agent config (`config.agent` was checked and reported).
+
+### My own mistake
+
+- My first version of the test demanded the failure message contain "agent". With a fake socket path ssh2 answers
+  "Invalid cygwin unix socket path", which names the socket but not the word — the assertion was about my
+  expectation, not the contract. It now asserts the credential stage passed and the failure came from the socket.
+
+### Tests
+
+- New: an agent-only machine is not reported as having no credential; the credential stage passes and the socket
+  error is what shows.
+  Suite 996 / 991 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.406 — 2026-11-01
 
 ### Fixed — the page said "ignored" about a password the plugin was using

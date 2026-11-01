@@ -787,7 +787,12 @@ async function testConnection(alias) {
   const auth = credentialFor(alias, {
     machines: settings,
     dshHome: credentialHome,
-    useAgent: false,
+    // The agent is the plugin's third source and it is on by default there, so the
+    // page must offer it too: 'useAgent: false' made a machine whose only credential
+    // is an agent test as '没有可用的密码或私钥', while ssh_exec connected through that
+    // same agent a second later. This page is started from the user's shell, so it
+    // sees the same SSH_AUTH_SOCK.
+    useAgent: true,
     // The plugin's own choice, from the same file: with plaintext allowed, a
     // settings-form password is a real credential and the test must use it.
     allowPlaintextPassword: settingsAllowPlaintext(),
