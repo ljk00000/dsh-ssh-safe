@@ -102,3 +102,19 @@ test('closeAll can wait for in-flight work to drain', async () => {
   assert.deepEqual(result.closed, ['slow'], 'it waited for the operation to finish')
   assert.deepEqual(result.busy, [])
 })
+
+test('closeAll reports which peers did not confirm the close', async () => {
+  // The results of closeClient() were discarded, so every closed machine was
+  // reported -- and audited -- as 'ok' even when the peer never answered, while the
+  // single-machine path calls exactly that 'unconfirmed'.
+  const p = pool()
+  p.entry('answers').client = new FakeClient()
+  p.entry('silent').client = {
+    on() {},
+    once() {},
+    end() {},
+  }
+  const result = await p.closeAll({ force: true })
+  assert.deepEqual(result.closed, ['answers', 'silent'])
+  assert.deepEqual(result.unconfirmed, ['silent'], 'only the silent one is unconfirmed')
+})

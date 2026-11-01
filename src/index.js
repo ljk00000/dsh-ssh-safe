@@ -2744,6 +2744,7 @@ skipRemaining('not reached: the host key was rejected first')
     // command on the same or another machine wait for it.
     isConcurrencySafe: () => true,
     async execute(args) {
+      const startedAt = Date.now()
       const alias = normalizeAlias(args.machine || '')
       const force = optionalFlag(args.force, 'force')
       if (alias) {
@@ -2755,6 +2756,10 @@ skipRemaining('not reached: the host key was rejected first')
           machine: alias,
           outcome: result.pending ? 'pending' : result.busy ? 'busy' : result.closed ? (result.confirmed ? 'ok' : 'unconfirmed') : 'none',
           ...(force ? { forced: true } : {}),
+          // Every other row carries its duration; a close row without one was the only
+          // kind you could not time (the wait for an unresponsive peer is exactly what
+          // an operator wants to see there).
+          ms: Date.now() - startedAt,
         })
         if (result.pending) {
           return { text: force
@@ -2781,8 +2786,17 @@ skipRemaining('not reached: the host key was rejected first')
       // The per-machine form records what it did; this one recorded nothing, so the
       // log could not show that a session ever ended -- and 'close everything' is
       // the call people make at the end of a session.
+      // 'Closed: a, b' claimed both when one peer had not answered: the entry was reset
+      // either way, but only one of them actually closed.
+      const unconfirmed = new Set(result.unconfirmed || [])
       for (const name of result.closed) {
-        audit.write({ kind: 'close', machine: name, outcome: 'ok', ...(force ? { forced: true } : {}) })
+        audit.write({
+          kind: 'close',
+          machine: name,
+          outcome: unconfirmed.has(name) ? 'unconfirmed' : 'ok',
+          ...(force ? { forced: true } : {}),
+          ms: Date.now() - startedAt,
+        })
       }
       for (const name of result.busy) {
         audit.write({ kind: 'close', machine: name, outcome: 'busy' })
@@ -2791,7 +2805,12 @@ skipRemaining('not reached: the host key was rejected first')
         audit.write({ kind: 'close', outcome: 'none' })
       }
       const parts = []
-      if (result.closed.length) parts.push('Closed: ' + result.closed.join(', '))
+      const closedNow = result.closed.filter((name) => !unconfirmed.has(name))
+      if (closedNow.length) parts.push('Closed: ' + closedNow.join(', '))
+      if (unconfirmed.size > 0) {
+        parts.push('Requested close but the peer did not confirm: ' + [...unconfirmed].join(', ') +
+          ' — the entries were reset, so the next call reconnects')
+      }
       if (result.busy.length) {
         parts.push('Left open (command running): ' + result.busy.join(', ') +
           ' — pass force: true to cut them off')

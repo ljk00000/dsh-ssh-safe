@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.7.324 — 2026-11-01
+
+### Fixed — `ssh_close` (all machines) audited an unconfirmed close as `ok`
+The single-machine path distinguishes a confirmed close from one the peer never answered; the close-everything
+path threw the results away, so both were reported the same way:
+```
+two machines, one peer frozen after the handshake
+before  Closed: good, frozen
+        {"kind":"close","machine":"good","outcome":"ok"}
+        {"kind":"close","machine":"frozen","outcome":"ok"}      ← never confirmed
+after   Closed: good
+        Requested close but the peer did not confirm: frozen — the entries were reset, so the next call
+        reconnects
+        {"kind":"close","machine":"frozen","outcome":"unconfirmed"}
+```
+`closeAll()` now returns `unconfirmed` (the `closeClient()` results were already awaited, just discarded), and
+the audit and the reply use it.
+
+### Fixed — `close` rows had no `ms` while every other kind did
+A close is the one row an operator cannot time, and the wait for an unresponsive peer is exactly what they
+want to see there: the frozen close above reads `"outcome":"unconfirmed","ms":817`.
+
+### Verified this round (no defect found)
+- `closeAll()` closes the other machines **in parallel** with the frozen one: the whole call took 817 ms with
+  `closeTimeoutMs: 800`, not two deadlines back to back.
+- A machine that is still dialling during close-everything is closed on arrival (the landing promise), so no
+  socket is orphaned by the entry reset.
+
+### My own mistakes
+- The first probe read only the three fields I expected (`kind`, `machine`, `outcome`) and I nearly filed the
+  missing `ms` as a separate finding after already writing the report about `outcome`; both came from the same
+  row and the same absence of care in the rendering.
+
+### Tests
+- New: `closeAll()` names the peer that did not confirm (unit, with a fake client that never emits `close`).
+  Suite 909 / 904 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.323 — 2026-11-01
 
 ### Fixed — an unconfirmed close left the socket half-open

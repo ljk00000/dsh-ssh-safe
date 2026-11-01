@@ -1549,7 +1549,13 @@ export class SshPool {
       if (!e.client && !this.isBusy(alias)) this.entries.delete(alias)
     }
 
-    await Promise.all(clients.map((client) => closeClient(client, pick(this.config.closeTimeoutMs, 1500))))
-    return { closed, busy }
+    // The results were discarded, so every closed machine was reported and audited as
+    // 'ok' even when the peer never answered — the single-machine path says
+    // 'unconfirmed' for exactly that. closed and clients share their order.
+    const outcomes = await Promise.all(
+      clients.map((client) => closeClient(client, pick(this.config.closeTimeoutMs, 1500))),
+    )
+    const unconfirmed = closed.filter((_, index) => outcomes[index] === false)
+    return { closed, busy, unconfirmed }
   }
 }
