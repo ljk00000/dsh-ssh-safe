@@ -4674,3 +4674,39 @@ test('a changed host key is refused, and machineInventory: alias hides where it 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a listing that follows a directory link says whose contents they are', async () => {
+  // 'ls /link' prints the link itself; readdir follows it. The header named the link
+  // and the rows came from somewhere else, so a link to /etc read like a directory of
+  // its own.
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-list-dirlink-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, {
+      defaultMachine: 'box', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+      machines: { box: machineFor('box', server.port) },
+    })
+    const text = async (def, args) => String((await def.execute(args, {})).text)
+    server.vfs.putDir('/etc-ish')
+    server.vfs.putFile('/etc-ish/shadow', 'x')
+    server.vfs.putLink('/applink', '/etc-ish')
+    const listed = await text(tools.ssh_list, { path: '/applink' })
+    assert.match(listed, /列的是链接目标 \/etc-ish 的内容/, listed)
+    assert.match(listed, /shadow/, 'the rows are the target contents: ' + listed)
+
+    // A plain directory says nothing about links.
+    const plain = await text(tools.ssh_list, { path: '/etc-ish' })
+    assert.doesNotMatch(plain, /链接目标/, plain)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

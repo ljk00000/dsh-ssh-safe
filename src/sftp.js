@@ -845,7 +845,7 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
  * @param {any} client
  * @param {string} remotePath
  * @param {{timeoutMs: number, signal?: AbortSignal}} options
- * @returns {Promise<{path: string, items: Array<{name: string, size: number, dir: boolean, mtime: string|null}>}>}
+ * @returns {Promise<{path: string, items: Array<{name: string, size?: number, dir: boolean, type?: string, mtime: string|null, linkTarget?: string}>, viaLink?: {path: string, target: string}|null}>}
  */
 /**
  * Turn SFTP readdir entries into listing rows.
@@ -954,7 +954,23 @@ export async function listRemoteDir(client, remotePath, { timeoutMs, signal }) {
               } catch { /* a link that vanished keeps its row without a target */ }
             }))
           }
-          settle({ path: target, items: rows })
+          // 'ls /link' prints the link; readdir follows it and lists the target's
+        // contents. Saying which directory the rows came from keeps the header from
+        // implying that a link to /etc is a directory of its own.
+        let viaLink = null
+        try {
+          if (typeof sftp.lstat === 'function' && typeof sftp.readlink === 'function') {
+            const attrs = await callSftp(sftp, 'lstat', target)
+            if (attrs && typeof attrs.isSymbolicLink === 'function' && attrs.isSymbolicLink()) {
+              const raw = String(await callSftp(sftp, 'readlink', target))
+              const firstHop = posix.normalize(raw.startsWith('/')
+                ? raw
+                : posix.join(posix.dirname(target), raw))
+              viaLink = { path: target, target: (await followLinkChain(sftp, target, firstHop)) || firstHop }
+            }
+          }
+        } catch { /* the link may be gone; the rows are still the answer */ }
+        settle({ path: target, items: rows, viaLink })
         } catch (err) {
           // An async callback that rejects would leave the promise hanging: the
           // caller then waits for the listing timeout instead of hearing the reason.

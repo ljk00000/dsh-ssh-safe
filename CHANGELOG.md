@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.7.394 — 2026-11-01
+
+### Fixed — a listing of a directory link never said whose contents it showed
+
+`ls /link` prints the link; `readdir` follows it. The header named the link and the rows came from somewhere else,
+so a link to `/etc` read like a directory of its own:
+
+```
+before   /applink
+         -  15  …  shadow                ← this is /etc-ish/shadow
+after    /applink
+         （列的是链接目标 /etc-ish 的内容）
+         -  15  …  shadow
+```
+
+`listRemoteDir()` `lstat`s the path it was given and, when it is a link, resolves the chain into `viaLink`;
+`formatListing()` prints the note under the header. A plain directory adds nothing (and the extra `lstat` is the
+only cost).
+
+### My own mistakes (two)
+
+1. The new test called `ssh_list` with no `machine` and no `defaultMachine` — the plugin answered exactly as it is
+   supposed to ("No machine given…"), and the failure was my test config, not the code.
+2. `tsc` reported **3** errors: `viaLink` was missing from two JSDoc shapes (`formatListing` and `listRemoteDir`).
+   Fifth time this session that the type checker saw what the suite did not.
+
+### Verified this round (no defect found)
+
+- `machineInventory: "alias"` leaks nothing across `ssh_credentials`, `ssh_machines`, `ssh_config`, the
+  session-password refusal and `ssh_doctor` for a machine with a key path: the probe searched for the host, the
+  port, two other hosts, the key path and its basename — zero hits in all five.
+
+### Tests
+
+- New: a listing of a directory link names the target; a plain directory does not.
+  Suite 984 / 979 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.393 — 2026-11-01
 
 ### Fixed — a link two levels up was still invisible to a write

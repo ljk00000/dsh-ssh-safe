@@ -130,7 +130,7 @@ export function plural(count, noun) {
 /**
  * Render a directory listing.
  *
- * @param {{path: string, items: Array<{name: string, size: number, dir: boolean, type?: string, mtime?: string|null, linkTarget?: string}>}} listing
+ * @param {{path: string, items: Array<{name: string, size: number, dir: boolean, type?: string, mtime?: string|null, linkTarget?: string}>, viaLink?: {path: string, target: string}|null}} listing
  * @param {number} [limit] maximum rows; 0 or absent means no limit
  * @param {number} [offset] rows to skip after sorting, for paging
  * @returns {string}
@@ -182,5 +182,10 @@ export function formatListing(listing, limit = 0, offset = 0) {
     return shownPath + '\n(offset ' + start + ' is past the last of ' + sorted.length + ' entries)'
   }
 
-  return shownPath + '\n' + head + rows.join('\n') + tail
+  // The rows came from the link's target, not from a directory of that name:
+  // 'ls /link' prints the link itself, readdir follows it.
+  const linkNote = listing && listing.viaLink && listing.viaLink.target
+    ? '（列的是链接目标 ' + printable(String(listing.viaLink.target)) + ' 的内容）\n'
+    : ''
+  return shownPath + '\n' + linkNote + head + rows.join('\n') + tail
 }
