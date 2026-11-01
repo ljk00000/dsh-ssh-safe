@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.7.411 — 2026-11-01
+
+### Fixed — `ssh_workspace` wrote no audit record, so the layout change left no trace
+
+Measured with `auditLog: true`, calling every tool once: `connect`, `close`, `exec`, `read`, `write`, `list` and
+`doctor` each wrote a record — `ssh_workspace` wrote none. It is the only tool that creates and deletes a directory
+(and with `deleteFiles: true` the files inside it):
+
+```
+before   (no row at all)
+after    2026-11-01 06:10:53Z box workspace create ok
+         2026-11-01 06:10:53Z box workspace remove ok
+         2026-11-01 06:10:53Z nope workspace create error
+               1ms  error: 机器 "nope" 还没有主机或用户 …
+```
+
+Two parts: the tool now records `kind: workspace` with the action, machine, outcome, duration and error text, and
+the audit renderer shows the action after the kind — `box workspace ok` said that something happened without
+saying what. `list` stays out of the trail: it changes nothing.
+
+`ssh_machines`, `ssh_credentials` and `ssh_config` also write no record; they only print what the configuration
+says, and an audit of read-only inventory would bury the operations that matter.
+
+### Verified this round (no defect found)
+
+- Audit rotation end to end: a 4 MB log rotates on the next write (`audit.ndjson.1`, live file 327 bytes), and
+  `ssh_audit` reads across generations — "Showing the newest 3 of 43001 records", oldest first, newest last.
+  The unit tests cover rotation well, so this was a sanity check rather than a gap.
+
+### My own mistakes
+
+- The audit-coverage probe printed `undefined` because I took `.text` of a helper that already returns a string —
+  the first run "proved" that no tool writes a record, which was false.
+- The first patch attempt matched on a line ending the file does not use (`\r\n`) and threw before writing; the
+  second attempt matched on the stripped line and inserted CRLF-terminated lines.
+
+### Tests
+
+- New: create/remove/failed-create each leave a record, the row names the action, and `list` leaves none.
+  Suite 1000 / 995 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.410 — 2026-11-01
 
 ### New — only `ssh_list` accepts a relative path (pinned at tool level)

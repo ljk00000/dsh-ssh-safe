@@ -2033,3 +2033,42 @@ test('a credential entry that is not an object is named by its shape', async () 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('ssh_workspace records what it did, and the row names the action', async () => {
+  // ssh_workspace was the one tool that wrote no audit record, and it is the one
+  // that creates and deletes a directory (with deleteFiles, files too): the trail
+  // said nothing about the only operation that changes the local layout.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-ws-audit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+    box: { host: 'h.example', user: 'u' },
+  }), 'utf8')
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', auditLog: true,
+      machines: { box: { host: 'h.example', user: 'u' }, nope: {} },
+    })
+    const text = async (def, args) => String(await def.execute(args, {})
+      .then((result) => result.text, (err) => 'ERR: ' + err.message))
+    const empty = await text(tools.ssh_workspace, { action: 'list' })
+    assert.doesNotMatch(empty, /^ERR/)
+    assert.match(await text(tools.ssh_workspace, { action: 'create', machine: 'box' }), /已创建远程工作区/)
+    assert.match(await text(tools.ssh_workspace, { action: 'remove', machine: 'box', deleteFiles: true }), /占位目录已删除/)
+    assert.match(await text(tools.ssh_workspace, { action: 'create', machine: 'nope' }), /^ERR/)
+
+    const audit = await text(tools.ssh_audit, { limit: 10 })
+    assert.match(audit, /box workspace create ok/, audit)
+    assert.match(audit, /box workspace remove ok/, audit)
+    assert.match(audit, /nope workspace create error/, audit)
+    // A listing is read-only: it must not fill the trail.
+    assert.doesNotMatch(audit, /workspace list/, audit)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

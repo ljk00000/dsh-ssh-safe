@@ -1725,6 +1725,29 @@ const trustedLine = (m) => {
     isConcurrencySafe: () => true,
     async execute(args) {
       const action = String(args.action === undefined || args.action === null ? 'list' : args.action).toLowerCase()
+      const auditStarted = Date.now()
+      // ssh_workspace creates and deletes a directory (with deleteFiles, files too)
+      // and wrote no audit record at all: the trail was silent about the one action
+      // that changes the local layout. A listing is read-only and stays out of it.
+      const recordWorkspace = (outcome, extra) => {
+        if (action === 'list') return
+        audit.write({
+          kind: 'workspace', action, machine: String(args.machine || ''),
+          outcome, ms: Date.now() - auditStarted, ...extra,
+        })
+      }
+      try {
+        const result = await workspaceBody()
+        recordWorkspace('ok')
+        return result
+      } catch (err) {
+        recordWorkspace(outcomeOf(err), {
+          error: clipText(auditText(String(args.machine || ''), err && err.message ? err.message : String(err)), 200),
+        })
+        throw err
+      }
+
+      async function workspaceBody() {
       // Reject an unknown action before anything else: it used to fall through
       // to the machine check and answer "action \"nope\" needs machine", which
       // sends the caller looking at the wrong argument.
@@ -2071,6 +2094,7 @@ const trustedLine = (m) => {
 
       // The three actions above return; anything else is a bug in this file.
       throw new Error('action 已校验却未处理：' + action)
+      }
     },
   })
 
@@ -2212,7 +2236,11 @@ function blockingFileAbove(dir) {
         const hasExit = r.exitCode !== null && r.exitCode !== undefined
         const hasSignal = Boolean(r.signal)
         const repeats = (r.outcome === 'exit' && hasExit) || (r.outcome === 'signal' && hasSignal)
-        const parts = [when, machine.trim(), printable(field(r.kind) || '?')]
+        // A workspace record names its action, not a command or a path: 'box workspace ok'
+        // said something happened but not whether a directory was created or deleted.
+        const kindText = printable(field(r.kind) || '?') +
+          (r.kind === 'workspace' && r.action ? ' ' + printable(field(r.action)) : '')
+        const parts = [when, machine.trim(), kindText]
         if (!repeats) parts.push(printable(field(r.outcome)))
         if (Number.isInteger(r.exitCode)) parts.push('exit=' + r.exitCode)
         // A signal death has no exit status: without this the row said only
