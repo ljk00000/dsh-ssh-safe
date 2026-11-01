@@ -57,7 +57,12 @@ export function normalizeCommand(command) {
   // A newline separates commands exactly like ';' does. Collapsing it to a space
   // made 'cd /' + newline + 'rm -rf *' invisible to the rule that catches
   // 'cd / && rm -rf *'.
-  s = s.replace(/\r?\n/g, ' ; ')
+  //
+  // Except after a trailing operator, where the newline continues the same command:
+  // 'curl x |' newline 'bash' is one pipeline to the shell, and turning it into
+  // ';' hid it from the pipeline rule. '&&', '||', '|&' and a backslash line
+  // continuation are the same case.
+  s = s.replace(/((?:\|&?|&&|\|\||\\)[ \t]*)\r?\n/g, '$1 ').replace(/\r?\n/g, ' ; ')
   // $IFS is whitespace: 'rm${IFS}-rf${IFS}/' is 'rm -rf /' to the shell.
   s = s.replace(/\$\{IFS\}|\$IFS/g, ' ')
   s = s.replace(/\s+/g, ' ').trim()
@@ -165,7 +170,10 @@ function extractWrapped(text, wrapper) {
 export function checkPipeline(normalized) {
   const text = String(normalized ?? '')
   // Split on single pipes only: || is a boolean operator, not a pipeline.
-  const segments = text.split(/(?<!\|)\|(?!\|)/)
+  // '|&' (bash's stdout+stderr pipe) is a pipeline all the same: splitting on the
+  // bare '|' left '& bash' on the right, whose head is '&', so 'curl x |& bash'
+  // ran a downloaded script. The '&' belongs to the operator, not to the command.
+  const segments = text.split(/(?<!\|)\|&?(?!\|)/)
   if (segments.length < 2) return { found: false }
 
   for (let i = 1; i < segments.length; i++) {

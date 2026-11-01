@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.413 — 2026-11-01
+
+### Fixed — `curl x |& bash` and a pipe at the end of a line ran a downloaded script
+
+Two spellings reached the shell as a pipeline but not the guard:
+
+```
+before   curl x |& bash          allowed   ← splitting on '|' left '& bash', head '&'
+before   curl x |
+         bash                    allowed   ← normalizeCommand turned the newline into " ; "
+
+after    both                    REFUSED   pipes into bash
+```
+
+Two causes, two fixes:
+
+- `checkPipeline()` splits on `/(?<!\|)\|&?(?!\|)/` — the `&` belongs to bash's `|&` operator, not to the command.
+  `||` stays a boolean operator.
+- `normalizeCommand()` keeps a newline as a command separator **unless** it follows a trailing `|`, `|&`, `&&`,
+  `||` or a backslash, where the shell continues the same command. `cd /` + newline + `rm -rf *` is still
+  refused, and `echo one` + newline + `echo two` is still two commands.
+
+### My own mistake
+
+- The round-203 probe that "checked" newlines wrote them as a literal backslash-n: the string never contained a
+  newline, so that half of the matrix was never tested. The first probe of this round inherited the same escaping
+  and reported the pipe-continuation case as allowed by design until I printed `normalizeCommand()` output and saw
+  `"curl x | ; bash"`.
+
+### Tests
+
+- New: `|&`, `|`+newline, `|&`+newline are refused with "pipes into …"; `ls |& grep x`, `ls || true`, `ls && true`,
+  a two-line command and `ls | head -3` stay allowed; the newline-as-separator rule still catches
+  `cd /` + newline + `rm -rf *`.
+  Suite 1001 / 996 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.412 — 2026-11-01
 
 ### New — more spellings of "pipe into an interpreter" are pinned
