@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.404 — 2026-11-01
+
+### New — an empty password box keeps the stored password; three spaces are a password
+
+The settings page sends the password field as typed, and neither behaviour was tested:
+
+```
+save { alias: "box", host: "h2.example", password: "" }   → host updated, passwordDpapi unchanged
+save { alias: "box", password: "   " }                   → a NEW blob: spaces are a password of their own
+```
+
+The first half is the one that matters: the box is empty on every visit, so if `""` were written as a password,
+saving any other field would silently wipe the stored one. The second half pins that nothing trims it away.
+
+### Verified this round (no defect found)
+
+- `ssh_close` while a command runs refuses with advice ("pass force: true to cut it off") and leaves the command
+  alone; `force: true` cuts it and the command reports its output as partial. (Both were already pinned; the probe
+  re-confirmed them at 0 ms refusal, 1 client still open.)
+- `maxConnections: 1` with a command running on one machine does not evict the busy connection: using a second
+  machine closed the *new* idle one and the running command finished normally.
+- A corrupt `credentials.json` and a BOM-prefixed one are handled the same way by the plugin and by the page:
+  the BOM lists its machines, the corrupt one is refused with the parse error and the file named.
+- A per-machine `knownHosts` that is a directory, junk, or empty is named as such by `ssh_connect` and by the
+  listing (`known-hosts store unreadable (EISDIR / parse error)`).
+- Wrong password: the doctor names the authentication stage, marks shell and sftp "not reached: the server refused
+  the credential", and the audit records both the error kind and the reason.
+
+### Tests
+
+- New: the two save shapes above. Suite 993 / 988 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.403 — 2026-11-01
 
 ### New — the five shapes of a malformed credential entry are pinned

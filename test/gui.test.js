@@ -1866,3 +1866,34 @@ test('the page inline script parses', () => {
   assert.doesNotThrow(() => new vm.Script(match[1], { filename: 'gui.html#inline' }),
     'the inline script must parse')
 })
+
+test('an empty password box leaves the stored password alone, and spaces are a password', async () => {
+  // The page sends the field value as typed. '' has to mean "do not change" — the
+  // box is prefilled with nothing, so saving another field would otherwise wipe the
+  // password. '   ' is a different thing: a password made of spaces is legal, and
+  // silently trimming it would store a password the user never typed.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-empty-pw-'))
+  const { child, base, token } = await start(home)
+  try {
+    const first = await call(base, token, '/api/save',
+      { alias: 'box', host: 'h.example', user: 'u', password: 'first-password' })
+    assert.equal(first.status, 200, JSON.stringify(first.body))
+    const stored = () => JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
+    const blobAfterFirst = stored().box.passwordDpapi
+    assert.ok(blobAfterFirst, 'the password is stored encrypted')
+
+    // Saving the same entry again with an empty box keeps the blob.
+    const second = await call(base, token, '/api/save', { alias: 'box', host: 'h2.example', user: 'u', password: '' })
+    assert.equal(second.status, 200, JSON.stringify(second.body))
+    assert.equal(stored().box.passwordDpapi, blobAfterFirst, 'an empty box must not touch the password')
+    assert.equal(stored().box.host, 'h2.example', 'the other field was saved')
+
+    // Three spaces are a password of their own: a new blob, not the old one.
+    const third = await call(base, token, '/api/save', { alias: 'box', host: 'h2.example', user: 'u', password: '   ' })
+    assert.equal(third.status, 200, JSON.stringify(third.body))
+    assert.notEqual(stored().box.passwordDpapi, blobAfterFirst, 'spaces are stored as typed, not trimmed away')
+  } finally {
+    try { child.kill() } catch {}
+    rmSync(home, { recursive: true, force: true })
+  }
+})
