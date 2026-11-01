@@ -3914,3 +3914,47 @@ test('a gate refusal names which direction it stopped', async () => {
     rmSync(home2, { recursive: true, force: true })
   }
 })
+
+test('a per-machine host key policy is what the reply reports', async () => {
+  // The connect reply tested the GLOBAL policy: a machine set to 'off' under a
+  // global 'tofu' printed a fingerprint line with no man-in-the-middle warning,
+  // exactly like a verified connection. A typo ('stict') was ignored silently.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-policy-reply-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  const srv2 = await startServer()
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      offbox: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass', hostKeyPolicy: 'off' },
+      typo: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass', hostKeyPolicy: 'stict' },
+      spaced: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass', hostKeyPolicy: ' OFF ' },
+    }), 'utf8')
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+    })
+    const attempt = async (promise) => {
+      try { return String((await promise).text) } catch (err) { return 'ERR: ' + err.message }
+    }
+    const off = await attempt(own.ssh_connect.execute({ machine: 'offbox' }, {}))
+    assert.match(off, /WARNING: the host key policy in effect is "off"/, off)
+    const typo = await attempt(own.ssh_connect.execute({ machine: 'typo' }, {}))
+    assert.match(typo, /sets hostKeyPolicy to "stict", which is not one of strict \| tofu \| off, so the global "tofu" was used/, typo)
+    // Trimmed and lower-cased values are accepted, so no typo warning for them.
+    const spaced = await attempt(own.ssh_connect.execute({ machine: 'spaced' }, {}))
+    assert.doesNotMatch(spaced, /is not one of strict/, spaced)
+    assert.match(spaced, /the host key policy in effect is "off"/, spaced)
+    // The listing says the same thing without connecting.
+    const listed = String((await own.ssh_machines.execute({}, {})).text)
+    assert.match(listed, /hostKeyPolicy: stict  \(not one of strict \| tofu \| off, so the global "tofu" is used\)/)
+    assert.doesNotMatch(listed, /hostKeyPolicy: " OFF "  \(not one of/)
+  } finally {
+    await own.ssh_close.execute({ force: true }, {}).catch(() => {})
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await Promise.race([srv2.close(), new Promise((resolve) => setTimeout(resolve, 1000))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})

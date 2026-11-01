@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.7.344 — 2026-11-01
+
+### Fixed — the connect reply reported the GLOBAL host key policy, not the one in effect
+A machine can override `hostKeyPolicy`, and `effectivePolicy()` is what the connection used. The reply tested the
+global value instead, so a machine set to `off` under a global `tofu` printed a fingerprint line with no warning:
+```
+credentials.json: { offbox: { …, hostKeyPolicy: "off" } }    plugin: hostKeyPolicy: "tofu"
+before  Connected: tester@127.0.0.1:6567
+        Host key: SHA256:tL6Sfozk…                              <- looks verified, nothing said
+after   Connected: tester@127.0.0.1:6567
+        Host key: SHA256:tL6Sfozk…
+        WARNING: the host key policy in effect is "off" — this connection is not protected against a
+        man-in-the-middle.
+```
+
+### Fixed — a misspelled per-machine policy was ignored in silence
+`effectivePolicy()` ignores a machine value that is not `strict | tofu | off` and falls back to the global one —
+fail-safe, and the right call. But nothing said so, so `hostKeyPolicy: "stict"` meant for `strict` silently ran
+under the global:
+```
+after  ssh_connect   WARNING: this machine sets hostKeyPolicy to "stict", which is not one of
+                     strict | tofu | off, so the global "tofu" was used.
+       ssh_machines  hostKeyPolicy: stict  (not one of strict | tofu | off, so the global "tofu" is used)
+       hostKeyPolicy: " OFF "              <- trimmed and lower-cased, accepted, no note
+```
+
+### Verified this round (no defect found)
+- `ssh_doctor` was already right: it reads the pool entry, which uses the effective policy, so a machine-level
+  `off` reports `[warn] host key: NOT verified: hostKeyPolicy is "off" …` and a machine-level `strict` fails the
+  stage on an untrusted key.
+
+### My own mistakes
+- My first probe only asked the doctor and `ssh_exec`, which never print the policy, and I nearly concluded the
+  per-machine override was handled everywhere. Printing the `ssh_connect` reply is what showed the global was
+  being reported.
+
+### Tests
+- New: a machine-level `off` under a global `tofu` gets the man-in-the-middle warning, a typo is named with the
+  global that was used, a padded `" OFF "` is accepted without a note, and the listing says the same without
+  connecting.
+  Suite 933 / 928 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.343 — 2026-11-01
 
 ### Fixed — a credential file with the wrong types printed `[object Object]` in three tools

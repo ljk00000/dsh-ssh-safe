@@ -24,7 +24,7 @@ import { readFileSync, existsSync, statSync } from 'node:fs'
 import net from 'node:net'
 import { homedir } from 'node:os'
 import { dirname as dirnameOf, join as joinPath } from 'node:path'
-import { SshPool, expandHome, formatHost, hideAddress, pick } from './pool.js'
+import { SshPool, effectivePolicy, expandHome, formatHost, hideAddress, pick } from './pool.js'
 import { envNames, expectedEnv, redact } from './credentials.js'
 import {
   credentialFor,
@@ -846,7 +846,15 @@ function assertKnownArgs(args, known, toolName) {
     return 'error'
   }
 
-  const trustedLine = (m) => {
+  // '' means 'inherit the global policy'; anything else must be one of the three,
+// or effectivePolicy() quietly uses the global one.
+const machinePolicyIgnored = (m, cfg) => {
+  const value = String(m.hostKeyPolicy || '').trim().toLowerCase()
+  if (value === '' || value === 'strict' || value === 'tofu' || value === 'off') return false
+  return true
+}
+
+const trustedLine = (m) => {
     // A per-machine knownHosts override goes through the same ~ expansion the
     // pool uses; without it a "~/.ssh/x.json" value is read as a literal path.
     const file = m.knownHosts ? expandHome(m.knownHosts) : storePath(dshHome)
@@ -1008,6 +1016,11 @@ function assertKnownArgs(args, known, toolName) {
           '• ' + printable(alias) + (alias === defaultAlias ? '  (default)' : '') + '  ' + endpoint +
           '\n    auth: ' + authKind +
           '\n    hostKeyPolicy: ' + printable(m.hostKeyPolicy || cfg.hostKeyPolicy) +
+          // A per-machine value that is not one of the three is ignored by
+          // effectivePolicy() -- fail-safe, but the listing showed 'off-ish' as if it
+          // were in effect, and the connection then behaved like the global policy.
+          (machinePolicyIgnored(m, cfg) ? '  (not one of strict | tofu | off, so the global' +
+            ' "' + effectivePolicy(cfg.hostKeyPolicy, '') + '" is used)' : '') +
           '\n    ' + trustedLine(m) +
           (lean
             ? ''
@@ -1133,12 +1146,20 @@ function assertKnownArgs(args, known, toolName) {
           ' connection asks again (and fails under hostKeyPolicy: strict). Add it with' +
           ' ssh-keyscan -p ' + m.port + ' ' + m.host + ' >> "' + expandHome(m.knownHosts) + '".'
         : ''
+      // The machine may override the policy, and effectivePolicy() is what the
+      // connection actually used. Testing the GLOBAL value printed a fingerprint line
+      // with no warning for a machine set to 'off' under a global 'tofu'.
+      const effective = effectivePolicy(cfg.hostKeyPolicy, m.hostKeyPolicy)
       return { text:
         'Connected: ' + endpointOf(m) +
-        '\nHost key: ' + (entry.fingerprint || 'NOT VERIFIED (policy: ' + cfg.hostKeyPolicy + ')') +
+        '\nHost key: ' + (entry.fingerprint || 'NOT VERIFIED (policy: ' + effective + ')') +
         '\nPool: ' + stats.live + ' live' + (stats.limit > 0 ? ' / ' + stats.limit + ' max' : ' (no limit)') +
         readOnlyTrust +
-        (cfg.hostKeyPolicy === 'off' ? '\n\nWARNING: hostKeyPolicy is "off" — this connection is not protected against a man-in-the-middle.' : '') +
+        (effective === 'off' ? '\n\nWARNING: the host key policy in effect is "off" — this connection is not protected against a man-in-the-middle.' : '') +
+        (machinePolicyIgnored(m, cfg)
+          ? '\n\nWARNING: this machine sets hostKeyPolicy to "' + printable(String(m.hostKeyPolicy)) +
+            '", which is not one of strict | tofu | off, so the global "' + effective + '" was used.'
+          : '') +
         credentialWarnings(alias, optionalText(args.password, 'password'))
           .map((warning) => '\n[note] ' + warning)
           .join('') +
