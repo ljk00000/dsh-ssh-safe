@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.7.381 — 2026-11-01
+
+### Fixed — `--alias` with no value stored the password under a machine called `true`
+The argument parser turns a bare `--option` into the boolean `true`, and the alias check ran
+`String(args.alias || '')` — so the boolean became the name:
+```
+node scripts/set-password.mjs --alias --host h.example --password pw
+before   Stored for "true":        ← a machine nobody will ever look up, reported as stored
+after    --alias needs a value (for example --alias <text>)     (exit 2, nothing written)
+```
+It applied to every value option, not just `--alias`: `--host` alone stored a host called `true`. Flags
+(`--plaintext`, `--key-passphrase`, `--clear-*`, `--help`) still parse as flags; anything else says what it needs.
+
+### Also fixed — an alias with control characters was printed raw
+`Alias "a<ESC>[31mRED" contains characters…` let the terminal obey the escape, and a newline in the alias split the
+message in two. Both refusal messages now use the plugin's `printable()`.
+
+### My own mistakes (three)
+
+1. **I wrote into the real DSH home.** My probe used `$home` as a PowerShell variable, but `$HOME` is read-only and
+   already means `C:\Users\Administrator`; the probe therefore set `DSH_HOME` to the real home and
+   `set-password.mjs` created `C:\Users\Administrator\dsh-ssh-safe\credentials.json` with two junk entries
+   (`keyPath` `C:\keys\id` and `C:\keys\id2`). I checked that the file held only those two, then removed the file,
+   the leftover lock and the directory; `Test-Path` confirms it is gone.
+2. My release cell had a syntax error (three array elements, one comma), so **none** of its statements ran — the
+   version bump and the changelog entry were skipped while the commit and tag went through.
+3. The result was a `v0.7.381` tag whose commit still said `0.7.380`. Fixed by bumping, committing, re-pointing the
+   tag at the new commit and force-pushing it, then re-deploying.
+
+### Verified this round (no defect found)
+
+- The GUI takes the store lock for the four write endpoints and releases it in a `finally` on every path, including
+  early returns and thrown errors.
+- `--port 0` clears the stored port, and `--port 99999` / `--port abc` are refused by name.
+- Reserved aliases (`__proto__`, `constructor`, `prototype`) are refused; `toString` / `hasOwnProperty` are lowercased
+  to `tostring` / `hasownproperty` and stored safely, with the stored name in the reply.
+
+### Tests
+
+- New: a bare value option is refused for `--alias`, `--host`, `--user` and `--password`, and a normal run still
+  stores exactly `box`.
+  Suite 971 / 966 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.380 — 2026-11-01
 
 ### Fixed — `withStoreLock` released the lock before an async callback finished
