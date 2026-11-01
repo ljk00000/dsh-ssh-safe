@@ -4295,3 +4295,38 @@ test('mode accepts the spellings people type and refuses the rest', async () => 
       'nothing may be written for a refused mode: ' + bad)
   }
 })
+
+test('exactly maxListEntries entries is not reported as truncated', async () => {
+  // The off-by-one that matters: at cap-1, cap and cap+1 entries the reply must
+  // show 2, 3 and 3 rows, and only the last one may mention anything hidden.
+  // The fixture's own cap is 2000, so this runs its own plugin instance at 3.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-list-fit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply(
+      { tools: { register: (def) => { own[def.name] = def } }, effect: () => {}, get: () => undefined },
+      {
+        hostKeyPolicy: 'tofu', allowPlaintextPassword: true, maxListEntries: 3,
+        reconnectCooldownMs: 0, connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+        machines: { box: machineFor('box', srv.port) },
+      },
+    )
+    for (const count of [2, 3, 4]) {
+      const dir = '/fit' + count
+      srv.vfs.putDir(dir)
+      for (let i = 0; i < count; i++) srv.vfs.putFile(dir + '/f' + i + '.txt', 'x')
+      const text = String((await own.ssh_list.execute({ machine: 'box', path: dir }, {})).text)
+      const rows = (text.match(/f\d\.txt/g) || []).length
+      assert.equal(rows, Math.min(count, 3), 'row count for ' + count + ' entries: ' + text)
+      if (count <= 3) assert.doesNotMatch(text, /more entries not shown/, 'nothing is hidden at ' + count + ': ' + text)
+      else assert.match(text, /1 more entry not shown \(maxListEntries = 3\)/, text)
+    }
+  } finally {
+    try { await own.ssh_close.execute({ force: true }, {}) } catch {}
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

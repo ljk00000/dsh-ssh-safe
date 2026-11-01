@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.375 — 2026-11-01
+
+### New — the exact-fit list boundary is a test
+A cap that is exactly the entry count is where "… N more" notes usually lie. Measured with `maxListEntries: 3`:
+```
+2 entries   → 2 rows, no note
+3 entries   → 3 rows, no note        ← exactly the cap
+4 entries   → 3 rows + "… 1 more entry not shown (maxListEntries = 3) — pass offset: 3 to continue"
+```
+
+### Verified this round (no defect found)
+
+- `ssh_audit` at `limit` 2 / 3 / 4 over 3 records answers 2 / 3 / 3 rows with no "older records" note — the same
+  exact-fit shape, clean.
+- `ssh_read` with `maxBytes` equal to `maxFileBytes` and a file of exactly that size returns 1024 bytes and no
+  truncation note; one byte more gets the note.
+- `ssh_list` offsets: `-1` and `-3` are refused (`offset must be 0 or more (received -1)`), `0.5` / `"2"` / `null`
+  are refused by the schema, and `1e9` answers `(offset 1000000000 is past the last of 5 entries)`.
+- `ssh_config` already warns that custom `denyPatterns` **replace** the built-ins:
+  `denyPatterns  "1 pattern(s) — replaces the 13 built-in rules"`, with the count taken from the real list.
+
+### My own mistake
+
+- The first version of the new test assumed the fixture's `maxListEntries` was 3 (it is 2000, as in my probe). The
+  failure printed all four rows, which is what made the mistake obvious; the test now runs its own plugin instance.
+
+### Tests
+
+- New: the exact-fit list boundary above.
+  Suite 965 / 960 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.374 — 2026-11-01
 
 ### New — the `mode` spellings people actually type are pinned
