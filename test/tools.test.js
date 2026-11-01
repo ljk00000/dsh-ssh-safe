@@ -1394,6 +1394,45 @@ test('a denied command is refused before the confirmation gate asks for confirm'
   }
 })
 
+test('a hostile audit record cannot repaint the terminal, and names no [object Object]', async () => {
+  // A tampered or corrupted audit file can hold any type in any field. The
+  // renderer printed a NUL and an ANSI escape from `mode` and `reason` raw, and
+  // '[object Object]' where a timestamp, a rule or a direction should be.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-audit-hostile2-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    const rows = [
+      { at: { when: 'yesterday' }, kind: 'write', outcome: 'ok', mode: '\u0000\u001b[31mred', path: '/x' },
+      { at: '2026-11-01T00:00:00Z', kind: 'refused', outcome: 'blocked', reason: { why: 1 }, pattern: 'a\u001b[2Jb' },
+      { at: '2026-11-01T00:00:01Z', kind: 'refused', outcome: 'blocked', direction: ['read from'], error: { e: 1 } },
+      { at: '2026-11-01T00:00:02Z', kind: 'exec', outcome: 'ok', command: 'echo hi', mode: {}, hostKey: [1, 2] },
+    ]
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'),
+      rows.map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8')
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', auditLog: true, machines: {},
+    })
+    const shown = String((await own.ssh_audit.execute({ limit: 10 }, {})).text)
+    for (const line of shown.split('\n')) {
+      assert.doesNotMatch(line, /\u001b/, 'an escape sequence reached the terminal: ' + JSON.stringify(line))
+      assert.doesNotMatch(line, /\u0000/, 'a NUL reached the terminal: ' + JSON.stringify(line))
+      assert.doesNotMatch(line, /\[object Object\]/, 'a value was lost as [object Object]: ' + JSON.stringify(line))
+    }
+    // The content is still there, escaped rather than dropped.
+    assert.match(shown, /mode .*x1b\[31mred/)
+    // The timestamp column is the first 19 characters, so an object arrives clipped
+    // but visible: it used to be the string '[object Object]'.
+    assert.match(shown, /\{"when":"yesterday/, 'an object timestamp is shown as JSON')
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('a record that parses but carries nothing is not printed as a bare question mark', async () => {
   // A hand-edited log line '{}' rendered as '?' on its own row, which reads as a
   // rendering bug rather than as a damaged record.

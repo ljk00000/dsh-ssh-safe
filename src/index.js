@@ -2047,7 +2047,9 @@ function blockingFileAbove(dir) {
         // clock said 19:46. Mark a UTC stamp as UTC; leave anything else as it is.
         // 0 is epoch 0, not "no timestamp": the falsy check dropped the column
         // and the row started with the machine name.
-        const stamp = r.at === undefined || r.at === null ? '' : String(r.at)
+        // field(), not String(): a hand-edited record whose 'at' is an object
+        // rendered the whole row's timestamp as '[object Object]'.
+        const stamp = r.at === undefined || r.at === null ? '' : field(r.at)
         const when = printable(stamp.replace('T', ' ').slice(0, 19)) + (/Z$/.test(stamp) ? 'Z' : '')
         // A command or path in the log is remote text: an escape sequence there
         // repainted the terminal of whoever was reading the audit trail.
@@ -2059,10 +2061,10 @@ function blockingFileAbove(dir) {
         const repeats = (r.outcome === 'exit' && hasExit) || (r.outcome === 'signal' && hasSignal)
         const parts = [when, machine.trim(), printable(field(r.kind) || '?')]
         if (!repeats) parts.push(printable(field(r.outcome)))
-        if (r.exitCode !== null && r.exitCode !== undefined) parts.push('exit=' + r.exitCode)
+        if (Number.isInteger(r.exitCode)) parts.push('exit=' + r.exitCode)
         // A signal death has no exit status: without this the row said only
         // "exit=" with nothing after it.
-        if (r.signal) parts.push('signal=' + r.signal)
+        if (r.signal) parts.push('signal=' + printable(field(r.signal)))
         // Show the subject: a command for exec, a path for transfers.
         const subject = printable(field(r.command || r.path || r.pattern))
         if (subject) parts.push(subject)
@@ -2086,30 +2088,35 @@ function blockingFileAbove(dir) {
         const bytesText = amount(r.bytes, 'B')
         if (bytesText) detail.push(bytesText)
         // Where a write actually landed, and who can read it afterwards.
-        if (r.mode) detail.push('mode ' + String(r.mode))
-        if (r.linkTarget) detail.push('via link ' + printable(r.linkTarget))
+        // Every detail value is file text: a tampered record put a NUL and an ANSI
+        // escape here, which repainted the terminal of whoever read the trail — the
+        // very thing printable() exists to stop for commands and paths.
+        if (r.mode) detail.push('mode ' + printable(field(r.mode)))
+        if (r.linkTarget) detail.push('via link ' + printable(field(r.linkTarget)))
         const entriesText = Number.isFinite(r.entries)
           ? String(r.entries) + (r.entries === 1 ? ' entry' : ' entries')
           : ''
         if (entriesText) detail.push(entriesText)
         if (r.truncated) detail.push('truncated')
         if (r.redacted === true) detail.push('redacted')
-        if (r.hostKey) detail.push('host key ' + printable(String(r.hostKey)))
-        if (r.fingerprint) detail.push(printable(String(r.fingerprint)))
+        if (r.hostKey) detail.push('host key ' + printable(field(r.hostKey)))
+        if (r.fingerprint) detail.push(printable(field(r.fingerprint)))
         const msText = amount(r.ms, 'ms')
         if (msText) detail.push(msText)
-        if (r.reason) detail.push('reason=' + r.reason)
+        if (r.reason) detail.push('reason=' + printable(field(r.reason)))
         // 'matches deny pattern' is the matcher talking. The rule it matched is
         // what tells an operator whether the refusal was right.
-        if (r.pattern) detail.push('rule: ' + describeRule(String(r.pattern)))
+        // describeRule() says the text is unavailable when it is not a string;
+        // skipping the line entirely lost the fact that a rule refused the command.
+        if (r.pattern !== undefined && r.pattern !== null) detail.push('rule: ' + describeRule(r.pattern))
         // Bare, this read as a cut-off sentence: 'reason=execGuard is "confirm" and
         // confirm was not passed  read from'. It names which gate refused.
-        if (r.direction) detail.push('direction=' + printable(String(r.direction)))
+        if (r.direction) detail.push('direction=' + printable(field(r.direction)))
         // An error message may name a local file (a host-key store, a credential
         // file) as well as remote text: printable() doubled every backslash, so an
         // audit row read C:\\Users\\... for a message that said C:\Users\.... Control
         // characters are still escaped, so a remote error cannot repaint a terminal.
-        if (r.error) detail.push('error: ' + printableText(r.error))
+        if (r.error !== undefined) detail.push('error: ' + printableText(field(r.error)))
         return detail.length > 0 ? head + '\n    ' + detail.join('  ') : head
       })
       return { text: countNote + capNote + prefix + rows.join('\n') }

@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.342 — 2026-11-01
+
+### Fixed — a hand-edited audit row could repaint the terminal
+`ssh_audit` has escaped control characters in commands, paths and error messages since early versions. Fuzzing the
+renderer with 60 random hostile records showed the detail fields had been missed:
+```
+a record with  mode: "\u0000\u001b[31mred"
+before  2026-… write ok /x
+            mode <NUL><ESC>[31mred                      <- printed raw
+after       mode \x00\x1b[31mred                       <- escaped, content kept
+```
+The same block rendered `[object Object]` where a timestamp, a reason, a direction, a host key or a rule belonged,
+and `describeRule()` embedded an object pattern as if it were rule text. Every detail field now goes through the
+`field()` + `printable()` pair the head fields already used, `describeRule()` names an unusable pattern instead of
+stringifying it, and a non-integer `exitCode` is no longer printed as `exit=`. Fuzzing the same 60 records now
+produces zero unescaped control characters and zero `[object Object]`.
+
+### Verified this round (no defect found)
+- A normal row is unchanged: `12B  mode 0644`, `reason=pipes into bash  rule: …`,
+  `reason=execGuard is "confirm" …  direction=write to`, `15ms  error: Permission denied\n(second line)`.
+
+### My own mistakes
+1. My first sanitising pass used `printable()` for the rule text, which doubles backslashes: a regex rule
+   `(?i)curl[^|]*\|[^|]*bash` was displayed with a doubled `\\`. `printableText()` keeps backslashes and still escapes
+   control characters.
+2. I then made the renderer skip a non-string `pattern` — which deleted the "the rule text is not available"
+   line an existing test had deliberately put there (it exists precisely for a hand-edited row). The full suite
+   caught it; the type check belongs in `describeRule()` instead.
+3. I put `import { printable } from './format.js'` before the file header comment and hit "printable is not
+   defined" — guard.js starts with a licence header, not imports, so the insertion point was wrong.
+
+### Tests
+- New: a record with a NUL and an ANSI escape in `mode`, an object timestamp, an array direction, an object
+  reason and an object error renders escaped, still shows the content, and never says `[object Object]`.
+  Suite 931 / 926 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean; the 60-record fuzz is quiet.
+
 ## 0.7.341 — 2026-11-01
 
 ### Fixed — the annotation cap warned about failures that were never withheld
