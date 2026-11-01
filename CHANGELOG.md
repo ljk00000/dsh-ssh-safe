@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.346 — 2026-11-01
+
+### Fixed — the doctor used the right policy but never said the machine's value was ignored
+`ssh_doctor` reads the pool entry, so its stages have always used the effective policy. What it never said was that
+the per-machine value itself was unusable — the one thing a doctor is for:
+```
+credentials.json: { typo: { …, hostKeyPolicy: "stict" } }   plugin: hostKeyPolicy: "tofu"
+before  [ok] configuration: tester@127.0.0.1:10412
+        [ok] host key: SHA256:ob0AV9hz… (first contact: recorded now)     <- ran as tofu, silently
+after   [ok] configuration: tester@127.0.0.1:10412
+        [warn] configuration: hostKeyPolicy "stict" is not one of strict | tofu | off, so the global "tofu" is used
+        [ok] host key: SHA256:ob0AV9hz… (first contact: recorded now)
+        (hostKeyPolicy: " OFF " is trimmed and accepted, so it is not flagged)
+```
+The warn verdict also makes the run's audit row `outcome: warn` instead of `ok`, like the existing "NOT verified"
+warn for a policy of off.
+
+### Verified this round (no defect found)
+- The doctor's verdict plumbing handles a second `configuration` line correctly: the stage list keeps one entry per
+  line, the first FAIL still decides "Stopped:", and the audit record takes the first warn.
+
+### Tests
+- New: an invalid machine policy produces the configuration warn and still runs the stages; a padded valid value
+  produces no such warn and its host key stage reports the policy-off warning.
+  Suite 935 / 930 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.345 — 2026-11-01
 
 ### Fixed — the workspace instructions described a policy the connection does not use

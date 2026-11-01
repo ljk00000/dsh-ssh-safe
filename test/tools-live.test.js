@@ -3958,3 +3958,37 @@ test('a per-machine host key policy is what the reply reports', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the doctor names a per-machine policy it had to ignore', async () => {
+  // The stages use the effective policy, which is right, but nothing said the value
+  // the user typed was never used. A padded but valid value must not be flagged.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-doc-policy-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  const srv2 = await startServer()
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      typo: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass', hostKeyPolicy: 'stict' },
+      spaced: { host: '127.0.0.1', port: srv2.port, user: 'tester', password: 'test-pass', hostKeyPolicy: ' OFF ' },
+    }), 'utf8')
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+    })
+    const typo = String((await own.ssh_doctor.execute({ machine: 'typo' }, {})).text)
+    assert.match(typo,
+      /\[warn\] configuration: hostKeyPolicy "stict" is not one of strict \| tofu \| off, so the global "tofu" is used/)
+    const spaced = String((await own.ssh_doctor.execute({ machine: 'spaced' }, {})).text)
+    assert.doesNotMatch(spaced, /is not one of strict/, 'a padded valid value must not be flagged: ' + spaced)
+    // The connection really used it: the host key line is the policy-off warning.
+    assert.match(spaced, /\[warn\] host key: NOT verified: hostKeyPolicy is "off"/)
+  } finally {
+    await own.ssh_close.execute({ force: true }, {}).catch(() => {})
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await Promise.race([srv2.close(), new Promise((resolve) => setTimeout(resolve, 1000))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})

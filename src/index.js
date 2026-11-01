@@ -2552,6 +2552,14 @@ function passphraseLine(st) {
       for (const problem of machineFieldProblems(alias)) {
         say('configuration', 'warn', problem)
       }
+      // A per-machine policy that is not one of the three is ignored by the
+      // resolver. The stages then use the global one, correctly, but nothing said
+      // the value the user typed was never used — and the doctor is where a
+      // configuration is checked.
+      if (machinePolicyIgnored(m, cfg)) {
+        say('configuration', 'warn', 'hostKeyPolicy "' + printable(String(m.hostKeyPolicy)) +
+          '" is not one of strict | tofu | off, so the global "' + effectivePolicy(cfg.hostKeyPolicy, '') + '" is used')
+      }
       // The audit trail is part of what this plugin promises; a log that cannot be
       // written is a health problem, and the doctor is where health is checked.
       if (cfg.auditLog === true && Number(audit.failures) > 0) {
