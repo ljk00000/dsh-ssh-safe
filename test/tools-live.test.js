@@ -4563,3 +4563,45 @@ test('a listing shows what a link points at', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('execGuard confirm gates exec, read and write but leaves the listing alone', async () => {
+  // A documented boundary with no test: `ssh_list` is not gated, so an operator can
+  // still see what is there while every action that changes or exposes file content
+  // waits for confirm. A regression here would either block the listing (useless) or
+  // silently open the gate for a read.
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-guard-list-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, execGuard: 'confirm',
+      reconnectCooldownMs: 0, connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+      machines: { t: machineFor('t', server.port) },
+    })
+    const text = async (def, args) => String(await def.execute(args, {})
+      .then((result) => result.text, (err) => 'ERR: ' + err.message))
+    server.vfs.putFile('/tmp/x.txt', 'x')
+
+    const listed = await text(tools.ssh_list, { path: '/tmp' })
+    assert.match(listed, /x\.txt/, 'a listing is not gated: ' + listed)
+    assert.match(await text(tools.ssh_read, { path: '/tmp/x.txt' }), /execGuard is "confirm".*confirm: true to read/)
+    assert.match(await text(tools.ssh_write, { path: '/tmp/y.txt', content: 'y' }), /execGuard is "confirm".*confirm: true to write/)
+    assert.match(await text(tools.ssh_exec, { command: 'echo hi' }), /execGuard is "confirm".*confirm: true to run/)
+
+    // With the flag the same call goes through.
+    assert.match(await text(tools.ssh_read, { path: '/tmp/x.txt', confirm: true }), /^x/)
+    // ssh_list has no confirm argument at all, and the schema says so: a flag that
+    // does nothing would read as a gate the caller had passed.
+    assert.match(await text(tools.ssh_list, { path: '/tmp', confirm: true }),
+      /Unknown argument\(s\) for ssh_list: "confirm"/)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

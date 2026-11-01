@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.7.391 — 2026-11-01
+
+### New — the `execGuard: "confirm"` matrix pinned for all four tools
+
+The documented boundary "`ssh_list` is not gated" had no test, and neither did the pair "read and write are":
+
+```
+execGuard: "confirm"
+ssh_list  { path: "/tmp" }          → /tmp\n- 1 … x.txt          (works: a listing changes nothing)
+ssh_read  { path: "/tmp/x.txt" }    → ERR: execGuard is "confirm": pass confirm: true to read …
+ssh_write { path: "/tmp/y.txt", … } → ERR: … pass confirm: true to write …
+ssh_exec  { command: "echo hi" }    → ERR: … pass confirm: true to run this command.
+ssh_list  { path: "/tmp", confirm: true }
+                                    → ERR: Unknown argument(s) for ssh_list: "confirm"
+```
+
+The last line is the part worth pinning: `ssh_list` has no `confirm` argument at all, so nobody can believe they
+passed a gate that does not exist.
+
+### My own mistake
+
+- My first version asked `ssh_list` to accept `confirm: true` and asserted it still listed. The schema refused the
+  unknown argument — correctly — and the failure was my test's assumption, not the plugin's behaviour. The
+  assertion now records the refusal.
+
+### Verified this round (no defect found)
+
+- Audit rotation is exercised end to end (8 records across generations, oldest first, newest last) and the reader
+  keeps the order.
+- `ssh_workspace` without a workspace service degrades to "未创建（当前 profile 没有 workspace 服务，只能生成目录）"
+  and every `remove` shape answers with the three facts (no record, directory absent, remote files untouched).
+- `auditMaxBytes` is not a setting; an unknown key in the config is ignored, as documented.
+
+### Tests
+
+- New: the four-tool guard matrix above. Suite 982 / 977 pass / 5 skipped / 0 fail, run twice concurrently;
+  `tsc` clean.
+
 ## 0.7.390 — 2026-11-01
 
 ### Fixed — a listing said "l" and never what the link points at
