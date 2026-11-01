@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.408 — 2026-11-01
+
+### New — the page and the tools resolve a machine identically (pinned)
+
+Two rounds of divergence bugs (`allowPlaintextPassword`, `useAgent`) came from the page resolving credentials on its
+own — both were found by accident while comparing outputs. This pins the shared half:
+
+```
+cordis.patch.yml  machines.box.host = settings.example, user = from-settings
+credentials.json  box: host file.example, port 2222, user from-file
+
+page  /api/state  → host settings.example, port 2222
+tools ssh_machines → • box  from-settings@settings.example:2222
+```
+
+The settings form wins for the fields it sets; the credential file supplies the rest. A future change to either
+side that breaks the agreement now fails a test instead of waiting to be noticed in a probe.
+
+### Verified this round (no defect found)
+
+- Port handling through the page matches the plugin: `2222` stored, `65536` and `abc` refused with 端口必须是
+  1-65535 的整数, `" 22 "` trimmed to 22, and empty or `0` leave the stored port alone — the latter is documented in
+  the code (the settings form treats 0 as "not set").
+- The page honours a per-machine `knownHosts` file: `checkHostKey` is called with `knownHostsFile`, so a machine
+  trusted through an OpenSSH file is not reported as unrecorded.
+
+### My own mistake
+
+- The new test used `apply()` without importing it ("apply is not defined"). Added the import next to the other
+  source imports.
+
+### Tests
+
+- New: the precedence agreement above. Suite 997 / 992 pass / 5 skipped / 0 fail, run twice concurrently; `tsc`
+  clean.
+
 ## 0.7.407 — 2026-11-01
 
 ### Fixed — the page never used the SSH agent, so an agent-only machine looked credential-less

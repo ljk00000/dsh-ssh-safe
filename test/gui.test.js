@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { request as httpRequest } from 'node:http'
 import { startServer } from './helpers/local-ssh-server.js'
+import { apply } from '../src/index.js'
 import { mkdirSync, writeFileSync, utimesSync } from 'node:fs'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -1980,6 +1981,55 @@ test('a machine whose only credential is an agent is not reported as having none
     if (previousSock === undefined) delete process.env.SSH_AUTH_SOCK
     else process.env.SSH_AUTH_SOCK = previousSock
     await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a machine defined in both places resolves the same way in the page and in the tools', async () => {
+  // Two rounds of divergence bugs (allowPlaintextPassword, useAgent) came from the
+  // page resolving credentials on its own. The precedence itself is shared code, so
+  // this pins that the shared part really is shared: the settings form wins for the
+  // fields it sets, and the credential file supplies the rest.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-precedence-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    hostKeyPolicy: tofu',
+    '    machines:',
+    '      box:',
+    "        host: 'settings.example'",
+    "        user: 'from-settings'",
+  ].join('\n') + '\n', 'utf8')
+  writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+    box: { host: 'file.example', port: 2222, user: 'from-file' },
+  }), 'utf8')
+  const { child, base, token } = await start(home)
+  const previous = process.env.DSH_HOME
+  try {
+    const response = await fetch(base + '/api/state', { headers: { 'x-gui-token': token } })
+    const state = await response.json()
+    const shown = (state.machines || []).find((machine) => machine.alias === 'box')
+    assert.ok(shown, 'the machine must be listed: ' + JSON.stringify(state.machines))
+    assert.equal(shown.host, 'settings.example', 'the settings form wins for the host')
+    assert.equal(shown.port, 2222, 'the file supplies the port the form does not set')
+
+    // The same machine through the plugin's resolver.
+    process.env.DSH_HOME = home
+    const tools = {}
+    await apply(
+      { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined },
+      { hostKeyPolicy: 'tofu', machines: { box: { host: 'settings.example', user: 'from-settings' } } },
+    )
+    const line = String((await tools.ssh_machines.execute({}, {})).text)
+      .split('\n').find((row) => row.startsWith('• box')) || ''
+    assert.match(line, /from-settings@settings\.example:2222/, line)
+  } finally {
+    try { child.kill() } catch {}
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
     rmSync(home, { recursive: true, force: true })
   }
 })
