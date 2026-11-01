@@ -4927,3 +4927,52 @@ test('the first exec after the peer dropped reconnects without an error', async 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('only ssh_list accepts a relative path, and it still refuses two dots', async () => {
+  // normalizeRemotePath() has the rule; the tools have to pass it. A regression
+  // that printed a confident listing of the wrong directory, or that let ssh_write
+  // resolve a relative name against a login directory this plugin does not know,
+  // would leave the unit tests green:
+  //   list  '.'       -> works, the login directory
+  //   read  './a'     -> path must be absolute on the remote host
+  //   write 'a'       -> the same
+  //   list  './a/../a' -> relative paths cannot contain '..'
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-rel-path-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+      machines: { box: machineFor('box', server.port) },
+    })
+    server.vfs.putFile('visible.txt', 'a')
+    const text = async (def, args) => String(await def.execute(args, {})
+      .then((result) => result.text, (err) => 'ERR: ' + err.message))
+
+    const listed = await text(tools.ssh_list, { machine: 'box', path: '.' })
+    assert.match(listed, /visible\.txt/, listed)
+    assert.doesNotMatch(listed, /^ERR/, listed)
+
+    const refused = [
+      [tools.ssh_read, { machine: 'box', path: './visible.txt' }],
+      [tools.ssh_read, { machine: 'box', path: 'visible.txt' }],
+      [tools.ssh_write, { machine: 'box', path: 'new.txt', content: 'x' }],
+    ]
+    for (const [def, args] of refused) {
+      assert.match(await text(def, args), /path must be absolute on the remote host/, JSON.stringify(args))
+    }
+
+    assert.match(await text(tools.ssh_list, { machine: 'box', path: './a/../a' }),
+      /relative paths cannot contain/)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

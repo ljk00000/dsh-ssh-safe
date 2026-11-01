@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.410 — 2026-11-01
+
+### New — only `ssh_list` accepts a relative path (pinned at tool level)
+
+`normalizeRemotePath()` has the rule and its unit tests are thorough, but nothing checked that the *tools* pass
+the right option. A regression there is invisible: `ssh_write` resolving `notes.txt` against a login directory this
+plugin does not know would still pass every unit test.
+
+```
+ssh_list  "."            → works: the login directory, visible.txt listed
+ssh_read  "./visible.txt" → path must be absolute on the remote host
+ssh_read  "visible.txt"   → the same
+ssh_write "new.txt"       → the same
+ssh_list  "./a/../a"      → relative paths cannot contain ..
+```
+
+### Verified this round (no defect found)
+
+- `ssh_workspace remove deleteFiles: true` only ever deletes the **local** placeholder; remote files are never
+  touched (`index.js` says so and the code has no remote recursion), so no symlink can widen the scope. The local
+  side refuses any entry it did not create, including a directory named `AGENTS.md`.
+- `ssh_list` on a file answers "not a directory: hello.txt (it is a file; use ssh_read)"; a relative listing
+  prints the path as given (`.`) rather than an absolute one it never computed.
+
+### My own mistake
+
+- The test text carried a literal `".."` inside a double-quoted string and the program failed to parse ("Expected
+  ident") — the third time this session that a snippet was pasted without checking its quoting.
+
+### Tests
+
+- New: the matrix above. Suite 999 / 994 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.409 — 2026-11-01
 
 ### Fixed — a known_hosts file that only trusts a CA read as "nothing here for this host"
