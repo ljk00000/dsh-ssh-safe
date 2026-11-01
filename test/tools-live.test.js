@@ -4145,3 +4145,37 @@ test('a password sent with the call is not used silently when the config forbids
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a rejected connection says the session password was shadowed', async () => {
+  // The stored password was stale and the one supplied with the call would have
+  // worked, but a session password is the last resort. The failure named the
+  // credentials in general and stopped there, so the caller had no reason to look
+  // at the stored value.
+  const server = await startServer({ password: 'the-right-one' })
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-session-shadow-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      box: { host: '127.0.0.1', port: server.port, user: 'tester', password: 'stale-stored' },
+    }), 'utf8')
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, allowSessionPassword: true,
+      reconnectCooldownMs: 0, connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+    })
+    const text = String(await tools.ssh_exec.execute({ machine: 'box', command: 'echo hi', password: 'the-right-one' }, {})
+      .then((result) => result.text, (err) => 'ERR: ' + err.message))
+    assert.match(text, /this attempt offered file-password/, 'the offered credential is named: ' + text)
+    assert.match(text, /a session password came with this call, but a stored credential was used instead/,
+      'the shadowed password must be reported: ' + text)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

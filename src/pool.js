@@ -96,11 +96,13 @@ export function formatHost(host) {
  *
  * @param {unknown} err
  * @param {{host?: string, port?: number, username?: string, alias?: string}} [m]
- * @param {{lean?: boolean, tried?: string}} [options] hide the address when machineInventory is
- *   'alias'; `tried` names the credential that was offered, for the auth-refused hint
+ * @param {{lean?: boolean, tried?: string, notes?: string[]}} [options] hide the address when
+ *   machineInventory is 'alias'; `tried` names the credential that was offered, for the
+ *   auth-refused hint; `notes` are the credential-resolution warnings (a shadowed session
+ *   password, a credential file that could not be parsed)
  * @returns {Error}
  */
-export function connectFailure(err, m, { lean = false, tried = '' } = {}) {
+export function connectFailure(err, m, { lean = false, tried = '', notes = [] } = {}) {
   const raw = redact(err && /** @type {any} */ (err).message ? /** @type {any} */ (err).message : String(err))
   // The socket error itself carries the address: "connect ECONNREFUSED
   // 127.0.0.1:1". Masking only the prefix left that in the message (and in the
@@ -167,7 +169,14 @@ export function connectFailure(err, m, { lean = false, tried = '' } = {}) {
           'not configured (such as publickey) answers the same way' : '']
         .filter(Boolean).join('; ')
       : ''
-  const advice = [hint ? hint[1] : '', extra].filter(Boolean).join('; ')
+  // Credential-resolution notes belong here: 'a session password came with this call,
+  // but a stored credential was used instead' is the difference between fixing the
+  // password and fixing nothing. Without it the failure blamed the credentials in
+  // general while the caller's own password would have worked.
+  const noteText = Array.isArray(notes) && notes.length > 0
+    ? notes.filter(Boolean).map((note) => String(note)).join('; ')
+    : ''
+  const advice = [hint ? hint[1] : '', extra, noteText].filter(Boolean).join('; ')
   return new Error('Could not connect to ' + target + ': ' + shown + (advice ? ' (' + advice + ')' : ''))
 }
 
@@ -1001,6 +1010,7 @@ export class SshPool {
         reject(connectFailure(err, m, {
           lean: this.config.machineInventory === 'alias',
           tried: auth.kind === 'none' ? '' : String(auth.kind),
+          notes: auth.warnings || [],
         }))
       }
 

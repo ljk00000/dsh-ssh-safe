@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.367 — 2026-11-01
+
+### Fixed — a rejected connection did not say the supplied password had been shadowed
+A session password is the **last resort**: a stored credential wins. When the stored one was stale and the one sent
+with the call would have worked, the failure named the credentials in general and stopped there:
+```
+credentials.json: stale-stored        server accepts: the-right-one
+ssh_exec { machine: "box", command: "echo hi", password: "the-right-one" }
+before   ERR: … All configured authentication methods failed (… this attempt offered file-password; …)
+after    ERR: … (… this attempt offered file-password; …; a session password came with this call, but a stored
+         credential was used instead (session passwords are the last resort). Update or remove the stored
+         credential to use the one supplied with this call.)
+```
+`connectFailure()` now takes the credential-resolution notes (`notes`) and appends them to the advice, so every
+warning `credentialFor()` produced reaches the message the caller reads — not only the two configuration errors that
+already included them.
+
+### Verified this round (no defect found)
+
+- The success path already carried the same note (0.7.366's test covers it), and the pooled connection is keyed on
+  the credential identity: a session password cannot ride on a connection opened with another credential.
+
+### My own mistake
+
+- I widened `connectFailure()`'s options without its JSDoc, and `tsc --noEmit` refused it twice (`Property 'notes'
+  does not exist`). The suite was green; the types were not. Second round in a row where the type checker caught
+  what the tests did not — I should run `npm run typecheck` before the suite, not after it.
+
+### Tests
+
+- New: a stale stored credential plus the correct session password reports both "this attempt offered
+  file-password" and the shadowed-password sentence.
+  Suite 957 / 952 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.366 — 2026-11-01
 
 ### Fixed — a password sent with a call was ignored without a word
