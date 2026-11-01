@@ -7,6 +7,7 @@ import { mkdirSync, writeFileSync, utimesSync } from 'node:fs'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import vm from 'node:vm'
 import { fileURLToPath } from 'node:url'
 import { dpapiAvailable } from '../src/dpapi.js'
 import { SshPool } from '../src/pool.js'
@@ -1836,4 +1837,32 @@ test('a file Notepad saved with a BOM is read, not called corrupt', async () => 
     try { child.kill() } catch {}
     rmSync(home, { recursive: true, force: true })
   }
+})
+
+test('the page shows warnings on the add and test paths too', async () => {
+  // 0.7.384 made the save/delete/clear handlers render every warning; the machine-add
+  // path and the test button's pre-save still dropped them, so 'useCredentialFile is
+  // false' reached nobody and a failing test blamed the credential.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-warn2-'))
+  const { child, base, token } = await start(home)
+  try {
+    const html = await (await fetch(base + '/?t=' + token)).text()
+    assert.match(html, /toastAll\(added && added\.warnings/, 'the add path must show them')
+    assert.match(html, /preSaveWarnings = \(preSave && preSave\.warnings\) \|\| \[\]/, 'the test pre-save must keep them')
+    assert.match(html, /preSaveWarnings\.concat\(r\.lines\)/, 'the test output must start with them')
+  } finally {
+    try { child.kill() } catch {}
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('the page inline script parses', () => {
+  // The page's JavaScript is never loaded by any test: it is served as text. An edit
+  // that leaves a syntax error there ships a blank page, and every assertion about
+  // the HTML still passes. vm.Script compiles it without running it.
+  const html = readFileSync(path.join(here, '..', 'scripts', 'gui.html'), 'utf8')
+  const match = html.match(/<script>([\s\S]*?)<\/script>/)
+  assert.ok(match, 'the page must have one inline script')
+  assert.doesNotThrow(() => new vm.Script(match[1], { filename: 'gui.html#inline' }),
+    'the inline script must parse')
 })

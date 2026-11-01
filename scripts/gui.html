@@ -325,8 +325,9 @@ document.getElementById("list").addEventListener("click", async (ev) => {
         // straight away reported "no credential" -- correct, and baffling. Save
         // it first when the box has a value, then test what is actually stored.
         const typed = readField(alias, "password");
+        let preSaveWarnings = [];
         if (typed) {
-          await api("/api/save", {
+          const preSave = await api("/api/save", {
             alias,
             host: readField(alias, "host"),
             port: readField(alias, "port"),
@@ -334,9 +335,13 @@ document.getElementById("list").addEventListener("click", async (ev) => {
             keyPath: readField(alias, "keyPath"),
             password: typed,
           });
+          // Shown with the diagnosis: 'useCredentialFile is false' explains why the
+          // test that follows cannot see the password that was just saved.
+          preSaveWarnings = (preSave && preSave.warnings) || [];
           await refresh();
         }
         const r = await api("/api/test", { alias });
+        if (preSaveWarnings.length) r.lines = preSaveWarnings.concat(r.lines);
         const target = Array.from(document.querySelectorAll("pre[data-out]"))
     .find((pre) => pre.dataset.out === alias);
         if (target) { target.hidden = false; target.textContent = r.lines.join("\n"); }
@@ -357,7 +362,9 @@ document.getElementById("addBtn").addEventListener("click", async () => {
   const alias = document.getElementById("newAlias").value.trim().toLowerCase();
   if (!alias) return toast("请填写别名", true);
   try {
-    await api("/api/save", {
+    // The reply can carry warnings (a lock that timed out, useCredentialFile off);
+    // this path used to drop them and say "已添加" regardless.
+    const added = await api("/api/save", {
       alias,
       host: document.getElementById("newHost").value.trim(),
       port: document.getElementById("newPort").value.trim(),
@@ -366,7 +373,7 @@ document.getElementById("addBtn").addEventListener("click", async () => {
     for (const id of ["newAlias", "newHost", "newPort", "newUser"]) {
       document.getElementById(id).value = "";
     }
-    toast("已添加 " + alias + "，请填写密码后点「保存」");
+    toastAll(added && added.warnings, "已添加 " + alias + "，请填写密码后点「保存」");
     await refresh();
   } catch (e) {
     toast(e.message, true);

@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.386 — 2026-11-01
+
+### Fixed — two more page paths dropped the warnings the API returned
+
+0.7.384 made save / delete / clear render every warning. Two paths still ignored the reply:
+
+```
+"添加" (add machine)   await api("/api/save", …); toast("已添加 …")        ← warnings lost
+"测试连接" pre-save    await api("/api/save", …); … api("/api/test")       ← the warning that
+                                                                             explains a failing test
+```
+
+The add path now uses `toastAll(added && added.warnings, …)`. The test button keeps the pre-save warnings and puts
+them at the top of the diagnosis panel, so "设置里 useCredentialFile 为 false" appears next to the "no credential"
+that it explains.
+
+### New — the page inline script is syntax-checked by the suite
+
+Nothing loaded `scripts/gui.html` as JavaScript: it is served as text, so an edit could leave a syntax error in it
+and ship a blank page while every HTML assertion still passed. `new vm.Script(<inline script>)` now compiles it in
+the suite (139 lines of it today).
+
+### My own mistake
+
+- My first attempt at extracting the script used a PowerShell `>` redirect, which writes UTF-16LE: `node --check`
+  failed on the first byte ("Invalid or unexpected token") and I nearly read that as a real syntax error. The
+  in-process `vm.Script` avoids the redirect entirely.
+
+### Tests
+
+- New: the add path and the test pre-save use the warnings, and the page script parses.
+  Suite 977 / 972 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.385 — 2026-11-01
 
 ### Fixed — a credentials file Notepad re-saved (UTF-8 with BOM) read as corrupt in the page
