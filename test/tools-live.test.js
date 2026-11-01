@@ -5150,3 +5150,41 @@ test('a transfer cut off by the peer is audited as incomplete, like a command', 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a doctor run that times out is audited as a timeout, like the connect it repeated', async () => {
+  // The doctor wrote 'error' for every failure while ssh_connect recorded the same
+  // handshake as 'timeout': filtering the trail by outcome found one and not the other.
+  // A port that accepts TCP and never sends a banner is what that looks like.
+  const net = await import('node:net')
+  const silent = net.createServer(() => {})
+  await new Promise((resolve) => silent.listen(0, '127.0.0.1', resolve))
+  const port = silent.address().port
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-doctor-timeout-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  const own = {}
+  try {
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      box: { host: '127.0.0.1', port, user: 'u', password: 'p' },
+    }), 'utf8')
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 1200, commandTimeoutMs: 3000, healthCheckTimeoutMs: 800, auditLog: true,
+    })
+    const text = async (promise) => String(await promise.then((r) => r.text, (err) => 'ERR: ' + err.message))
+    const connect = await text(own.ssh_connect.execute({ machine: 'box' }, {}))
+    assert.match(connect, /Timed out while waiting for handshake/, connect)
+    const doctor = await text(own.ssh_doctor.execute({ machine: 'box' }, {}))
+    assert.match(doctor, /\[FAIL\] connect: .*Timed out while waiting for handshake/, doctor)
+
+    const audit = await text(own.ssh_audit.execute({ limit: 10 }, {}))
+    assert.match(audit, /connect timeout/, audit)
+    assert.match(audit, /doctor timeout/, 'the same attempt must be classified the same way: ' + audit)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    silent.close()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

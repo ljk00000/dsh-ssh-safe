@@ -2714,7 +2714,12 @@ function passphraseLine(st) {
       const finish = () => {
         const fail = verdicts.find((v) => v.verdict === 'FAIL')
         const warn = verdicts.find((v) => v.verdict === 'warn')
-        const outcome = fail ? 'error' : warn ? 'warn' : 'ok'
+        // A handshake that timed out read 'error' here while ssh_connect recorded the
+        // same attempt as 'timeout': filtering the trail by outcome found one and not
+        // the other. The stage's own detail is what outcomeOf() classifies.
+        const outcome = fail
+          ? outcomeOf(new Error(String(fail.detail || '')))
+          : warn ? 'warn' : 'ok'
         const chosen = fail || warn
         audit.write({
           kind: 'doctor', machine: alias, outcome,

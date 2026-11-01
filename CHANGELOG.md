@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.7.422 — 2026-11-01
+
+### Fixed — the doctor recorded every failure as `error`, including the timeouts `ssh_connect` calls `timeout`
+
+A port that accepts TCP and never sends a banner makes both tools wait for the same handshake, and the trail said:
+
+```
+before   box connect timeout        1518ms
+         box doctor error
+after    box connect timeout        1518ms
+         box doctor timeout
+```
+
+The doctor built its outcome from `fail ? "error" : …` and never consulted `outcomeOf()`. It now classifies the
+failing stage’s own detail, so a timeout, a cancellation or a dropped connection read the same whichever tool hit
+them. Credential and authentication failures still record `error` (verified: `doctor error … reason=credentials`),
+and a warn-only run still records `warn`.
+
+### Verified this round (no defect found beyond the above)
+
+- A silent server is reported in 1522 ms against a 1500 ms `connectTimeoutMs`, with "no SSH banner arrived — the
+  port may not speak SSH, or a firewall is dropping packets".
+
+### My own mistake
+
+- My first patch inserted a stray `void chosen0` placeholder while restructuring the three-line outcome expression
+  (the variable is `chosen`, declared a line later). `node --check` accepted it — `void` of an undefined name is
+  valid JavaScript — so only the following probe showed nothing had changed. Removed before the measurement.
+
+### Tests
+
+- New: `connect timeout` and `doctor timeout` for the same attempt. Mutation check: restoring `fail ? "error"` fails
+  the test.
+  Suite 1009 / 1004 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.421 — 2026-11-01
 
 ### Fixed — a transfer cut off by the peer was audited as an error, not as incomplete
