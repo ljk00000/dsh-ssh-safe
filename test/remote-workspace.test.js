@@ -795,7 +795,7 @@ test('create refuses to write through a symlinked AGENTS.md', async () => {
   }
 })
 
-test('a read-only AGENTS.md is named as the file that could not be written', async () => {
+test('a read-only AGENTS.md is named as the file that could not be written', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores read-only mode bits' : false }, async () => {
   // The reply used to say '目录无法创建（EPERM）' about a directory that existed all
   // along; the caller then repairs the wrong thing. Both files this plugin writes
   // are named now.

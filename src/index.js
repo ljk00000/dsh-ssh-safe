@@ -1129,6 +1129,12 @@ const trustedLine = (m) => {
           force: optionalFlag(args.force, 'force') === true || trustHostKey === true,
         })
       } catch (err) {
+        // The pool hides local paths in lean mode, but a host-key failure can
+        // reach this tool through more than one rejection path. Keep the
+        // machineInventory: 'alias' promise at the tool boundary too.
+        if (cfg.machineInventory === 'alias' && err && typeof err.message === 'string') {
+          err.message = err.message.replace(/[^\s'\"]*dsh-ssh-safe[\\/]known_hosts\.json/g, '<path hidden>')
+        }
         audit.write({
           kind: 'connect',
           machine: alias,

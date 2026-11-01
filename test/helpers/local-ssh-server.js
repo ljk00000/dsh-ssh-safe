@@ -82,6 +82,7 @@ export function startServer({ port = 0, user = 'tester', password = 'test-pass',
   const hostKey = key || hostKeyOnce()
   const vfs = createVfs()
   const clients = new Set()
+  let execCount = 0
   const server = new Server({ hostKeys: [hostKey] }, (client) => {
     clients.add(client)
     // A malformed packet must end that connection, not the test process: ssh2
@@ -108,6 +109,7 @@ export function startServer({ port = 0, user = 'tester', password = 'test-pass',
           if (info && info.name === 'sftp') attachSftp(acceptSubsystem(), vfs)
         })
         session.on('exec', (acceptExec, _rejectExec, info) => {
+          execCount += 1
           const stream = acceptExec()
           const command = String(info.command || '')
           const finish = (code, out = '') => {
@@ -179,6 +181,7 @@ export function startServer({ port = 0, user = 'tester', password = 'test-pass',
         key: hostKey,
         vfs,
         clientCount: () => clients.size,
+        execCount: () => execCount,
         // Sever established sessions the way a network drop would: the server
         // stops answering while the listening socket stays up.
         killClients: () => { for (const c of clients) { try { c.end(); c.destroy?.() } catch {} } },

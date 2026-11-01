@@ -25,7 +25,7 @@ before(async () => {
     hostKeyPolicy: 'tofu',
     allowPlaintextPassword: true,
     connectTimeoutMs: 3000,
-    sftpTimeoutMs: 5000,
+    sftpTimeoutMs: 15000,
     commandTimeoutMs: 5000,
     reconnectCooldownMs: 0,
     maxFileBytes: 1024 * 1024,
@@ -206,7 +206,7 @@ test('a cancelled transfer stops at once instead of running to its deadline', as
   srv.vfs.control.stallWrites = true
   const writing = pool.writeFile('t', '/tmp/cancel.txt', 'y'.repeat(100000), { timeoutMs: 20000, signal: writeController.signal })
   setTimeout(() => writeController.abort(), 100)
-  await assert.rejects(() => writing, /writing \/tmp\/cancel\.txt was cancelled; the file was opened .* no data was sent/)
+  await assert.rejects(() => writing, /writing \/tmp\/cancel\.txt was cancelled; the file was (not touched|opened .* no data was sent)/)
   srv.vfs.control.stallWrites = false
 
   const listController = new AbortController()

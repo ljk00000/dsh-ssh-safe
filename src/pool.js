@@ -33,6 +33,7 @@ async function loadClient() {
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
+import process from 'node:process'
 import { homedir } from 'node:os'
 import { isIPv6 } from 'node:net'
 import { redact, envNames } from './credentials.js'
@@ -901,7 +902,8 @@ export class SshPool {
     let out = hideAddress(String(text), m)
     const candidates = []
     if (m && m.knownHosts) candidates.push(expandHome(String(m.knownHosts)))
-    try { candidates.push(storePath(this.#credentialHome)) } catch { /* no home known */ }
+    const home = this.#credentialHome || process.env.DSH_HOME
+    try { if (home) candidates.push(storePath(home)) } catch { /* no home known */ }
     for (const candidate of candidates) {
       if (candidate) out = out.split(candidate).join('<path hidden>')
     }

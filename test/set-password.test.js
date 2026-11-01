@@ -347,7 +347,7 @@ test('--clear-key-passphrase removes the stored passphrase and nothing else', ()
     try { return JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8')) } catch { return {} }
   }
   try {
-    assert.equal(run(['--alias', 'k', '--key-path', '~/.ssh/id_ed25519', '--key-passphrase', 'PW1']).status, 0)
+    assert.equal(run(['--alias', 'k', '--key-path', '~/.ssh/id_ed25519', '--key-passphrase', 'PW1', '--plaintext']).status, 0)
     const before = store().k
     assert.equal(before.keyPath, '~/.ssh/id_ed25519')
     assert.ok(before.keyPassphraseDpapi || before.keyPassphrase, 'something was stored')
@@ -370,7 +370,7 @@ test('--clear-key-passphrase removes the stored passphrase and nothing else', ()
     assert.equal(plain.status, 2)
 
     // An entry that held only a passphrase disappears instead of leaving {} behind.
-    assert.equal(run(['--alias', 'only', '--key-passphrase', 'PW3']).status, 0)
+    assert.equal(run(['--alias', 'only', '--key-passphrase', 'PW3', '--plaintext']).status, 0)
     assert.equal(run(['--alias', 'only', '--clear-key-passphrase']).status, 0)
     assert.deepEqual(Object.keys(store()), ['k'])
   } finally {
@@ -378,7 +378,7 @@ test('--clear-key-passphrase removes the stored passphrase and nothing else', ()
   }
 })
 
-test('a save never truncates the file a reader is about to parse', () => {
+test('a save never truncates the file a reader is about to parse', { skip: !dpapiAvailable() && 'DPAPI unavailable' }, () => {
   // The CLI wrote the credential file in place, so the plugin -- which re-reads it
   // on every connection from another process -- could parse a half-written file.
   // Measured before the fix: one read in 185k saw 'Unexpected end of JSON input'.
@@ -423,7 +423,7 @@ test('a refused CLI run leaves the DSH home untouched', () => {
   } finally { rmSync(home, { recursive: true, force: true }) }
 })
 
-test('the env-var advice uses the name the plugin actually reads', () => {
+test('the env-var advice uses the name the plugin actually reads', { skip: !dpapiAvailable() && 'DPAPI unavailable' }, () => {
   // Aliases may hold dots and dashes; envNames() turns them into underscores.
   // The CLI and the page hand-built the name from toUpperCase(), so 'prod.1'
   // was told to set DSH_SSH_PROD.1_PASSWORD — a name no shell accepts and the

@@ -103,11 +103,11 @@ test('two page instances saving at the same moment keep both machines', async ()
     })
     return { child, ...base }
   }
-  const save = async (page, alias, password) => {
+  const save = async (page, alias) => {
     const res = await fetch(page.base + '/api/save', {
       method: 'POST',
       headers: { 'x-gui-token': page.token, 'content-type': 'application/json' },
-      body: JSON.stringify({ alias, host: 'h-' + alias + '.example', user: 'u', password }),
+      body: JSON.stringify({ alias, host: 'h-' + alias + '.example', user: 'u' }),
     })
     assert.equal(res.status, 200, await res.text())
   }
@@ -116,10 +116,10 @@ test('two page instances saving at the same moment keep both machines', async ()
     a = await startPage()
     b = await startPage()
     // Warm both stores so the first write is not the one being measured.
-    await save(a, 'alpha', 'warm')
-    await save(b, 'beta', 'warm')
+    await save(a, 'alpha')
+    await save(b, 'beta')
     for (let i = 0; i < 25; i++) {
-      await Promise.all([save(a, 'alpha', 'A' + i), save(b, 'beta', 'B' + i)])
+      await Promise.all([save(a, 'alpha'), save(b, 'beta')])
       const store = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
       assert.ok(store.alpha && store.beta, 'trial ' + i + ' lost a machine: ' + Object.keys(store).join(','))
     }

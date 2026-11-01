@@ -976,7 +976,7 @@ test('a port that the settings form will override is announced on save', async (
 
     // The same port in the settings is not a conflict.
     const same = await call(url, token, '/api/save', {
-      alias: 'svc', host: 'settings-host.example', port: '2200', user: 'settings-user', password: 'pw',
+      alias: 'svc', host: 'settings-host.example', port: '2200', user: 'settings-user',
     })
     assert.doesNotMatch(same.body.warnings.join('\n'), /port 在 DSH 设置界面里定义/)
   } finally {

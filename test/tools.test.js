@@ -506,7 +506,9 @@ test('the inventory shows a local key path exactly as configured', async () => {
   try {
     const shown = textOf(await tools.ssh_machines.execute({}))
     assert.ok(shown.includes(keyPath), 'shows the configured path: ' + shown.slice(0, 300))
-    assert.ok(!shown.includes(keyPath.replace(/\\/g, '\\\\')), 'no doubled backslashes')
+    if (keyPath.includes('\\')) {
+      assert.ok(!shown.includes(keyPath.replace(/\\/g, '\\\\')), 'no doubled backslashes')
+    }
   } finally { restore() }
 })
 
@@ -551,7 +553,7 @@ test('an audit error keeps a local path and still escapes control characters', a
   try {
     const dir = path.join(process.env.DSH_HOME, 'dsh-ssh-safe')
     mkdirSync(dir, { recursive: true })
-    const localPath = path.join('C:', 'Users', 'someone', 'kh')
+    const localPath = 'C:\\Users\\someone\\kh'
     writeFileSync(path.join(dir, 'audit.ndjson'), JSON.stringify({
       kind: 'exec', machine: 't', outcome: 'error', ms: 1,
       error: 'Unknown host. ' + localPath + ' could not be read \u001b[31m',

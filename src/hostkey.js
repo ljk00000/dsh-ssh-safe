@@ -60,7 +60,7 @@ function readStore(file) {
     const code = err && /** @type {{code?: string}} */ (err).code
     if (code === 'ENOENT') return { store: empty, problem: '' }
     if (code && /^(ENOTDIR|EACCES|EPERM|EROFS|ENOSPC)$/.test(String(code))) {
-      throw storeFailure(file, code, 'read')
+      throw storeFailure(file, code, 'written')
     }
     return {
       store: empty,
@@ -556,7 +556,13 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
   }
   const id = keyId(host, port)
   const label = hostLabel(host, port)
-  const read = readStore(file)
+  let read
+  try {
+    read = readStore(file)
+  } catch (err) {
+    if (lean) err.message = err.message.split(printableText(String(file))).join('<path hidden>')
+    throw err
+  }
   const store = read.store
   const hasEntry = Object.hasOwn(store.hosts, id)
   const recorded = store.hosts[id]

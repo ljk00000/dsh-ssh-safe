@@ -420,8 +420,10 @@ test('closing a connection mid-command settles the command instead of hanging', 
   const pool = poolFor({ t: machineFor('t', srv.port) })
   try {
     const started = Date.now()
+    const baseline = srv.execCount()
     const running = pool.exec('t', 'sleep 5', {})
-    await new Promise((r) => setTimeout(r, 300))
+    for (let i = 0; i < 100 && srv.execCount() === baseline; i++) await new Promise((r) => setTimeout(r, 20))
+    assert.ok(srv.execCount() > baseline, 'the command channel must start before the close')
     const closed = await pool.closeOne('t', { force: true })
     assert.equal(closed.closed, true)
     const result = await running
