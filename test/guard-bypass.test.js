@@ -222,3 +222,34 @@ test(
     }
   }
 )
+
+test('the home directory cannot be deleted with an option terminator or split flags', () => {
+  // 'rm -rf -- ~' was allowed while 'rm -rf ~' was blocked: a bare '--' stayed in the
+  // canonical target list and matched neither rule. The canonical form was also
+  // computed and then left out of the candidate set, so 'rm -r -f ~' and
+  // 'rm --recursive --force ~' -- the same deletion -- were allowed too.
+  const DEFAULT = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
+  for (const cmd of [
+    'rm -rf ~',
+    'rm -r -f ~',
+    'rm -f -r ~',
+    'rm --recursive --force ~',
+    'rm -rf -- ~',
+    'rm -rf -- "$HOME"',
+    'rm -rf -- "${HOME}"',
+    'rm -rf -- ~/.',
+    'rm -rf -- ~/.*',
+    'rm -rf -- /',
+  ]) {
+    assert.equal(checkCommand(cmd, DEFAULT).blocked, true, 'should block: ' + cmd)
+  }
+  for (const cmd of [
+    'rm -rf ~/project',
+    'rm --interactive ~',
+    'rm -rf ./build',
+    'ls -rf ~',
+    'cat ~/.bashrc',
+  ]) {
+    assert.equal(checkCommand(cmd, DEFAULT).blocked, false, 'should allow: ' + cmd)
+  }
+})

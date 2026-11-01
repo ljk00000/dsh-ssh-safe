@@ -99,6 +99,10 @@ export function canonicalizeRm(text) {
     rest = rest.replace(/--no-preserve-root(?=\s|$)/g, ' ')
     rest = rest.replace(/--verbose(?=\s|$)/g, ' ')
     rest = rest.replace(/--dir(?=\s|$)/g, ' ')
+    // A bare '--' ends the options; it is not a target. Keeping it turned
+    // 'rm -rf -- ~' into 'rm -rf -- ~', which matched neither the root nor the home
+    // rule, so an option terminator was enough to delete a home directory.
+    rest = rest.replace(/(?:^|\s)--(?=\s|$)/g, ' ')
     // Any other long option is kept as a plain word.
     rest = rest.replace(/--[a-z][a-z-]*/g, (m) => ' ' + m.replace(/^--/, '') + ' ')
     // Short option clusters are removed from the argument list; the collected

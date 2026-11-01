@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.7.327 — 2026-11-01
+
+### Fixed — `rm -rf -- ~` deleted the home directory and was allowed
+The root rule tolerates a dash in its flag class (`--` is `-` plus `-`), the home rule does not:
+`rm -rf ~` was blocked while the same deletion with an option terminator was not.
+```
+before                        after
+rm -rf ~            BLOCK     BLOCK
+rm -rf -- ~         allow     BLOCK   ← fixed
+rm -rf -- "$HOME"   allow     BLOCK
+rm -rf -- "${HOME}" allow     BLOCK
+rm -rf -- ~/.       allow     BLOCK
+rm -rf -- /         BLOCK     BLOCK
+rm -rf -- /etc      allow     allow   (documented boundary)
+```
+A bare `--` ends the option list; it is not a target, and keeping it in the canonical form defeated every
+spelling that used one. `sudo`, `env`, `command`, `nice -n 5`, a leading `echo hi;` and a trailing `&& echo done`
+were all measured as blocked once the terminator stopped being part of the target list.
+
+### Verified this round (no defect found)
+- The settings page saves next to an invalid entry without touching it: a `host: 123` machine stays as
+  written, and the page warns "该别名的 host 在 DSH 设置界面里定义，优先于本页；要改 host 请改设置" instead of
+  quietly rewriting the settings block.
+
+### My own mistakes
+1. I first called `checkCommand(command)` with **no patterns** — the function takes the list as its second
+   argument — so all sixteen variants came back `allow` and I nearly reported the entire guard as broken.
+2. I then read the code as "the canonical form is computed and never used" and wrote that into a comment.
+   The control run (fix removed) still passed, which disproved it: `canonicalizeRm(normalizeCommand(expanded))`
+   was already in the candidate set, and the only real defect was the `--` target. The comment and the extra
+   candidate were removed, and the control run now fails on `rm -rf -- ~` as it should.
+3. Restoring `guard.js` through a PowerShell `Get-Content`/`Set-Content` round-trip **corrupted its
+   encoding** ("invalid UTF-8 text"); the read tool refused the file. Restored from the Node-written backup and
+   verified with `git diff` that only the intended four lines differ from HEAD.
+
+### Tests
+- New: the home directory cannot be deleted by an option terminator, split flags or long options, while
+  `rm -rf ~/project`, `rm --interactive ~`, `rm -rf ./build`, `ls -rf ~` and `cat ~/.bashrc` stay allowed.
+  Suite 913 / 908 pass / 5 skipped / 0 fail, run twice concurrently; guard files 138/138; `tsc` clean.
+
 ## 0.7.326 — 2026-11-01
 
 ### Fixed — the settings page showed a machine the plugin refuses to load
