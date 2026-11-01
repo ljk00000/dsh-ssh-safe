@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.398 — 2026-11-01
+
+### New — an unreadable host key store pinned, with the lean wording
+
+`hostkey.js:563-564` (the `machineInventory: "alias"` redaction of a store read failure) was on the uncovered list
+and no test made `readStore()` throw. A directory where `known_hosts.json` belongs does it:
+
+```
+full   ERR: Host key verification failed: the host key store C:\…\dsh-ssh-safe\known_hosts.json
+            could not be read (EISDIR). Nothing can be verified against it, and recording a new key
+            would overwrite the hosts already trusted there. …
+lean   ERR: Host key verification failed: the host key store <path hidden> could not be read (EISDIR). …
+```
+
+The test asserts the refusal (the alternative — trusting the presented key — would rewrite the file and drop every
+host in it), that the full inventory names the path, and that lean mode replaces it.
+
+### Verified this round (no defect found)
+
+- The lean advice for an **OpenSSH** known_hosts file (not the plugin store) is correct and leak-free:
+  `Unknown host <host hidden> with fingerprint SHA256:… <path hidden> is an OpenSSH known_hosts file … Add it to
+  that file with ssh-keyscan — the host and port are in the machine settings — after confirming the fingerprint out
+  of band`. No port, no path in the text.
+- `globMatch`'s and `hashedEntryMatches`' catch branches are unreachable by construction (the pattern is escaped
+  before `new RegExp`, and `Buffer.from(x, "base64")` does not throw on junk); they stay as defence, not as paths to
+  test.
+
+### Tests
+
+- New: the unreadable store above. Suite 988 / 983 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.397 — 2026-11-01
 
 ### New — `ssh_doctor`'s refusal branch pinned (it had none)

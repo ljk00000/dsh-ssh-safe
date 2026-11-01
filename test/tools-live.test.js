@@ -4759,3 +4759,47 @@ test('ssh_doctor stops at a changed host key and marks the rest not reached', as
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('an unreadable host key store refuses the connection, and lean mode hides its path', async () => {
+  // A directory where the plugin's known_hosts.json should be makes readStore throw.
+  // Trusting the presented key would then rewrite the file and drop every host it
+  // held, so the connection is refused — and under machineInventory: 'alias' the
+  // message must not name the store path.
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-store-dir-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  // The directory IS the store file.
+  mkdirSync(path.join(home, 'dsh-ssh-safe', 'known_hosts.json'), { recursive: true })
+  const build = async (lean) => {
+    const tools = {}
+    await apply(
+      { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined },
+      {
+        hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+        connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+        ...(lean ? { machineInventory: 'alias' } : {}),
+        machines: { box: machineFor('box', server.port) },
+      },
+    )
+    return tools
+  }
+  const text = async (def, args) => String(await def.execute(args, {})
+    .then((result) => result.text, (err) => 'ERR: ' + err.message))
+  try {
+    const full = await text((await build(false)).ssh_connect, { machine: 'box' })
+    assert.match(full, /could not be read/, full)
+    assert.match(full, /known_hosts\.json/, 'the path is named when the inventory is full: ' + full)
+    assert.match(full, /Nothing can be verified against it/, full)
+
+    const lean = await text((await build(true)).ssh_connect, { machine: 'box' })
+    assert.match(lean, /<path hidden>/, lean)
+    assert.doesNotMatch(lean, /known_hosts\.json/, 'lean mode hides the store path: ' + lean)
+    for (const tools of [await build(true)]) await tools.ssh_close.execute({ force: true }, {})
+  } finally {
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
