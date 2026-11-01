@@ -4030,3 +4030,51 @@ test('a key path with control characters is escaped, and its backslashes are not
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a burst of connects leaves one client, and close with no machine closes both', async () => {
+  // Two properties that only show up against a real server: a connect storm must
+  // not leave orphaned clients behind (each is a socket and a session), and
+  // ssh_close with no machine must really close every machine.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-burst-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const first = await startServer()
+  const second = await startServer()
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    const one = machineFor('alpha', first.port)
+    const two = machineFor('beta', second.port)
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      alpha: { host: one.host, port: one.port, user: one.user, password: one.password },
+      beta: { host: two.host, port: two.port, user: two.user, password: two.password },
+    }), 'utf8')
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+    })
+
+    const replies = await Promise.all(Array.from({ length: 6 }, () =>
+      tools.ssh_connect.execute({ machine: 'alpha', force: true }, {}).then((r) => String(r.text), (err) => 'ERR: ' + err.message)))
+    assert.equal(replies.filter((text) => /Connected/.test(text)).length, 6)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.equal(first.clientCount(), 1, 'a connect storm must not leave orphaned clients')
+    assert.match(String((await tools.ssh_exec.execute({ machine: 'alpha', command: 'echo after' }, {})).text), /ran: echo after/)
+
+    await tools.ssh_exec.execute({ machine: 'beta', command: 'echo b' }, {})
+    const closed = String((await tools.ssh_close.execute({}, {})).text)
+    assert.match(closed, /alpha/)
+    assert.match(closed, /beta/)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.equal(first.clientCount(), 0)
+    assert.equal(second.clientCount(), 0)
+    assert.match(String((await tools.ssh_close.execute({}, {})).text), /No live connections/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await Promise.race([first.close(), new Promise((resolve) => setTimeout(resolve, 1000))])
+    await Promise.race([second.close(), new Promise((resolve) => setTimeout(resolve, 1000))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})

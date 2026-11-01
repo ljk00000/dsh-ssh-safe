@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.358 — 2026-11-01
+
+### New — a connect storm and a close-all are covered by tests
+Both properties only show up against a real server, and neither was pinned:
+```
+6 × ssh_connect { force: true } at once   → 6 replies, 1 server-side client, ssh_exec still works
+ssh_close { } with alpha and beta open     → "Closed: alpha, beta", both servers see 0 clients
+ssh_close { } again                        → "No live connections"
+```
+No defect found; the test keeps it that way.
+
+### Verified this round (no defect found)
+- A symlink whose **name and target** both carry control characters is escaped everywhere: the listing shows
+  `short\x1b[31mname` with a note explaining the escape, `ssh_read` through it is silent, and `ssh_write` says
+  "that path is a symbolic link to /real/target\x1b[2Jfile; the content was written there".
+- `AGENTS.md` in a placeholder: `safeField()` already runs the alias, host and user through `printable()`, and
+  `machineInventory: alias` replaces the endpoint with "地址按 machineInventory: alias 隐藏" — the file the agent
+  trusts cannot be rewritten by a machine definition.
+
+### Tests
+- New: the burst/close-all test above.
+  Suite 948 / 943 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.357 — 2026-11-01
 
 ### Fixed — a signal name a server chose was printed raw
