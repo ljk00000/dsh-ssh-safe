@@ -23,6 +23,30 @@
 //          --after "const shown = max === 0 ? [] : window.slice(0, max)" \
 //          --test test/tools-live.test.js
 //
+//
+// Checks that were run against this suite and are worth repeating after a refactor
+// (each one was CAUGHT, which is the point — a mutation that is not caught means the
+// test does not measure what it names):
+//
+//   node scripts/mutation-check.mjs --file src/hostkey.js \
+//     --before "    else if (marker === 'cert-authority') certAuthorities.push({ hostField, keyType })" \
+//     --after  "    else if (marker === 'cert-authority') { /* dropped */ }" \
+//     --test test/openssh-known-hosts.test.js          # 0.7.409 — the CA-only file says why
+//
+//   node scripts/mutation-check.mjs --file src/index.js \
+//     --before "        recordWorkspace('ok')" --after "        void 0" \
+//     --test test/tools.test.js                        # 0.7.411 — ssh_workspace is audited
+//
+//   node scripts/mutation-check.mjs --file src/format.js \
+//     --before "const shown = max > 0 ? window.slice(0, max) : window" \
+//     --after  "const shown = max === 0 ? [] : window.slice(0, max)" \
+//     --test test/tools-live.test.js                   # 0.7.416 — maxListEntries: 0 is unlimited
+//
+//   node scripts/mutation-check.mjs --file scripts/gui.mjs \
+//     --before "    allowPlaintextPassword: settingsAllowPlaintext()," \
+//     --after  "    allowPlaintextPassword: false," \
+//     --test test/gui.test.js                          # 0.7.406 — the page reads the setting
+//
 // Exit 0 = caught (or skipped because the anchor was missing), 1 = not caught.
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'

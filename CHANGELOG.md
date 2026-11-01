@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.418 — 2026-11-01
+
+### Changed — four fixes are recorded as repeatable mutation checks
+
+Each check changes the code the fix protects and confirms the test fails. All four were CAUGHT:
+
+```
+0.7.409  drop the @cert-authority collection           → a file that only trusts a CA says so …
+0.7.411  stop recording the workspace action            → ssh_workspace records what it did …
+0.7.416  maxListEntries 0 → "show no rows"              → maxListEntries: 0 means no cap …
+0.7.406  the page passes allowPlaintextPassword: false  → the test button honours allowPlaintextPassword …
+```
+
+The commands now live in the header of `scripts/mutation-check.mjs`, so a refactor can be followed by the same four
+runs instead of by trust.
+
+### My own mistakes
+
+- Two PowerShell invocations in this round were rejected before running: a string concatenation piped into
+  `Out-File` without parentheses is a parse error, and `*> file` therefore never happened. The tree stayed clean,
+  but the first run of the page mutation produced no evidence at all — the second attempt wrote its output to a
+  file and printed `CAUGHT`.
+- I read the job output twice: the first `job_output(wait: true)` consumed the text, so the second call returned an
+  empty string and I briefly had no result. Reading the redirected file was the reliable path.
+
+### Tests
+
+Suite 1005 / 1000 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.417 — 2026-11-01
 
 ### New — `scripts/mutation-check.mjs`: a passing test is not evidence by itself
