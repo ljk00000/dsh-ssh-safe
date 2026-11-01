@@ -343,7 +343,7 @@ export function openSshTrustLine(text, file, host, port, hideHost = false) {
  * corrupted. New hosts are added with ssh-keyscan, or by using the plugin's own
  * store (drop the knownHosts setting).
  */
-export function checkOpenSshHostKey({ text, file, host, port, keyBlob, policy, trustHostKey, fp }) {
+export function checkOpenSshHostKey({ text, file, host, port, keyBlob, policy, trustHostKey, fp, lean }) {
   const parsedFile = parseOpenSshKnownHosts(text)
   const id = hostLabel(host, port)
   const presented = fingerprint(keyBlob)
@@ -398,9 +398,15 @@ export function checkOpenSshHostKey({ text, file, host, port, keyBlob, policy, t
       reason: 'Unknown host ' + id + ' with fingerprint ' + presented + '. ' + file +
         ' is an OpenSSH known_hosts file, which this plugin verifies but does not write to. ' +
         storeNote +
-        'Add the host with: ssh-keyscan -p ' + port + ' ' + host + ' >> "' + file + '" — after ' +
-        'confirming the fingerprint out of band — or call ssh_connect with trustHostKey: true ' +
-        'for this one connection.',
+        // machineInventory: 'alias' promises the host, the port and the paths stay out of
+        // the transcript, and the keyscan line carried all three.
+        (lean
+          ? 'Add it to that file with ssh-keyscan — the host and port are in the machine settings — ' +
+            'after confirming the fingerprint out of band — or call ssh_connect with trustHostKey: true ' +
+            'for this one connection.'
+          : 'Add the host with: ssh-keyscan -p ' + port + ' ' + host + ' >> "' + file + '" — after ' +
+            'confirming the fingerprint out of band — or call ssh_connect with trustHostKey: true ' +
+            'for this one connection.'),
       fp,
       firstSeen: true,
     }
@@ -413,8 +419,11 @@ export function checkOpenSshHostKey({ text, file, host, port, keyBlob, policy, t
     reason: 'Unknown host ' + id + ' with fingerprint ' + presented + '. ' +
       file + ' is an OpenSSH known_hosts file, which this plugin verifies but does not write to. ' +
       storeState(file) +
-      'Verify the fingerprint out of band, then add it with: ssh-keyscan -p ' + port + ' ' + host + ' >> "' +
-      file + '" — or call ssh_connect with trustHostKey: true for this one connection.',
+      (lean
+        ? 'Verify the fingerprint out of band, then add it with ssh-keyscan (the host and port are ' +
+          'in the machine settings) — or call ssh_connect with trustHostKey: true for this one connection.'
+        : 'Verify the fingerprint out of band, then add it with: ssh-keyscan -p ' + port + ' ' + host + ' >> "' +
+          file + '" — or call ssh_connect with trustHostKey: true for this one connection.'),
     fp,
     firstSeen: true,
   }
@@ -458,7 +467,7 @@ export function fingerprint(keyBlob) {
  * Decide whether to accept a presented host key.
  * @returns {{ok: boolean, reason: string, fp: string, firstSeen: boolean}}
  */
-export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKey, knownHostsFile }) {
+export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKey, knownHostsFile, lean }) {
   const fp = fingerprint(keyBlob)
   const file = knownHostsFile || storePath(dshHome)
   // Verification is not requested at all here: policy off wins over everything,
@@ -505,7 +514,7 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
     })
     if (!jsonStorePath && text !== null && (entryLines.length === 0 || looksLikeOpenSshKnownHosts(text))) {
       return checkOpenSshHostKey({
-        text, file, host, port, keyBlob, policy, trustHostKey: trustHostKey === true, fp,
+        text, file, host, port, keyBlob, policy, trustHostKey: trustHostKey === true, fp, lean,
       })
     }
     // The file was named as the known_hosts file but reads as neither that nor

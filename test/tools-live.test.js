@@ -4230,3 +4230,43 @@ test('confirm: true opens the confirm gate and never the deny list', async () =>
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('machineInventory: alias keeps the address out of a host-key verdict', async () => {
+  // hostkey.js answers a missing known_hosts entry with host, port and file path:
+  // 'Unknown host 127.0.0.1:3982 … ssh-keyscan -p 3982 127.0.0.1 >> "…/kh-secret"'. The
+  // setting promises exactly those three values stay out of the transcript.
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-lean-hostkey-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const knownHosts = path.join(home, 'kh-secret164')
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    writeFileSync(knownHosts, '')
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      box: { host: '127.0.0.1', port: server.port, user: 'testuser164', password: 'pw164', knownHosts },
+    }), 'utf8')
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machineInventory: 'alias',
+      reconnectCooldownMs: 0, connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+    })
+    const text = String(await tools.ssh_doctor.execute({ machine: 'box' }, {})
+      .then((r) => r.text, (err) => 'ERR: ' + err.message))
+    assert.match(text, /Unknown host <host hidden>/, text)
+    assert.doesNotMatch(text, /127\.0\.0\.1/, 'the host must be hidden: ' + text)
+    assert.doesNotMatch(text, new RegExp('\\b' + server.port + '\\b'), 'the port must be hidden: ' + text)
+    assert.doesNotMatch(text, /kh-secret164/, 'the known_hosts path must be hidden: ' + text)
+    assert.match(text, /<path hidden>/, text)
+    // The advice has to stay useful without the values.
+    assert.match(text, /ssh-keyscan/, text)
+    assert.match(text, /trustHostKey: true/, text)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

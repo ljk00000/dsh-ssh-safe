@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.7.373 — 2026-11-01
+
+### Fixed — a host-key verdict printed the address under `machineInventory: alias`
+`hostkey.js` answers a missing `knownHosts` entry with the host, the port **and** the file path:
+```
+machineInventory: "alias"        knownHosts: C:/…/kh-secret164
+before   [FAIL] host key: Unknown host 127.0.0.1:3982 with fingerprint SHA256:… C:\…\kh-secret164 is an
+         OpenSSH known_hosts file … Add the host with: ssh-keyscan -p 3982 127.0.0.1 >> "C:\…\kh-secret164" …
+after    [FAIL] host key: Unknown host <host hidden> with fingerprint SHA256:… <path hidden> is an OpenSSH
+         known_hosts file … Add it to that file with ssh-keyscan — the host and port are in the machine
+         settings — after confirming the fingerprint out of band — or call ssh_connect with trustHostKey: true …
+```
+`lean` is now threaded from the pool into `checkHostKey()` and `checkOpenSshHostKey()`, which build the advice
+without the values; the pool also applies `hideAddress()` to complete host-key sentences. `machineInventory:
+"full"` still gets the exact `ssh-keyscan -p N host >> file` line.
+
+### Verified this round (no defect found)
+
+- The doctor's success line already said `<host hidden>` and `[ok] credentials` names only the credential kind.
+
+### My own mistakes (four)
+
+1. I imported `expandHome` that `pool.js` already imported — `SyntaxError: Identifier already declared`. My grep
+   missed it because the existing import is a multi-name line (`connectOptions, expandHome`).
+2. My first lean rewrite replaced `-p 9461` with `-p <port hidden>`, and the **redactor** masks any non-numeric
+   value after `-p `: the reply showed `-p <redacted> hidden>`. The fix was to stop putting a placeholder there.
+3. I added `lean` to both signatures and never passed it along the internal call, so the first two probes still
+   showed the full address. Threading a flag means every hop.
+4. The test went into the no-network suite, which has no `startServer`; it failed with `ReferenceError`. Moved to
+   `tools-live.test.js`.
+
+### Tests
+
+- New: lean mode keeps host, port and known-hosts path out of the host-key verdict while keeping the advice, and
+  full mode still prints the keyscan line.
+  Suite 963 / 958 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.372 — 2026-11-01
 
 ### Fixed — `machineInventory: alias` did not hide key paths in two tools

@@ -38,7 +38,7 @@ import { isIPv6 } from 'node:net'
 import { redact, envNames } from './credentials.js'
 import { connectOptions, expandHome } from './connect.js'
 import { credentialFor, machineDefinition } from './machines.js'
-import { checkHostKey } from './hostkey.js'
+import { checkHostKey, storePath } from './hostkey.js'
 import { Utf8Collector, OutputBudget, countCodePoints } from './buffer.js'
 import { normalizeRemotePath } from './remote-path.js'
 import { closeClient } from './close.js'
@@ -112,7 +112,13 @@ export function connectFailure(err, m, { lean = false, tried = '', notes = [] } 
   // complete sentence naming the host, the fingerprint and the way out, and the
   // ssh_doctor line above it already carries the target.
   if (/^(Could not connect to |Refusing to retry )/.test(raw)) return new Error(raw)
-  if (/^(Unknown host|Host key verification failed|Host key changed|HOST KEY CHANGED)/i.test(raw)) return new Error(raw)
+  // A host-key verdict from hostkey.js is a complete sentence, but it names the host,
+  // the port and the known_hosts file: 'Unknown host 127.0.0.1:3982 … ssh-keyscan -p
+  // 3982 127.0.0.1 >> "…\\kh-secret164"'. Under machineInventory: 'alias' that is the
+  // address the caller asked to keep out of the transcript.
+  if (/^(Unknown host|Host key verification failed|Host key changed|HOST KEY CHANGED)/i.test(raw)) {
+    return new Error(lean ? hideAddress(raw, m) : raw)
+  }
   // machineInventory: 'alias' keeps the topology out of the conversation. The
   // success paths honoured it; every failure message still said
   // "root@10.9.8.7:22", which is where a transcript is most likely to be shared.
@@ -881,6 +887,27 @@ export class SshPool {
     }
   }
 
+  /**
+   * Remove the port and the local known_hosts paths from a message.
+   *
+   * machineInventory: 'alias' promises that host, port and paths are hidden. The host
+   * was covered by hideAddress(), but a host-key verdict also says 'ssh-keyscan -p
+   * 3982 … >> "…/kh-secret164"', and a file name often names the host.
+   */
+  #hideLocalPaths(text, m) {
+    // No '-p <port>' rewrite: the redactor masks any non-numeric value after '-p ',
+    // so a placeholder there came out as '-p <redacted> hidden>'. The host-key text
+    // itself no longer contains the port in lean mode.
+    let out = hideAddress(String(text), m)
+    const candidates = []
+    if (m && m.knownHosts) candidates.push(expandHome(String(m.knownHosts)))
+    try { candidates.push(storePath(this.#credentialHome)) } catch { /* no home known */ }
+    for (const candidate of candidates) {
+      if (candidate) out = out.split(candidate).join('<path hidden>')
+    }
+    return out
+  }
+
   async #open(alias, e, { sessionPassword, trustHostKey }) {
     const auth = credentialFor(alias, {
       machines: this.config.machines || {},
@@ -1007,11 +1034,13 @@ export class SshPool {
         if (settled) return
         settled = true
         try { client.end() } catch {}
-        reject(connectFailure(err, m, {
-          lean: this.config.machineInventory === 'alias',
+        const lean = this.config.machineInventory === 'alias'
+        const failure = connectFailure(err, m, {
+          lean,
           tried: auth.kind === 'none' ? '' : String(auth.kind),
           notes: auth.warnings || [],
-        }))
+        })
+        reject(lean ? new Error(this.#hideLocalPaths(failure.message, m)) : failure)
       }
 
       // tryKeyboard lets a PAM-backed server ask for the password one prompt at a
@@ -1070,6 +1099,10 @@ export class SshPool {
           policy: effectivePolicy(this.config.hostKeyPolicy, m.hostKeyPolicy),
           trustHostKey,
           knownHostsFile: m.knownHosts ? expandHome(m.knownHosts) : undefined,
+          // The verdict names the host, the port and the known_hosts file in its
+          // ssh-keyscan advice; under machineInventory: 'alias' it says where the
+          // values live instead.
+          lean: this.config.machineInventory === 'alias',
         })
         if (!verdict.ok) {
           fail(new Error(verdict.reason))
