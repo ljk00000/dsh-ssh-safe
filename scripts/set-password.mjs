@@ -26,11 +26,16 @@
 import { spawnSync } from 'node:child_process'
 import { encryptDpapi, dpapiAvailable } from '../src/dpapi.js'
 import { envNames } from '../src/credentials.js'
+import { printable } from '../src/format.js'
 import { chmodSync, existsSync, statSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { acquireStoreLock } from './lib/store-lock.mjs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+
+/** Options that are flags: everything else needs a value after it. */
+const FLAG_OPTIONS = new Set(['plaintext', 'clear-password', 'clear-key-passphrase',
+  'key-passphrase', 'help'])
 
 function parseArgs(argv) {
   const out = {}
@@ -40,6 +45,13 @@ function parseArgs(argv) {
     const key = token.slice(2)
     const next = argv[i + 1]
     if (next === undefined || next.startsWith('--')) {
+      // '--alias' with nothing after it used to set true, which String() turned into
+      // the machine name "true": a password stored under a name nobody looks up, and
+      // a reply that said it had been stored. Every value option is refused instead.
+      if (!FLAG_OPTIONS.has(key)) {
+        console.error('--' + key + ' needs a value (for example --' + key + ' <text>)')
+        process.exit(2)
+      }
       out[key] = true
     } else {
       out[key] = next
@@ -111,7 +123,9 @@ for (const key of Object.keys(args)) {
 const rawAlias = String(args.alias || '').trim().toLowerCase()
 const alias = rawAlias
 if (rawAlias && !/^[a-z0-9._-]+$/.test(rawAlias)) {
-  console.error('Alias "' + String(args.alias) + '" contains characters an alias cannot have.')
+  // An alias is text from the command line: a NUL or an ANSI escape printed raw, and a
+  // newline split the message in two.
+  console.error('Alias "' + printable(String(args.alias)) + '" contains characters an alias cannot have.')
   console.error('Use a-z, 0-9, dot, underscore or hyphen -- the name is not rewritten for you,')
   console.error('because the password would then be stored under a name nothing looks up.')
   process.exit(2)

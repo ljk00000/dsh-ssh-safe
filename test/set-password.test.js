@@ -467,3 +467,31 @@ test('--port 0 clears the stored port instead of being refused', () => {
     assert.match(bad.stderr, /0 means no port is stored/)
   } finally { rmSync(home, { recursive: true, force: true }) }
 })
+
+test('a value option with no value is refused instead of becoming the string "true"', () => {
+  // '--alias' with nothing after it set the parser's boolean true, and String()
+  // turned that into the machine name "true": the password was stored under a name
+  // nothing looks up, and the reply said it had been stored. Every value option now
+  // says what it needs instead.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-sp-bare-'))
+  try {
+    for (const [label, args] of [
+      ['--alias', ['--alias', '--host', 'h', '--password', 'pw']],
+      ['--host', ['--alias', 'box', '--host', '--password', 'pw']],
+      ['--user', ['--alias', 'box', '--host', 'h', '--user', '--password', 'pw']],
+      ['--password', ['--alias', 'box', '--host', 'h', '--password']],
+    ]) {
+      const r = spawnSync(process.execPath, ['scripts/set-password.mjs', '--dsh-home', home, ...args],
+        { encoding: 'utf8', timeout: 20000 })
+      assert.equal(r.status, 2, label + ' must be refused: ' + (r.stderr || r.stdout))
+      assert.match(r.stderr, /needs a value/, label + ' must say what it needs: ' + r.stderr)
+      assert.deepEqual(readdirSync(home), [], label + ' left something behind')
+    }
+    // The flags keep working, so the rule does not break them.
+    const ok = spawnSync(process.execPath, ['scripts/set-password.mjs', '--dsh-home', home,
+      '--alias', 'box', '--host', 'h.example', '--user', 'u', '--password', 'pw'], { encoding: 'utf8', timeout: 20000 })
+    assert.equal(ok.status, 0, ok.stderr)
+    const stored = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
+    assert.deepEqual(Object.keys(stored), ['box'], 'the run must store the alias it was given')
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
