@@ -4976,3 +4976,48 @@ test('only ssh_list accepts a relative path, and it still refuses two dots', asy
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('maxListEntries: 0 means no cap, not an empty listing', async () => {
+  // The README says 0 = unlimited. A tool that read it as 'show nothing' would
+  // still answer with a listing and no note, so nothing else in the suite notices.
+  //
+  // One plugin instance per cap: two apply() calls build two pools, and the first
+  // pool's connection then outlives the second instance's ssh_close — the server
+  // close waited for it forever (measured: both suite runs hung on this test).
+  const srv2 = await startServer()
+  for (let i = 0; i < 7; i++) srv2.vfs.putFile('u' + i + '.txt', 'x')
+  const previous = process.env.DSH_HOME
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-nocap-'))
+  process.env.DSH_HOME = home
+  const run = async (maxListEntries, body) => {
+    const tools = {}
+    await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 4000, commandTimeoutMs: 4000, maxListEntries,
+      machines: { box: machineFor('box', srv2.port) },
+    })
+    try {
+      return await body(tools)
+    } finally {
+      await tools.ssh_close.execute({ force: true }, {}).catch(() => {})
+      // The socket close is asynchronous; the server close below waits for it.
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+  }
+  try {
+    const listed = await run(0, async (tools) =>
+      String((await tools.ssh_list.execute({ machine: 'box', path: '/' }, {})).text))
+    for (let i = 0; i < 7; i++) assert.match(listed, new RegExp('u' + i + '\\.txt'), listed)
+    assert.doesNotMatch(listed, /not shown/, 'no cap means no truncation note: ' + listed)
+
+    // One row is a real cap, and the note names the setting and the next offset.
+    const one = await run(1, async (tools) =>
+      String((await tools.ssh_list.execute({ machine: 'box', path: '/' }, {})).text))
+    assert.match(one, /6 more entries not shown \(maxListEntries = 1\) — pass offset: 1 to continue/, one)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await Promise.race([srv2.close(), new Promise((resolve) => setTimeout(resolve, 1500))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})

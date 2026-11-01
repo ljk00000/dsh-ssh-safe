@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.7.416 — 2026-11-01
+
+### New — `maxListEntries: 0` is pinned as "no cap", not "show nothing"
+
+The README promises `0 = unlimited`. A tool that read it as "show zero rows" would answer with an empty listing and
+no truncation note — indistinguishable from an empty directory unless a test asks:
+
+```
+maxListEntries: 0  → all 7 rows listed, no "not shown" note
+maxListEntries: 1  → 1 row + "… 6 more entries not shown (maxListEntries = 1) — pass offset: 1 to continue"
+```
+
+### Verified this round (no defect found)
+
+- Offset paging is right across pages: with `maxListEntries: 2` and 2 directories plus 4 files, page 1 shows the
+  directories and offers `offset: 2`, page 2 shows `f0.txt`/`f1.txt` with "2 entries above not shown (offset = 2)"
+  and offers `offset: 4`, and page 3 shows the rest — no duplicates, no gaps.
+- A scan of README code spans against `src/`: the only strings not present verbatim are examples and the
+  deliberately abbreviated markers (`[timed out …]`, `[output truncated …]`, `[binary file …]`), which the
+  CHANGELOG already explains as illustrations of the real lines.
+
+### My own mistakes
+
+- The first version of the new test called `apply()` twice to change `maxListEntries`. Two plugin instances build two
+  pools, `ssh_close` only closed the second one, and `srv2.close()` waited for the first pool’s socket forever — both
+  suite runs hung on it and had to be killed. One instance per cap, each closed before the next, fixed it.
+- My earlier paging probe read names from rows starting with `-`, so the directory rows (`d`) were invisible and I
+  briefly “found” a paging gap that does not exist. The verbatim dump showed the real thing.
+- Three `run_code` calls timed out because I waited on a background job with a timeout longer than the call budget;
+  polling the scratch files directly was the fix.
+
+### Tests
+
+- New: the two caps above. Suite 1005 / 1000 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.415 — 2026-11-01
 
 ### Fixed — the denyPatterns summary said "1 pattern(s)" and called an unchanged set a replacement
