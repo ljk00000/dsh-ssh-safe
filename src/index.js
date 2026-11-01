@@ -901,6 +901,12 @@ function assertKnownArgs(args, known, toolName) {
     const message = err && err.message ? String(err.message) : String(err)
     if (/was cancelled/.test(message)) return 'cancel'
     if (/did not complete within \d+ms|Timed out while waiting for handshake/.test(message)) return 'timeout'
+    // A transfer the peer cut off mid-flight is the 'incomplete' outcome exec already
+    // recorded. Without this, the same event read 'error' for a read or a write and
+    // 'incomplete' for a command: filtering the trail by outcome found one, not the
+    // other. The wording is this plugin's own (sftp.js says 'did not finish — the
+    // connection dropped'; the exec path says 'closed before the command reported').
+    if (/did not finish — the connection dropped|closed before the command reported an exit status/.test(message)) return 'incomplete'
     return 'error'
   }
 
@@ -2313,7 +2319,13 @@ function blockingFileAbove(dir) {
         // file) as well as remote text: printable() doubled every backslash, so an
         // audit row read C:\\Users\\... for a message that said C:\Users\.... Control
         // characters are still escaped, so a remote error cannot repaint a terminal.
-        if (r.error !== undefined) detail.push('error: ' + printableText(field(r.error)))
+        if (r.error !== undefined) {
+          // A cancelled, timed-out or incomplete record carries the reason, not an error:
+          // 'read incomplete /big.txt' followed by 'error: … dropped' disagreed with itself.
+          const outcomeWord = String(r.outcome || '')
+          const prefix = ['ok', 'cancel', 'timeout', 'incomplete', 'none'].includes(outcomeWord) ? '' : 'error: '
+          detail.push(prefix + printableText(field(r.error)))
+        }
         return detail.length > 0 ? head + '\n    ' + detail.join('  ') : head
       })
       return { text: countNote + capNote + prefix + rows.join('\n') }

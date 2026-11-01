@@ -5106,3 +5106,47 @@ test('a command cut off by the peer is recorded as incomplete, not as a plain er
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a transfer cut off by the peer is audited as incomplete, like a command', async () => {
+  // exec recorded 'incomplete' for a dropped connection while read, write and list
+  // recorded the same event as 'error': filtering the trail by outcome found one and
+  // not the other. The row also said 'error:' in front of a reason that is not an
+  // error — the transfer did not fail, it was cut off.
+  const srv2 = await startServer()
+  srv2.vfs.putFile('/big.txt', Buffer.alloc(2 * 1024 * 1024, 120))
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-audit-read-drop-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  const own = {}
+  try {
+    const machine = machineFor('box', srv2.port)
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      box: { host: machine.host, port: machine.port, user: machine.user, password: machine.password },
+    }), 'utf8')
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0, auditLog: true,
+      connectTimeoutMs: 4000, sftpTimeoutMs: 6000, maxFileBytes: 32 * 1024 * 1024,
+    })
+    const text = async (promise) => String(await promise.then((r) => r.text, (err) => 'ERR: ' + err.message))
+    await text(own.ssh_exec.execute({ machine: 'box', command: 'echo warm' }, {}))
+    srv2.vfs.control.stallReads = true
+    const reading = text(own.ssh_read.execute({ machine: 'box', path: '/big.txt' }, {}))
+    setTimeout(() => { srv2.killClients(); srv2.vfs.control.stallReads = false }, 600)
+    const reply = await reading
+    assert.match(reply, /did not finish — the connection dropped/, reply)
+
+    const audit = await text(own.ssh_audit.execute({ limit: 10 }, {}))
+    assert.match(audit, /read incomplete \/big\.txt/, audit)
+    assert.doesNotMatch(audit, /read error \/big\.txt/, 'the transfer was cut off, not refused: ' + audit)
+    // The reason line must not call itself an error either.
+    assert.match(audit, /\n\s+\d+ms\s+reading \/big\.txt did not finish/, audit)
+    assert.doesNotMatch(audit, /error: reading \/big\.txt/, audit)
+    await own.ssh_close.execute({ force: true }, {})
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await Promise.race([srv2.close(), new Promise((resolve) => setTimeout(resolve, 1500))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})

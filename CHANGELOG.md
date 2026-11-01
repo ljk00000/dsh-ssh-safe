@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.421 — 2026-11-01
+
+### Fixed — a transfer cut off by the peer was audited as an error, not as incomplete
+
+`ssh_exec` recorded a dropped connection as `incomplete` (0.7.420); `ssh_read`, `ssh_write` and `ssh_list` recorded
+the same event as `error`, and the detail line called a reason an error:
+
+```
+before   box read error /big.txt
+             612ms  error: reading /big.txt did not finish — the connection dropped
+
+after    box read incomplete /big.txt
+             612ms  reading /big.txt did not finish — the connection dropped
+```
+
+`outcomeOf()` now maps this plugin’s own wording (`did not finish — the connection dropped` from `sftp.js`,
+`closed before the command reported an exit status` from the exec path) to `incomplete`, so filtering the trail by
+outcome finds every cut-off operation in one place. The detail line drops its `error:` prefix for outcomes that are
+not errors (`ok`, `cancel`, `timeout`, `incomplete`, `none`) — the row said "incomplete" and then "error:", which
+contradicts itself. Genuine failures keep the prefix.
+
+### Verified this round (no defect found beyond the above)
+
+- The dropped read is reported in 612 ms with `stallReads`, far below its 6000 ms deadline: the pool aborts on the
+  socket close rather than waiting out the timeout.
+- `ssh_machines`, `ssh_credentials`, `ssh_config` still write no audit record (documented in 0.7.411); doctor, exec,
+  read, write, list, connect and close all do, and error rows still read `error: …`.
+
+### Tests
+
+- New: the dropped transfer is `read incomplete /big.txt`, the row is not `read error /big.txt`, and the reason line
+  has no `error:` prefix. Mutation check: mapping the outcome back to `error` fails the test.
+  Suite 1008 / 1003 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.420 — 2026-11-01
 
 ### New — a command cut off by the peer is recorded as `incomplete`, and that is pinned
