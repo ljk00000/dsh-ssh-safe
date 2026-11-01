@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -494,4 +494,47 @@ test('a value option with no value is refused instead of becoming the string "tr
     const stored = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
     assert.deepEqual(Object.keys(stored), ['box'], 'the run must store the alias it was given')
   } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
+test('--dsh-home expands ~ and says when it disagrees with DSH_HOME', () => {
+  // Measured before the fix: '--dsh-home ~/x' created a directory LITERALLY named '~'
+  // in the current directory (the plugin never reads it), and a --dsh-home that
+  // differed from the session's DSH_HOME wrote the entry where the plugin would not
+  // look, while the reply still said the plugin re-reads the file.
+  const root = mkdtempSync(path.join(tmpdir(), 'dsh-sp-home-'))
+  const envHome = path.join(root, 'envHome')
+  const flagHome = path.join(root, 'flagHome')
+  const saved = process.env.DSH_HOME
+  try {
+    process.env.DSH_HOME = envHome
+    const mismatched = spawnSync(process.execPath, ['scripts/set-password.mjs', '--alias', 'box',
+      '--host', 'h.example', '--user', 'u', '--password', 'pw', '--dsh-home', flagHome],
+      { encoding: 'utf8', timeout: 20000 })
+    assert.equal(mismatched.status, 0, mismatched.stderr)
+    assert.match(mismatched.stderr, /--dsh-home .* is not the DSH_HOME this session uses/,
+      'the disagreement must be said: ' + mismatched.stderr)
+    assert.match(mismatched.stderr, /will not see this entry/)
+    assert.equal(existsSync(path.join(flagHome, 'dsh-ssh-safe', 'credentials.json')), true,
+      'the flag still wins, as its name says')
+    assert.equal(existsSync(path.join(envHome, 'dsh-ssh-safe', 'credentials.json')), false)
+
+    // '~' is a path to the home directory, not a directory named '~'.
+    const cwd = process.cwd()
+    const tilde = spawnSync(process.execPath, ['scripts/set-password.mjs', '--alias', 'box2',
+      '--host', 'h.example', '--user', 'u', '--password', 'pw', '--dsh-home', '~/.dsh-test-' + path.basename(root)],
+      { encoding: 'utf8', timeout: 20000, cwd })
+    assert.equal(tilde.status, 0, tilde.stderr)
+    assert.equal(existsSync(path.join(cwd, '~')), false, 'no directory literally named ~ may be created')
+    const expanded = path.join(homedir(), '.dsh-test-' + path.basename(root))
+    try {
+      assert.equal(existsSync(path.join(expanded, 'dsh-ssh-safe', 'credentials.json')), true,
+        'the tilde must expand to the home directory')
+    } finally {
+      rmSync(expanded, { recursive: true, force: true })
+    }
+  } finally {
+    if (saved === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = saved
+    rmSync(root, { recursive: true, force: true })
+  }
 })

@@ -26,7 +26,8 @@
 import { spawnSync } from 'node:child_process'
 import { encryptDpapi, dpapiAvailable } from '../src/dpapi.js'
 import { envNames } from '../src/credentials.js'
-import { printable } from '../src/format.js'
+import { printable, printableText } from '../src/format.js'
+import { expandHome } from '../src/connect.js'
 import { chmodSync, existsSync, statSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { acquireStoreLock } from './lib/store-lock.mjs'
 import { homedir } from 'node:os'
@@ -242,7 +243,21 @@ function persist(next) {
   }
 }
 
-const dshHome = String(args['dsh-home'] || process.env.DSH_HOME || path.join(homedir(), '.dsh'))
+// '~' is expanded here (the same helper the plugin uses): --dsh-home '~/x' used to
+// create a directory literally named '~' in the current directory, which the plugin
+// never reads.
+const homeFlag = args['dsh-home'] ? expandHome(String(args['dsh-home'])) : ''
+const homeEnv = process.env.DSH_HOME ? expandHome(String(process.env.DSH_HOME)) : ''
+const dshHome = homeFlag || homeEnv || path.join(homedir(), '.dsh')
+// The flag wins, so a deliberate override still works - but when the environment names
+// a different home, the running plugin reads THAT one and will never see this entry.
+if (homeFlag && homeEnv && path.resolve(homeFlag) !== path.resolve(homeEnv)) {
+  // A local path: printableText() keeps backslashes single (printable() doubled them,
+  // and expandHome leaves a '/' after the home part), and path.resolve() shows one shape.
+  console.error('warning: --dsh-home ' + printableText(path.resolve(homeFlag)) +
+    ' is not the DSH_HOME this session uses (' + printableText(path.resolve(homeEnv)) + ').')
+  console.error('         The plugin reads the environment path, so it will not see this entry.')
+}
 const dir = path.join(dshHome, 'dsh-ssh-safe')
 const file = path.join(dir, 'credentials.json')
 

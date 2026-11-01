@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.7.382 — 2026-11-01
+
+### Fixed — `--dsh-home` did not expand `~` and overrode `DSH_HOME` in silence
+```
+DSH_HOME=C:\…\profiles\desktop
+node scripts/set-password.mjs --alias box … --dsh-home C:\elsewhere
+before   Stored for "box": … File: C:\elsewhere\dsh-ssh-safe\credentials.json
+         The plugin re-reads it on every connection; no restart needed.      ← it will never read that path
+after    warning: --dsh-home C:\elsewhere is not the DSH_HOME this session uses
+         (C:\…\profiles\desktop).
+                  The plugin reads the environment path, so it will not see this entry.
+         (the flag still wins, and the entry is still written where it says)
+
+node scripts/set-password.mjs --alias box … --dsh-home "~/myhome"
+before   created a directory LITERALLY named "~" in the current directory
+after    expands to C:\Users\<you>\myhome, the same way the plugin reads ~
+```
+
+### Verified this round (no defect found)
+
+- Nothing in the plugin changes `chmod`/`writeFileSync` permissions on Windows into an undeletable file: a file written
+  with `mode: 0o600` and one written plainly have the same inherited DACL and both delete normally. The undeletable
+  file I hit was created inside this workspace, where the session sandbox applies its own DACL — an artefact of my
+  environment, not of the plugin.
+
+### My own mistakes (two)
+
+1. My first version of the warning used `printable()` on a **local path**, so it printed `C:\\Users\\…` and showed the
+   mixed separators `expandHome()` leaves (`C:\Users\X/myhome`). Fixed with `printableText(path.resolve(…))`.
+2. The new test used `homedir()` without importing it (`ReferenceError`); the import was added to the existing `os`
+   line.
+- The `~` directory my probe created inside the repo could not be deleted with `Remove-Item` because of the sandbox
+  DACL; `icacls /reset` then removal cleared it, and the workspace is clean again (`git status` shows only my two
+  edited files).
+
+### Tests
+
+- New: the mismatch warning (flag wins, entry lands in the flag home) and `~` expansion (no directory named `~`).
+  Suite 972 / 967 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.381 — 2026-11-01
 
 ### Fixed — `--alias` with no value stored the password under a machine called `true`
