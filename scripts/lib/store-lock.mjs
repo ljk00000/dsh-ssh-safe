@@ -111,13 +111,29 @@ export function acquireStoreLock(file, options = {}) {
   }
 }
 
-/** Run fn while holding the lock, and always release it afterwards. */
+/**
+ * Run fn while holding the lock, and always release it afterwards.
+ *
+ * An async fn keeps the lock until its promise settles. The finally-based version
+ * released it as soon as fn() returned its promise, so a second writer could enter
+ * while the first one was still awaiting — the lock looked held and was not.
+ */
 export function withStoreLock(file, fn, options = {}) {
   const lock = acquireStoreLock(file, options)
   if (lock.timedOut) throw new StoreLockTimeout(file)
+  let result
   try {
-    return fn()
-  } finally {
+    result = fn()
+  } catch (err) {
     lock.release()
+    throw err
   }
+  if (result && typeof result.then === 'function') {
+    return result.then(
+      (value) => { lock.release(); return value },
+      (err) => { lock.release(); throw err },
+    )
+  }
+  lock.release()
+  return result
 }

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.380 — 2026-11-01
+
+### Fixed — `withStoreLock` released the lock before an async callback finished
+```js
+export function withStoreLock(file, fn, options = {}) {
+  const lock = acquireStoreLock(file, options)
+  try { return fn() } finally { lock.release() }   // ← fn() returns a promise; release runs at once
+}
+```
+Measured with the old shape and an `async` callback that awaits 120 ms:
+```
+old withStoreLock — second writer timedOut: false     ← it got in while the first was still awaiting
+after                — second writer timedOut: true, and the lock frees when the promise settles
+```
+The lock looked held and was not. Nothing in this repo calls it with an async callback today, so this was a trap for
+the next caller rather than a live bug — but the doc comment ("always release it afterwards") was already untrue
+for one of the two shapes.
+
+### Tests
+
+- New: an async callback keeps the lock until it settles, a rejection releases it, and the lock is free afterwards.
+  Suite 970 / 965 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.379 — 2026-11-01
 
 ### Fixed — an unremovable stale lock spun forever instead of timing out

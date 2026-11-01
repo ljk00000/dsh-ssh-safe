@@ -211,3 +211,37 @@ test('an unremovable stale lock times out instead of spinning forever', () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('an async callback keeps the lock until it settles', async () => {
+  // The finally-based version released the lock as soon as fn() handed back its
+  // promise, so a second writer entered while the first was still awaiting. The
+  // lock looked held and was not.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-lock-async-'))
+  const file = path.join(home, 'credentials.json')
+  try {
+    let secondResult = null
+    await withStoreLock(file, async () => {
+      // While this callback is awaiting, another writer must not get in.
+      await new Promise((resolve) => setTimeout(resolve, 120))
+      secondResult = acquireStoreLock(file, { waitMs: 60 })
+    })
+    assert.equal(secondResult.timedOut, true, 'the lock must still be held while the callback awaits')
+    secondResult.release()
+
+    // And once it settles, the lock is free again.
+    const after = acquireStoreLock(file, { waitMs: 60 })
+    assert.equal(after.timedOut, false, 'the lock must be released when the promise settles')
+    after.release()
+
+    // A rejection releases it too.
+    await assert.rejects(
+      () => withStoreLock(file, async () => { throw new Error('boom') }),
+      /boom/,
+    )
+    const afterFailure = acquireStoreLock(file, { waitMs: 60 })
+    assert.equal(afterFailure.timedOut, false, 'a failed callback must not keep the lock')
+    afterFailure.release()
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
