@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.377 — 2026-11-01
+
+### New — `hostKeyPolicy: off` verifies nothing and records nothing
+A policy that accepts any key must not write that key into the plugin's store: the next connection would then read
+it back as "first contact: recorded" and report a verified host. Nothing asserted either half, and the coverage run
+showed the branch was never executed:
+```
+hostKeyPolicy: "off", a fresh DSH home, first connection
+ssh_connect  → Connected: … / Host key: SHA256:MRdb…
+             + WARNING: the host key policy in effect is "off" — this connection is not protected …
+dsh-ssh-safe/known_hosts.json   →  not created
+ssh_doctor   → [warn] host key: NOT verified: hostKeyPolicy is "off", so any key would be accepted
+               (and no [ok] host key line)
+```
+
+### Verified this round (no defect found)
+
+- `ssh_credentials` lists a `defaultMachine` that has no settings as `• ghost  INCOMPLETE (needs host and user)`,
+  and names malformed credential-file entries: `IGNORED "odd" … is a string, not an object of fields` (same for an
+  array and for `null`).
+- `ssh_audit` refuses `limit: 1e400` at the schema (`"limit" must be an integer`) and answers `limit: 0` with
+  "no records were requested…" instead of silently showing one.
+- Uncovered lines reviewed and found defensive-only: `sftp.js` 773-775 (a write error after bytes went out), 786-787
+  (`stream.end()` throwing synchronously), 893 (a list error outside the callback), `index.js` 2043 (an action the
+  validator allows but the body does not implement).
+
+### Tests
+
+- New: the two properties above (store untouched, reply and doctor both say it is not verified).
+  Suite 967 / 962 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.376 — 2026-11-01
 
 ### Fixed — the doctor's success line printed a trusted `knownHosts` path in lean mode

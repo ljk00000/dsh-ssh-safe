@@ -4377,3 +4377,37 @@ test('the doctor keeps a trusted knownHosts path out of the reply in lean mode',
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('hostKeyPolicy off verifies nothing and records nothing', async () => {
+  // 'off' accepts any key, so a fingerprint in the reply must never stand alone,
+  // and the plugin must not write the key into its store: that would launder an
+  // unverified key into a 'first contact: recorded' on the next connection.
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-off168-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, {
+      hostKeyPolicy: 'off', allowPlaintextPassword: true,
+      reconnectCooldownMs: 0, connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+      machines: { box: machineFor('box', server.port) },
+    })
+    const text = String((await tools.ssh_connect.execute({ machine: 'box' }, {})).text)
+    assert.match(text, /Host key: SHA256:/, text)
+    assert.match(text, /WARNING: the host key policy in effect is "off"/, text)
+    assert.equal(existsSync(path.join(home, 'dsh-ssh-safe', 'known_hosts.json')), false,
+      'nothing may be recorded under hostKeyPolicy: off')
+
+    const doctor = String((await tools.ssh_doctor.execute({ machine: 'box' }, {})).text)
+    assert.match(doctor, /\[warn\] host key: NOT verified: hostKeyPolicy is "off"/, doctor)
+    assert.doesNotMatch(doctor, /\[ok\] host key/, 'the doctor must not call it verified: ' + doctor)
+    await tools.ssh_close.execute({ force: true }, {}).catch(() => {})
+  } finally {
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
