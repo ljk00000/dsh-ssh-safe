@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.7.417 — 2026-11-01
+
+### New — `scripts/mutation-check.mjs`: a passing test is not evidence by itself
+
+Three of this month’s tests were checked by changing the code they cover and confirming they fail. Two did:
+
+```
+src/format.js   max === 0 ? [] : …            CAUGHT   maxListEntries: 0 means no cap, not an empty listing
+src/guard.js    split(/(?<!\|)\|(?!\|)/)      CAUGHT   the bash |& operator and a newline after a pipe …
+src/index.js    count = n + " pattern(s)"      CAUGHT   2 failures (the plural and the pipe-rule summary)
+```
+
+The script makes that repeatable: `--file`, `--before`, `--after`, `--test`; it applies the edit, runs the test
+file, restores the file in `finally`, and reports CAUGHT / NOT CAUGHT from the TAP output.
+
+### Two ways this check lies, both recorded in the script
+
+- A mutation that does not change behaviour proves nothing. My first attempt turned `max = 0` into `max = -1`; the
+  code only tests `max > 0`, so the suite passed and I briefly believed the test was weak.
+- `node --test --test-name-pattern=<pattern>` exits **0** when the pattern matches nothing, printing the file as a
+  single passing test. That happened on the third mutation and produced a false green. The script greps for
+  `^not ok` / `fail N` instead of trusting the exit code, and refuses a mutation that leaves the file unchanged.
+
+### Verified this round (no defect found)
+
+- `ssh_exec` timeout then close: "[timed out after 1000ms — the remote command was sent SIGTERM and the channel was
+  closed; the output above is what arrived first"]; the connection survives (1 client), `ssh_close` closes it, and
+  the next exec reconnects and runs.
+- `maxFileBytes` (1024) against a 2000-byte file: read truncates with "[truncated: the first 1024 bytes of a larger
+  file — raise maxFileBytes …]"; `maxBytes: 512` names both knobs; `maxBytes: 4096` explains that the cap beat the
+  request; a write over the cap is **refused** rather than half-written.
+- Write edge cases: a missing parent says "Pass createDirs: true"; a directory target says "not a file … use
+  ssh_list"; empty content writes 0 bytes.
+
+### Tests
+
+Suite 1005 / 1000 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.416 — 2026-11-01
 
 ### New — `maxListEntries: 0` is pinned as "no cap", not "show nothing"
