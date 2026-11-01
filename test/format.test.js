@@ -103,3 +103,18 @@ test('a signal name a server chose is escaped', () => {
   assert.equal(exitLine({ code: 3 }), '[exit 3]')
   assert.equal(exitLine({ code: null, signal: null }), '[exit unknown]')
 })
+
+test('the path in a listing header is escaped like the names beside it', () => {
+  // A directory may legally be named with a control character, and copying that
+  // name into ssh_list printed it raw: three headers did (listing, empty
+  // directory, offset past the end) while the names below were escaped.
+  const evil = '/d' + String.fromCharCode(27) + '[31mred'
+  const shown = formatListing({ path: evil, items: [{ name: 'inside.txt', size: 1, dir: false, mtime: '2026-11-01T00:00:00Z' }] })
+  assert.match(shown.split('\n')[0], /\\x1b\[31mred/)
+  assert.doesNotMatch(shown, /\u001b/)
+  assert.match(formatListing({ path: evil, items: [] }), /\(empty directory: \/d\\x1b\[31mred\)/)
+  assert.match(formatListing({ path: evil, items: [{ name: 'a', size: 1, dir: false }] }, 0, 5),
+    /\/d\\x1b\[31mred\n\(offset 5 is past the last of 1 entries\)/)
+  // An ordinary path is untouched.
+  assert.match(formatListing({ path: '/home/user', items: [] }), /^\(empty directory: \/home\/user\)$/)
+})

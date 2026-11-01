@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.7.359 — 2026-11-01
+
+### Fixed — a listing header printed the path raw
+
+`formatListing()` escaped the entry names and printed the path above them as it came in. A directory may legally
+be named with a control character on Linux, so copying that name into `ssh_list` repainted the terminal:
+
+```
+ssh_list { path: "/d\u001b[31mred" }
+before   /d<ESC>[31mred
+                 (empty directory: /empty<ESC>[31mred)
+                 (offset 99 is past the last of 3 entries)   ← the path came first, raw
+after    /d\x1b[31mred
+                 (empty directory: /empty\x1b[31mred)
+```
+
+Both the empty-directory line, the offset-past-the-end line and the plain header now go through `printable()`;
+an ordinary path is byte-for-byte unchanged.
+
+### Verified this round (no defect found)
+
+- The error replies for `ssh_read` and `ssh_write` on a hostile path were already escaped (`printable(target)` in
+  `remoteError`), and a missing path is reported with the same escaping.
+- Nothing a server sends can reach the size or time columns as text: `listingEntries()` keeps a non-finite size as
+  undefined (printed `-`) and runs the mtime through `isoSeconds()`, which returns an ISO stamp or null — one
+  unusable timestamp used to fail the whole listing, and no longer does.
+
+### My own mistakes
+
+1. The first patch dropped a closing quote and `node --check` reported "Invalid or unexpected token" before anything
+   ran. I restored the quote instead of rewriting the block.
+2. My test passed `offset` inside the listing object (`formatListing({ …, offset: 5 })`) when it is the third
+   argument; the assertion failed with a full row instead of the offset notice, which is how I noticed.
+
+### Tests
+
+- New: the three header shapes escape a hostile path, and an ordinary path stays exactly
+  `(empty directory: /home/user)`.
+  Suite 949 / 944 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.358 — 2026-11-01
 
 ### New — a connect storm and a close-all are covered by tests

@@ -138,7 +138,11 @@ export function plural(count, noun) {
 export function formatListing(listing, limit = 0, offset = 0) {
   const items = Array.isArray(listing?.items) ? listing.items : []
   const path = String(listing?.path || '.')
-  if (items.length === 0) return '(empty directory: ' + path + ')'
+  // The path is remote text: a directory may legally be named with a control
+  // character, and the names beside it were already escaped while the header was
+  // not.
+  const shownPath = printable(path)
+  if (items.length === 0) return '(empty directory: ' + shownPath + ')'
 
   // Directories first, then by name. Sorting before the cap keeps the visible
   // rows stable instead of depending on readdir's order.
@@ -172,8 +176,8 @@ export function formatListing(listing, limit = 0, offset = 0) {
   // An offset past the end is not an error, but "(empty directory)" would be a
   // lie about a directory that has entries.
   if (start >= sorted.length && start > 0) {
-    return path + '\n(offset ' + start + ' is past the last of ' + sorted.length + ' entries)'
+    return shownPath + '\n(offset ' + start + ' is past the last of ' + sorted.length + ' entries)'
   }
 
-  return path + '\n' + head + rows.join('\n') + tail
+  return shownPath + '\n' + head + rows.join('\n') + tail
 }
