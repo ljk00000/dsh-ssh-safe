@@ -5,12 +5,14 @@ on:
     branches: [main]
   pull_request:
 
-# A new push to the same branch supersedes the previous matrix. Without this,
-# every push queued six jobs and stale commits kept failing after their bugs
-# were already fixed, which turned CI into a stream of duplicate emails.
+# A new push to the same branch replaces the PENDING matrix, but lets the run
+# already in progress finish. Without this, every push queued six jobs and stale
+# commits kept failing after their bugs were already fixed, which turned CI into
+# a stream of duplicate emails. Cancelling the run in progress is wrong here: on
+# an actively developed branch it means no commit ever gets a green result.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   test:
