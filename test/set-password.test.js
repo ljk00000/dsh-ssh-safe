@@ -73,10 +73,12 @@ test('a second write for the same alias replaces the first', { skip: !dpapiAvail
 test('an unusable port is refused instead of stored as null', { skip: !dpapiAvailable() && 'DPAPI unavailable' }, () => {
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-swp-'))
   try {
-    for (const port of ['abc', '70000', '-5', '22.5', '0']) {
+    // 0 is not in this list any more: it means 'store no port' (the plugin's own
+    // spelling for 'unset'), covered by the --port 0 test below.
+    for (const port of ['abc', '70000', '-5', '22.5', 'null']) {
       const result = runSetPassword(home, ['--alias', 'p', '--host', 'h', '--user', 'u', '--password', 'pw', '--port', port])
       assert.equal(result.status, 2, 'port ' + port + ' must be refused: ' + result.stdout)
-      assert.match(result.stderr, /--port must be an integer between 1 and 65535/)
+      assert.match(result.stderr, /--port must be an integer between 0 and 65535/)
     }
     assert.ok(!existsSync(path.join(home, 'dsh-ssh-safe', 'credentials.json')), 'nothing may be written')
 
@@ -405,7 +407,8 @@ test('a refused CLI run leaves the DSH home untouched', () => {
   try {
     const cases = [
       ['--port abc', ['--alias', 'p', '--port', 'abc', '--host', 'h', '--user', 'u']],
-      ['--port 0', ['--alias', 'p', '--port', '0', '--host', 'h', '--user', 'u']],
+      // '--port 0' is not refused any more: it means 'store no port'.
+      ['--port -1', ['--alias', 'p', '--port', '-1', '--host', 'h', '--user', 'u']],
       ['--port 70000', ['--alias', 'p', '--port', '70000', '--host', 'h', '--user', 'u']],
       ['bad alias', ['--alias', 'a b', '--host', 'h', '--user', 'u']],
       ['clear + password', ['--alias', 'p', '--clear-password', '--password', 'x']],
@@ -436,5 +439,31 @@ test('the env-var advice uses the name the plugin actually reads', () => {
     const advice = cleared.stdout + cleared.stderr
     assert.match(advice, /DSH_SSH_PROD_1_PASSWORD/)
     assert.doesNotMatch(advice, /DSH_SSH_PROD\.1_PASSWORD/, 'the advice named an impossible variable')
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
+test('--port 0 clears the stored port instead of being refused', () => {
+  // 0 means 'not set' in the plugin (the settings form uses it that way, and the
+  // resolver falls back to the environment, then 22). The script refused it with
+  // 'between 1 and 65535', so the natural way to say 'drop the port I stored' was
+  // an error.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-swp-port0-'))
+  try {
+    const first = runSetPassword(home, ['--alias', 'p', '--host', 'h.example', '--user', 'u', '--port', '2222'])
+    assert.equal(first.status, 0, first.stderr || first.stdout)
+    const file = path.join(home, 'dsh-ssh-safe', 'credentials.json')
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).p.port, 2222)
+
+    const cleared = runSetPassword(home, ['--alias', 'p', '--host', 'h.example', '--user', 'u', '--port', '0'])
+    assert.equal(cleared.status, 0, cleared.stderr || cleared.stdout)
+    const saved = JSON.parse(readFileSync(file, 'utf8')).p
+    assert.equal('port' in saved, false, 'port 0 must clear the field: ' + JSON.stringify(saved))
+    // The resolver then falls back, and the plugin agrees with the file.
+    assert.equal(machineDefinition('p', { dshHome: home }).port, 22)
+
+    const bad = runSetPassword(home, ['--alias', 'p', '--port', '70000'])
+    assert.equal(bad.status, 2)
+    assert.match(bad.stderr, /between 0 and 65535/)
+    assert.match(bad.stderr, /0 means no port is stored/)
   } finally { rmSync(home, { recursive: true, force: true }) }
 })

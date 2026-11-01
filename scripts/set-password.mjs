@@ -127,7 +127,7 @@ if (reserved.includes(alias)) {
   process.exit(2)
 }
 if (!alias) {
-  console.error('Usage: node scripts/set-password.mjs --alias <name> [--host h] [--port p] [--user u]')
+  console.error('Usage: node scripts/set-password.mjs --alias <name> [--host h] [--port p] [--user u] [--port 0 clears the stored port]')
   console.error('                                              [--key-path p] [--key-passphrase]')
   console.error('                                              [--password p] [--plaintext] [--clear-password]')
   console.error('                                              [--clear-key-passphrase]')
@@ -137,10 +137,14 @@ if (!alias) {
 // Pure argument checks run before anything touches the filesystem: a refused
 // command used to leave an empty dsh-ssh-safe directory behind, because the
 // read-modify-write section (and the mkdir it needs) came first.
+// 0 means 'not set' in the plugin: the settings form uses it that way and the
+// resolver falls back to the environment, then 22. Refusing it here quoted a rule
+// the plugin does not have -- and made --port 0, the natural way to say 'drop the
+// port I stored earlier', an error.
 if (args.port !== undefined) {
   const port = Number(args.port)
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    console.error('--port must be an integer between 1 and 65535 (received ' + JSON.stringify(args.port) + ')')
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    console.error('--port must be an integer between 0 and 65535 (received ' + JSON.stringify(args.port) + '), where 0 means no port is stored')
     process.exit(2)
   }
 }
@@ -296,7 +300,11 @@ const entry = { ...(store[alias] && typeof store[alias] === 'object' ? store[ali
 // nothing after it and looked like a setting had been saved.
 if (args.host && String(args.host).trim()) entry.host = String(args.host).trim()
 // Already validated above, before anything touched the filesystem.
-if (args.port !== undefined) entry.port = Number(args.port)
+if (args.port !== undefined) {
+  // 0 clears the field instead of storing a number the resolver ignores.
+  if (Number(args.port) === 0) delete entry.port
+  else entry.port = Number(args.port)
+}
 if (args.user && String(args.user).trim()) entry.user = String(args.user).trim()
 if (args['key-path'] && String(args['key-path']).trim()) entry.keyPath = String(args['key-path']).trim()
 

@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.335 — 2026-11-01
+
+### Fixed — `set-password.mjs --port 0` was refused
+The third place (after the plugin and the settings page) that quoted a rule the plugin does not have. Zeros are
+how the plugin spells "no port", so the natural way to drop a port you stored earlier was an error:
+```
+node scripts/set-password.mjs --alias y --port 2222 …     (stores 2222)
+node scripts/set-password.mjs --alias y --port 0 …
+before  --port must be an integer between 1 and 65535 (received "0")
+after   Stored for "y": host, user        -> the port field is removed, so the environment or 22 decides
+        --port 70000 / abc / null / 22.5 / -1 are still refused, now naming 0 as the accepted spelling
+```
+
+### Verified this round (no defect found)
+- The page had already been brought in line in 0.7.334, and the plugin resolver since 0.7.332/333: all three
+  layers now agree that 0 means "not set", while a genuinely invalid port is still refused by name.
+
+### My own mistakes
+1. The change broke three existing assertions that encoded the old contract (`--port 0` must be refused,
+   `between 1 and 65535`), which is what a deliberate contract change should do — but I found them one run at
+   a time instead of grepping for the old wording first.
+2. My first edit anchored on a line that had different indentation than I assumed (`if (args.port !==
+   undefined) entry.port = …` sits at column 0, not inside the block), and the script aborted before writing, so
+   nothing was half-patched.
+
+### Tests
+- New: `--port 0` removes the stored port and the resolver falls back to 22; the refusal list now uses real
+  invalid values.
+  Suite 921 / 916 pass / 5 skipped / 0 fail, run twice concurrently; set-password 20/20; `tsc` clean.
+
 ## 0.7.334 — 2026-11-01
 
 ### Fixed — the settings page refused `port: 0`, which the plugin treats as "not set"
