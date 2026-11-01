@@ -24,7 +24,7 @@
 
 import { createHash } from 'node:crypto'
 import { printable } from './format.js'
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { envNames } from './credentials.js'
 
@@ -209,6 +209,21 @@ export function readMarker(dshHome, alias) {
  * @param {{host?: string, port?: number, username?: string}} machine
  * @returns {{dir: string, created: boolean}}
  */
+/**
+ * Whether 'AGENTS.md' in this directory is the file this plugin writes.
+ *
+ * Only a regular file counts. A *directory* of that name is the user's, and
+ * deleting it removed their files: /AGENTS.md/inside/keep.txt disappeared with
+ * 'remove deleteFiles: true'.
+ */
+function agentsFileIsOurs(dir) {
+  try {
+    return lstatSync(join(dir, 'AGENTS.md')).isFile()
+  } catch {
+    return false
+  }
+}
+
 export function writeRemoteWorkspace(dshHome, alias, machine = {}, policy = 'strict', hideHost = false) {
   const dir = remoteDir(dshHome, alias)
   const created = !existsSync(dir)
@@ -217,7 +232,8 @@ export function writeRemoteWorkspace(dshHome, alias, machine = {}, policy = 'str
   // marker check only recognises directories this plugin marked, and this is how
   // a foreign directory could acquire a marker. An empty directory is fine.
   if (!created && !existsSync(join(dir, MARKER))) {
-    const foreign = readdirSync(dir).filter((name) => name !== MARKER && name !== 'AGENTS.md')
+    const foreign = readdirSync(dir)
+      .filter((name) => name !== MARKER && !(name === 'AGENTS.md' && agentsFileIsOurs(dir)))
     if (foreign.length > 0) {
       const err = new Error(
         'refusing to use ' + dir + ' as a workspace: it already holds ' +
@@ -397,7 +413,10 @@ export function removeRemoteDir(dshHome, alias) {
   // Files the user put in this directory are theirs. The create side already
   // refuses to adopt such a directory, and the delete side used to remove it
   // without a word — measured: 'important.txt' disappeared with the workspace.
-  const foreign = readdirSync(dir).filter((name) => name !== MARKER && name !== 'AGENTS.md')
+  // 'AGENTS.md' is ours only while it is the file this plugin wrote. A directory of
+  // that name is the user's, and it was deleted along with its contents.
+  const foreign = readdirSync(dir)
+    .filter((name) => name !== MARKER && !(name === 'AGENTS.md' && agentsFileIsOurs(dir)))
   if (foreign.length > 0) {
     const err = new Error(
       'refusing to delete ' + dir + ': it holds ' + foreign.length + ' entr' +

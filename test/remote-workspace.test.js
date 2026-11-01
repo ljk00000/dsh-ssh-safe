@@ -707,3 +707,46 @@ test('a registry title is escaped instead of printed raw', async () => {
     assert.doesNotMatch(removal, control, 'the remove error carried a control character: ' + JSON.stringify(removal))
   } finally { restore() }
 })
+
+test('a directory named AGENTS.md is the user\'s, not this plugin\'s file', async () => {
+  // The plugin writes AGENTS.md as a file. Removing the workspace deleted the
+  // directory of that name along with everything inside it: measured,
+  // /AGENTS.md/inside/keep.txt disappeared and the workspace was gone.
+  const home = mkdtempSync(join(tmpdir(), 'dsh-ws-agents-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const registry = {
+    items: [],
+    list() { return this.items.slice() },
+    async create(where, title) { const item = { id: 'w' + this.items.length, path: where, title }; this.items.push(item); return item },
+    async delete() { return true },
+  }
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => registry }
+  try {
+    await apply(ctx, { hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machines: { box: { host: 'h.example', user: 'u' } } })
+    const text = async (promise) => String(await promise.then((r) => (r && r.text !== undefined ? r.text : ''), (err) => 'ERR: ' + err.message))
+    await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
+    const dir = remoteDir(home, 'box')
+    const agents = path.join(dir, 'AGENTS.md')
+    rmSync(agents, { recursive: true, force: true })
+    mkdirSync(path.join(agents, 'inside'), { recursive: true })
+    writeFileSync(path.join(agents, 'inside', 'keep.txt'), 'mine')
+
+    const refused = await text(tools.ssh_workspace.execute({ action: 'remove', machine: 'box', deleteFiles: true }, {}))
+    assert.match(refused, /AGENTS\.md|没有删除/, 'a directory of that name must be reported as the user\'s')
+    assert.equal(existsSync(path.join(agents, 'inside', 'keep.txt')), true, 'the user\'s file must survive')
+
+    // And the create side: nothing of the plugin\'s is there, so it must not adopt it.
+    rmSync(dir, { recursive: true, force: true })
+    mkdirSync(path.join(dir, 'AGENTS.md', 'inside'), { recursive: true })
+    writeFileSync(path.join(dir, 'AGENTS.md', 'inside', 'keep.txt'), 'mine')
+    const adopt = await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
+    assert.match(adopt, /没有创建的内容|AGENTS\.md/)
+    assert.equal(existsSync(path.join(dir, 'AGENTS.md', 'inside', 'keep.txt')), true)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

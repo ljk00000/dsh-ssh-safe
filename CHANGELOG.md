@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.7.363 — 2026-11-01
+
+### Fixed — a directory named `AGENTS.md` was deleted with the workspace
+`removeRemoteDir()` treated the two names this plugin writes (`AGENTS.md`, the marker) as its own wherever they
+appeared. A *directory* of that name is the user's, and deleting it took everything inside:
+```
+placeholder/AGENTS.md/inside/keep.txt      (the user's own tree)
+ssh_workspace { action: "remove", machine: "box", deleteFiles: true }
+before   deleted, without a word
+after    ERR: 没有删除「box」的占位目录：里面有你放进去的文件，删了就找不回来了。  … and keep.txt is still there
+```
+`AGENTS.md` now counts as this plugin's only while it is a **regular file** (`lstatSync().isFile()`). The create
+side uses the same rule, so a directory holding only `AGENTS.md`-as-a-directory is refused rather than adopted and
+then written into.
+
+### Verified this round (no defect found)
+
+- A user **subdirectory** in the placeholder is refused both before and after this change, with the entry named.
+- A **symlink** to an outside directory is refused too, and the target survived — nothing is deleted through a link.
+- A placeholder with a parseable marker naming another alias is refused, and one whose marker cannot be parsed is
+  refused as well.
+
+### My own mistakes
+
+1. After the fix my test failed with "Cannot access 'home' before initialization": it used the file's shared
+   `const home = () => …` helper, which `node:test` had not reached yet. It builds its own temp directory now.
+2. My probe script mixed `require()` into an ESM file and died with `ERR_AMBIGUOUS_MODULE_SYNTAX`; converting the
+   calls to the imported functions fixed it.
+
+### Tests
+
+- New: a hostile `AGENTS.md` directory survives `remove deleteFiles: true`, and a directory holding only that is
+  not adopted by `create`.
+  Suite 953 / 948 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.362 — 2026-11-01
 
 ### New — the per-call timeout is tested against the configured one
