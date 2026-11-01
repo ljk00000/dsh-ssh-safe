@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.361 — 2026-11-01
+
+### New — `machineInventory: alias` is checked against every tool
+The setting exists so a transcript can be shared without the address, and one tool forgetting it undoes the point.
+Seventeen calls — both listings with and without a machine, `ssh_config`, `ssh_audit`, and `ssh_connect`,
+`ssh_exec`, `ssh_read`, `ssh_list`, `ssh_write`, `ssh_workspace` (list, status, create), `ssh_doctor` and `ssh_close`
+against both a credential-file machine and a settings-form machine — are now checked for the literal host and user
+name. All seventeen answer `<host hidden>`.
+
+### Verified this round (no defect found)
+
+- The doctor line and the connect reply honour the setting too: `[ok] configuration:` and `Connected:` show
+  `<host hidden>` rather than `secretuser152@hidden-host-152.example:2222`.
+- `dpapi.js` cannot be talked into running a different interpreter: `cachedShell` is chosen once between the
+  literals `pwsh` and `powershell.exe`, so no environment value reaches either message.
+
+### My own mistake
+
+- The first version of the probe set `commandTimeoutMs: 2000, connectTimeoutMs: 800`; the schema requires 1000 for
+  every timeout, so the plugin refused to load and the probe tested nothing. The error message named the field and
+  the minimum, which is why it took one line to see.
+
+### Tests
+
+- New: the seventeen-call lean-mode sweep.
+  Suite 951 / 946 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.360 — 2026-11-01
 
 ### Documented — `ssh_exec` output is passed through, escape sequences included

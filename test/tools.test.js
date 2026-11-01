@@ -1804,3 +1804,50 @@ test('the README says command output is passed through, including escape sequenc
   assert.match(readme, /ANSI 转义序列会原样进入会话/, 'the pass-through must be documented')
   assert.ok(readme.includes('`ssh_exec` 不改写 stdout/stderr'), 'say which tool and what it does not touch')
 })
+
+test('machineInventory: alias keeps the host, port and user out of every reply', async () => {
+  // The setting exists so a transcript can be shared without the address. One tool
+  // forgetting it undoes the whole point, and there are seventeen places that could.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-lean-mode-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  const host = 'hidden-host-152.example'
+  const user = 'secretuser152'
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      box: { host, port: 2222, user, password: 'pw' },
+    }), 'utf8')
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machineInventory: 'alias', auditLog: true,
+      reconnectCooldownMs: 0, connectTimeoutMs: 2000, commandTimeoutMs: 2000,
+      machines: { form: { host, user, port: 2222 } },
+    })
+    const calls = [
+      ['ssh_machines', {}], ['ssh_machines', { machine: 'box' }],
+      ['ssh_credentials', {}], ['ssh_credentials', { machine: 'box' }],
+      ['ssh_config', {}], ['ssh_audit', { limit: 5 }],
+      ['ssh_connect', { machine: 'box' }], ['ssh_exec', { machine: 'box', command: 'echo hi' }],
+      ['ssh_read', { machine: 'box', path: '/x' }], ['ssh_list', { machine: 'box', path: '/' }],
+      ['ssh_write', { machine: 'box', path: '/x', content: 'y' }],
+      ['ssh_workspace', {}], ['ssh_workspace', { machine: 'box' }],
+      ['ssh_workspace', { action: 'create', machine: 'box' }],
+      ['ssh_doctor', { machine: 'box' }], ['ssh_close', {}], ['ssh_doctor', { machine: 'form' }],
+    ]
+    const leaks = []
+    for (const [name, args] of calls) {
+      const text = await tools[name].execute(args, {})
+        .then((result) => String(result && result.text || ''), (err) => String(err && err.message || err))
+      for (const needle of [host, user]) {
+        if (text.includes(needle)) leaks.push(name + ' ' + JSON.stringify(args) + ' printed ' + needle)
+      }
+    }
+    assert.deepEqual(leaks, [], 'replies that leaked the endpoint')
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
