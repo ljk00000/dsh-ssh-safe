@@ -1575,3 +1575,43 @@ test('a passphrase kept in the settings form is reported as plaintext', async ()
   assert.match(text, /passphrase config \(plaintext in the settings form/)
   assert.match(text, /KEY_PASSPHRASE environment variable/)
 })
+
+test('a credential file with the wrong types renders each field, not [object Object]', async () => {
+  // The file is hand-editable: an object where a user or a key path belongs used to
+  // render '• m18  [object Object]@<no host>:22' and 'key [object Object]', hiding
+  // which field was wrong. machineDefinition now keeps such a value out of the
+  // text fields (fieldProblem already names it in words).
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-types-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      objuser: { host: 'h.example', user: { a: 1 } },
+      objkey: { host: 'h.example', user: 'u', keyPath: ['a', 'b'] },
+      objpolicy: { host: 'h.example', user: 'u', hostKeyPolicy: { mode: 'off' } },
+      objport: { host: 'h.example', user: 'u', port: { n: 22 } },
+      escape: { host: 'h.example', user: 'u', keyPath: '/k\u001b[31mred' },
+    }), 'utf8')
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+    })
+    const machines = String((await own.ssh_machines.execute({}, {})).text)
+    const creds = String((await own.ssh_credentials.execute({}, {})).text)
+    for (const shown of [machines, creds]) {
+      assert.doesNotMatch(shown, /\[object Object\]/, 'a value was flattened to [object Object]')
+      assert.doesNotMatch(shown, /\u001b/, 'an escape sequence reached the terminal')
+    }
+    // The bad value is still reported in words, with the field named.
+    assert.match(machines, /the user from the file is not text \(it is object\)/)
+    // An escaped local path keeps its single backslashes and is neutralised.
+    assert.match(creds, /\\x1b\[31mred/)
+    // A port that is an object is shown as what it is, not as [object Object].
+    assert.match(machines, /port \{"n":22\}/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

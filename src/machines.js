@@ -225,6 +225,23 @@ function fileKeyPassphrase(file) {
   return ''
 }
 
+/**
+ * A field rendered as text, or an empty string when the value cannot be text.
+ *
+ * String({}) is '[object Object]': a hand-edited credentials.json whose user is
+ * an object printed 'm18  [object Object]@<no host>:22' in ssh_machines, and
+ * '[object Object]' where ssh_credentials shows the key path -- while
+ * fieldProblem already knows which field is wrong and says so in words.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function textOrEmpty(value) {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return ''
+}
+
 /** True when a value counts as present. 0 and false do. */
 function filled(value) {
   return value !== undefined && value !== null && value !== ''
@@ -365,25 +382,27 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
     // path (page, set-password) trims these, so a value with spaces came from a
     // hand-edited file or a pasted environment variable. Trimming here keeps the
     // value that is used identical to the value that is displayed.
-    host: String(host.value || '').trim(),
+    host: textOrEmpty(host.value).trim(),
     // Number('') is 0, which is not "unset": an unset port must stay 22.
     port: configured && portValid && Number.isInteger(portNumber) ? portNumber : 22,
     /** The value as configured, so a listing can show what is actually there. */
-    portRaw: filled(port.value) ? port.value : '',
+    // Display text: a hand-edited port that is an object has to appear as what it is
+    // (JSON) rather than as '[object Object]'.
+    portRaw: filled(port.value) ? (textOrEmpty(port.value) || JSON.stringify(port.value)) : '',
     portProblem,
     /** The first field whose value cannot be text, or ''. */
     fieldProblem,
     /** Set when the credential file defines this alias without a field object. */
     entryProblem,
-    username: String(user.value || '').trim(),
+    username: textOrEmpty(user.value).trim(),
     // Never carries plaintext: a DPAPI entry has to be decrypted on demand.
     password: '',
-    keyPath: String(keyPath.value || '').trim(),
-    keyPassphrase: String(keyPassphrase.value || ''),
+    keyPath: textOrEmpty(keyPath.value).trim(),
+    keyPassphrase: textOrEmpty(keyPassphrase.value),
     // Empty means "inherit the global policy". A previous version defaulted to
     // 'strict' here, which made the global setting unreachable.
-    hostKeyPolicy: String(policy.value || ''),
-    knownHosts: String(knownHosts.value || ''),
+    hostKeyPolicy: textOrEmpty(policy.value),
+    knownHosts: textOrEmpty(knownHosts.value),
     /** Env var names that were found, for diagnostics. Never values. */
     present: env.present,
     /** A problem with the stored secret itself, or '' when it looks usable. */

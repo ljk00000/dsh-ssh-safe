@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.7.343 — 2026-11-01
+
+### Fixed — a credential file with the wrong types printed `[object Object]` in three tools
+Fuzzing the *listing* side with 20 hostile credential entries and 6 hostile settings-form machines (the same method
+that found the audit-row leaks) showed the coercion in `machineDefinition()`:
+```
+credentials.json: { objuser: { host: "h.example", user: { a: 1 } } }
+before  • objuser  [object Object]@h.example:22
+            hostKeyPolicy: [object Object]
+after   • objuser  h.example:22                (fieldProblem names the field in words)
+            MISSING: DSH_SSH_OBJUSER_USER
+also fixed:  ssh_credentials  "key  [object Object]"      -> the field is simply empty
+             ssh_workspace    "• objuser  [object Object]@?:22"
+             an object port in ssh_machines now shows as {"n":22}, not [object Object]
+             a keyPath holding an ANSI escape is escaped, single backslashes preserved
+```
+`host`, `user`, `keyPath`, `keyPassphrase`, `hostKeyPolicy`, `knownHosts` and `portRaw` now go through a
+`textOrEmpty()` helper (strings and finite numbers pass; anything else becomes empty and is reported by
+`fieldProblem`). The listing prints the key path with `printableText()` — the escape that keeps Windows
+backslashes intact, which is why `printable()` had been avoided there.
+
+### Verified this round (no defect found)
+- After the fix the same fuzz is quiet in every renderer: `ssh_machines`, `ssh_credentials`, `ssh_config`,
+  `ssh_workspace` and `ssh_doctor` (per machine) show zero raw control characters, zero `[object Object]` and zero
+  `undefined`.
+
+### My own mistakes
+1. My first version of the fuzz only checked for `[object Object]` and control characters in the *whole* output,
+  which hid that the doctor and workspace listings share the same coercion path — the per-tool line counts were
+  what showed `ssh_workspace` was affected too.
+2. Making the fields empty broke an existing test that expected "the host from the file is not text (it is an
+  array)": an empty host tripped the "is not configured: missing DSH_SSH_…" branch first, which is exactly the
+  wrong diagnosis that test was written for. The full suite caught it; the fix is to report `fieldProblem` from
+  that branch too.
+
+### Tests
+- New: a credential file whose user, key path, policy and port have the wrong types renders every field without
+  `[object Object]`, names the bad field in words, escapes a hostile key path, and shows an object port as JSON.
+  Suite 932 / 927 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean; the fuzz is quiet.
+
 ## 0.7.342 — 2026-11-01
 
 ### Fixed — a hand-edited audit row could repaint the terminal

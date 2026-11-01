@@ -882,6 +882,17 @@ export class SshPool {
     })
     const m = auth.machine
     if (!m.host || !m.username) {
+      // A field that holds something which cannot be text is configured, just
+      // unusable, and fieldProblem names it. Without this, user: {} became the
+      // empty string and the reply said 'missing DSH_SSH_X_USER' — sending the
+      // reader to the settings and the environment instead of to the field that
+      // is wrong.
+      if (m.fieldProblem) {
+        throw noCooldown(new Error(
+          'Machine "' + alias + '" cannot be used: ' + m.fieldProblem + '. ' +
+          'Fix that value in its source (it must be plain text), then retry.'
+        ))
+      }
       const names = envNames(alias)
       const need = []
       if (!m.host) need.push(names.host)
