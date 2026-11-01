@@ -372,7 +372,7 @@ test('a store that cannot be written says which file and why the connection fail
     assert.throws(
       () => checkHostKey({ dshHome: home, host: 'h', port: 22, keyBlob: keyA, policy: 'tofu', trustHostKey: true }),
       (err) => {
-        assert.match(err.message, /the host key store .* could not be written \(EEXIST\)/)
+        assert.match(err.message, /the host key store .* could not be written \((EEXIST|ENOTDIR)\)/)
         assert.match(err.message, /The key could not be recorded, so the connection was refused/)
         assert.match(err.message, /fix that path/)
         return true

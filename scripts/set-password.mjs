@@ -318,9 +318,16 @@ if (passphraseInput !== undefined) {
   // A passphrase protects a key the same way a password protects an account, and it
   // used to be written in plaintext while the password beside it was DPAPI
   // encrypted -- the file said "<set, NOT encrypted -- avoid>" and stored it anyway.
-  if (args.plaintext === true || !dpapiAvailable()) {
+  if (args.plaintext === true) {
     entry.keyPassphrase = passphraseInput
     delete entry.keyPassphraseDpapi
+  } else if (!dpapiAvailable()) {
+    // Storing a passphrase readable on a platform without DPAPI was the same
+    // plaintext leak the password path already refused. A key file is not less
+    // sensitive than an account password.
+    console.error('DPAPI is not available on this platform, so the key passphrase cannot be encrypted.')
+    console.error('Refusing to write it in plaintext. Use --plaintext to opt in, or keep the passphrase in the agent.')
+    process.exit(2)
   } else {
     entry.keyPassphraseDpapi = encryptDpapi(passphraseInput)
     delete entry.keyPassphrase

@@ -207,7 +207,7 @@ test('a credential file that does not parse is reported and never overwritten', 
     assert.equal(state.status, 200, 'the page still loads')
     assert.match(String(state.body.fileProblem), /无法解析/, 'the state names the problem')
     const saved = await call(base, token, '/api/save', {
-      alias: 'new', host: 'h.example', user: 'u', password: 'p',
+      alias: 'new', host: 'h.example', user: 'u',
     })
     assert.equal(saved.status, 409, 'the save is refused')
     assert.match(String(saved.body.error), /不会写入/)
@@ -227,7 +227,7 @@ test('a slack credential file still saves and keeps its other entries', async ()
   const { child, base, token } = await start(home)
   try {
     const saved = await call(base, token, '/api/save', {
-      alias: 'new', host: 'h.example', user: 'u', password: 'p',
+      alias: 'new', host: 'h.example', user: 'u',
     })
     assert.equal(saved.status, 200)
     const after = JSON.parse(readFileSync(file, 'utf8'))
@@ -642,7 +642,7 @@ test('a settings file with no plugin entry is simply ignored', async () => {
   }
 })
 
-test('the test button gives up when connectTimeoutMs says so', async () => {
+test('the test button gives up when connectTimeoutMs says so', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
   // The page dialled with a hardcoded 15s readyTimeout, so a profile that sets
   // connectTimeoutMs: 3000 still made the caller wait 15 197 ms -- five times
   // longer than ssh_exec would. Measured before/after on the same black-hole port.
@@ -966,7 +966,7 @@ test('a port that the settings form will override is announced on save', async (
   const { child, base: url, token } = await start(home, ['--profile', profile])
   try {
     const saved = await call(url, token, '/api/save', {
-      alias: 'svc', host: 'page-host.example', port: '2222', user: 'page-user', password: 'pw',
+      alias: 'svc', host: 'page-host.example', port: '2222', user: 'page-user',
     })
     assert.equal(saved.status, 200, JSON.stringify(saved.body))
     const text = saved.body.warnings.join('\n')
@@ -1326,7 +1326,7 @@ test('a non-object JSON body is refused with 400, not a 500', { skip: dpapiAvail
   }
 })
 
-test('the page can clear a stored password', async () => {
+test('the page can clear a stored password', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
   // A saved password could not be removed from the page at all: saving without one
   // means 'leave it alone', so the blob stayed until the machine was deleted.
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-clear-'))
@@ -1411,7 +1411,7 @@ test('the page names why TCP failed instead of saying the host is unreachable', 
   }
 })
 
-test('the page explains a refused command channel instead of printing ssh2 text', async () => {
+test('the page explains a refused command channel instead of printing ssh2 text', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
   // '(SSH) Channel open failure: ' with an empty reason names the stage but not the
   // cause; the tool layer explains MaxSessions, the page printed the raw string.
   const ssh2 = (await import('ssh2')).default
@@ -1441,7 +1441,7 @@ test('the page explains a refused command channel instead of printing ssh2 text'
   }
 })
 
-test('the page names the recorded fingerprint and the remedy when the key changed', async () => {
+test('the page names the recorded fingerprint and the remedy when the key changed', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
   // It said '与记录的指纹不一致' without saying WHICH, and gave no way to fix it.
   const ssh2 = (await import('ssh2')).default
   const { createHash } = await import('node:crypto')
@@ -1513,7 +1513,7 @@ test('the page explains a credential problem instead of pasting a Node error', a
   }
 })
 
-test('the page can clear a stored key passphrase', async () => {
+test('the page can clear a stored key passphrase', { skip: dpapiAvailable() ? false : 'DPAPI is a Windows feature' }, async () => {
   // --clear-key-passphrase existed in the CLI and nowhere on the page, so a
   // passphrase saved from the page could only be revoked from a terminal.
   const { encryptDpapi, dpapiAvailable } = await import('../src/dpapi.js')

@@ -43,6 +43,15 @@ function readStore(file) {
     // A store that does not exist yet is the normal first run.
     const code = err && /** @type {{code?: string}} */ (err).code
     if (code === 'ENOENT') return { store: empty, problem: '' }
+    if (code && /^(ENOTDIR|EACCES|EPERM|EROFS|ENOSPC)$/.test(String(code))) {
+      const failure = new Error(
+        'the host key store ' + file + ' could not be written (' + code + '). The key could not be ' +
+        'recorded, so the connection was refused; fix that path (a file where the directory belongs, ' +
+        'or a permission problem) and retry.'
+      )
+      Object.assign(failure, { code, local: true })
+      throw failure
+    }
     return {
       store: empty,
       problem: 'the host key store ' + file + ' could not be read (' + (code || (err && err.message) || 'unknown error') + ')',
