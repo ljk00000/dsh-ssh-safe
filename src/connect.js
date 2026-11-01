@@ -14,6 +14,7 @@
 // Keying on the resolved VALUE rather than on the kind means a new source
 // becomes usable here the moment credentialFor() learns to produce it.
 
+import { printableText } from './format.js'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import ssh2 from 'ssh2'
@@ -73,11 +74,11 @@ export function connectOptions(machine, auth, timing = {}) {
       // rather than what to change.
       if (code === 'EISDIR') {
         throw new Error(
-          'the keyPath ' + keyPath + ' is a directory, not a key file; point it at the private key ' +
+          'the keyPath ' + printableText(keyPath) + ' is a directory, not a key file; point it at the private key ' +
           'itself (for example ~/.ssh/id_ed25519)'
         )
       }
-      throw new Error('cannot read the private key ' + keyPath + ': ' +
+      throw new Error('cannot read the private key ' + printableText(keyPath) + ': ' +
         String(err && /** @type {any} */ (err).message ? /** @type {any} */ (err).message : err))
     }
     // The passphrase has to reach the parser: without it an encrypted key never
@@ -94,7 +95,8 @@ export function connectOptions(machine, auth, timing = {}) {
           ? ' — this is not a private key in a format ssh2 reads (PEM or OpenSSH);' +
             ' a .pub file is the public half and cannot authenticate on its own'
           : ''
-      throw new Error('the private key ' + keyPath + ' could not be parsed: ' + parsed.message + passphraseHint)
+      throw new Error('the private key ' + printableText(keyPath) + ' could not be parsed: ' +
+        printableText(String(parsed.message || '').slice(0, 200)) + passphraseHint)
     }
     // A .pub file parses cleanly, so it reached ssh2 as privateKey and the
     // connection died with 'privateKey value does not contain a (valid) private
@@ -102,7 +104,7 @@ export function connectOptions(machine, auth, timing = {}) {
     // isPrivateKey() === false for the public half.
     if (typeof parsed.isPrivateKey === 'function' && !parsed.isPrivateKey()) {
       throw new Error(
-        'the keyPath ' + keyPath + ' holds a public key, not a private one; ssh2 cannot ' +
+        'the keyPath ' + printableText(keyPath) + ' holds a public key, not a private one; ssh2 cannot ' +
         'authenticate with it — point keyPath at the private file (for example ' +
         '~/.ssh/id_ed25519, without the .pub)'
       )

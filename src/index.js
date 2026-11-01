@@ -2602,16 +2602,16 @@ function passphraseLine(st) {
       if (String(auth.kind).endsWith('-key') && !/keyPath/.test(m.fieldProblem || '')) {
         const keyPath = expandHome(auth.keyPath)
         if (!existsSync(keyPath)) {
-          credentialProblem = 'key file not found: ' + keyPath
+          credentialProblem = 'key file not found: ' + printableText(keyPath)
         } else {
           try {
             const body = readFileSync(keyPath)
-            if (body.length === 0) credentialProblem = 'key file is empty: ' + keyPath
+            if (body.length === 0) credentialProblem = 'key file is empty: ' + printableText(keyPath)
             else if (!/PRIVATE KEY-----/.test(String(body.subarray(0, 200)))) {
               // A .pub next to the key is the commonest wrong file; say which half
               // it is rather than leaving the reader to compare with ssh_exec's
               // longer message.
-              credentialProblem = 'key file does not look like a private key: ' + keyPath +
+              credentialProblem = 'key file does not look like a private key: ' + printableText(keyPath) +
                 (/\.pub$/i.test(keyPath) ? ' (a .pub file is the public half)' : '')
             } else {
               // The header check passes for an ENCRYPTED key, so this said ok and
@@ -2619,14 +2619,15 @@ function passphraseLine(st) {
               // passphrase the connection would use.
               try {
                 const parsed = parsePrivateKey(String(body), auth.passphrase)
+                const parseableMessage = printableText(String(parsed.message || '').slice(0, 200))
                 if (parsed instanceof Error) {
                   // A stored blob that cannot be decrypted here is NOT 'not configured':
                   // saying so sent the reader to add a passphrase they had already added.
                   const passphraseProblem = /passphrase/i.test(parsed.message) ? (m.keyPassphraseProblem || '') : ''
                   credentialProblem = /passphrase/i.test(parsed.message) && !auth.passphrase
-                    ? 'the private key ' + keyPath + ' is passphrase-protected and ' +
+                    ? 'the private key ' + printableText(keyPath) + ' is passphrase-protected and ' +
                       (passphraseProblem || 'no keyPassphrase is configured — set keyPassphrase for this machine (or DSH_SSH_<ALIAS>_KEY_PASSPHRASE)')
-                    : 'the private key ' + keyPath + ' could not be parsed: ' + parsed.message
+                    : 'the private key ' + printableText(keyPath) + ' could not be parsed: ' + parseableMessage
                 }
               } catch { /* leave the earlier checks to speak */ }
             }
@@ -2635,13 +2636,13 @@ function passphraseLine(st) {
             // The connection path says 'is a directory, not a key file'; the doctor
             // still printed the errno, so the two disagreed about the same mistake.
             credentialProblem = code === 'EISDIR'
-              ? 'key file is a directory, not a key: ' + keyPath
-              : 'key file unreadable (' + (code || 'error') + '): ' + keyPath
+              ? 'key file is a directory, not a key: ' + printableText(keyPath)
+              : 'key file unreadable (' + (code || 'error') + '): ' + printableText(keyPath)
           }
         }
       } else if (auth.kind === 'agent') {
         if (!existsSync(auth.agent)) {
-          credentialProblem = 'agent socket not found: ' + auth.agent
+          credentialProblem = 'agent socket not found: ' + printableText(auth.agent)
         } else {
           // A path that exists is not an agent: SSH_AUTH_SOCK pointing at a
           // leftover regular file passed this step as '[ok] credentials: agent'

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.351 — 2026-11-01
+
+### Fixed — the credential messages printed the local key path raw
+`keyPath` is a local path from a hand-editable file, and two tools echoed it unescaped:
+```
+credentials.json: { esc: { …, keyPath: "<home>\\k\u0000\u001b[31mred" } }
+
+ssh_connect  ERR: … cannot read the private key C:\…\k<NUL><ESC>[31mred: ENOENT…
+ssh_doctor   [FAIL] credentials: key file not found: C:\…\k<NUL><ESC>[31mred
+after        …\k\x00\x1b[31mred …            (backslashes still single)
+```
+`printableText()` is the right escaper here, not `printable()`: the latter doubles every backslash and would have
+turned a readable Windows path into `C:\\Users\\…`. The same treatment went to the neighbouring messages (a key
+that is a directory, empty, unreadable, not a private key, passphrase-protected, unparseable, and the agent socket
+path), plus the parser's own message, which is truncated to 200 characters before escaping.
+
+### Verified this round (no defect found)
+- The path stays recognisable: the reply contains the real home directory, so a reader can still copy it.
+- `expandHome` runs before the message is built, so a `~/.ssh/id_rsa` key shows the expanded path, as before.
+
+### Tests
+- New: a key path with a NUL and an ANSI escape is quoted as `\x00\x1b[31m` in both `ssh_connect` and
+  `ssh_doctor`, with the local path still matching the real one (no doubled backslashes).
+  Suite 941 / 936 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.350 — 2026-11-01
 
 ### Fixed — a workspace title from the registry was printed raw

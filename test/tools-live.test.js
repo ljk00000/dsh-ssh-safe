@@ -3992,3 +3992,41 @@ test('the doctor names a per-machine policy it had to ignore', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a key path with control characters is escaped, and its backslashes are not doubled', async () => {
+  // keyPath is a local path and comes from a hand-editable file. The messages
+  // printed it raw (a NUL and an ANSI escape reached the terminal), and printable()
+  // would have doubled every Windows backslash, which is why printableText() is
+  // the right escaper here.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-keypath-esc-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    const evil = path.join(home, 'k\u0000\u001b[31mred')
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      esc: { host: '127.0.0.1', port: srv.port, user: 'tester', keyPath: evil },
+    }), 'utf8')
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 2000, commandTimeoutMs: 2000,
+    })
+    const attempt = async (promise) => {
+      try { return String((await promise).text) } catch (err) { return 'ERR: ' + err.message }
+    }
+    const connect = await attempt(own.ssh_connect.execute({ machine: 'esc' }, {}))
+    assert.doesNotMatch(connect, /\u0000|\u001b/, 'no raw control character: ' + JSON.stringify(connect))
+    assert.match(connect, /\\x00\\x1b\[31mred/, 'the path is shown, escaped')
+    // A doubled backslash would mean the whole path was mangled.
+    assert.ok(connect.includes(home), 'the local path must stay readable: ' + connect)
+
+    const doctor = String((await own.ssh_doctor.execute({ machine: 'esc' }, {})).text)
+    assert.doesNotMatch(doctor, /\u0000|\u001b/, 'the doctor line must be escaped too: ' + JSON.stringify(doctor))
+    assert.ok(doctor.includes(home), 'the doctor path must stay readable')
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
