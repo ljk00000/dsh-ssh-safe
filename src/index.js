@@ -1777,7 +1777,7 @@ const trustedLine = (m) => {
         })
         return { text:
           '远程工作区：\n' + rows.join('\n') +
-          '\n\n根目录: ' + remoteRoot(dshHome) +
+          '\n\n根目录: ' + printableText(remoteRoot(dshHome)) +
           (registry ? '' : '\n注意：当前 profile 没有 workspace 服务，只能创建目录，无法注册到侧栏。') }
       }
 
@@ -2247,7 +2247,7 @@ function passphraseLine(st) {
       const head = [
         'Credential sources (values are never shown):',
         '  settings form   machines.<alias> in the plugin config',
-        '  credential file ' + file + (cfg.useCredentialFile === true ? '' : '  [DISABLED]') +
+        '  credential file ' + printableText(file) + (cfg.useCredentialFile === true ? '' : '  [DISABLED]') +
           credentialFileAge(file),
         '  environment     DSH_SSH_<ALIAS>_*',
         // Matches credentialFor(): any usable password outranks a key, and a key
@@ -2461,7 +2461,7 @@ function passphraseLine(st) {
           const shown = mode.toString(8).padStart(4, '0')
           state = '(mode ' + shown + (mode & 0o077 ? ' — readable by group/others, which the plugin never does' : '') + ')'
         }
-        lines.push('', 'Credential file: ' + credFile + '  ' + state)
+        lines.push('', 'Credential file: ' + printableText(credFile) + '  ' + state)
         // "exists" is not "usable": a file with a trailing comma answered every
         // connection with "no credentials" and this report said nothing about it.
         const fileState = readCredentialFile(dshHome)
@@ -2483,8 +2483,8 @@ function passphraseLine(st) {
           : '') +
         (stats.aliases.length ? '  [' + stats.aliases.join(', ') + ']' : ''))
       if (cfg.auditLog === true) {
-        lines.push('Audit log: ' + dshHome + (process.platform === 'win32' ? '\\' : '/') + 'dsh-ssh-safe' +
-          (process.platform === 'win32' ? '\\' : '/') + 'audit.ndjson')
+        lines.push('Audit log: ' + printableText(dshHome + (process.platform === 'win32' ? '\\' : '/') + 'dsh-ssh-safe' +
+          (process.platform === 'win32' ? '\\' : '/') + 'audit.ndjson'))
       }
       return { text: lines.join('\n') }
     },

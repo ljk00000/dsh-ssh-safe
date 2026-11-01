@@ -1738,3 +1738,29 @@ test('the workspace create reply escapes the endpoint it is bound to', async () 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a DSH home with a control character is escaped in the paths that are printed', async () => {
+  // The home comes from the environment. Three replies printed it as a path
+  // without escaping: the credential file line, the audit log line, and the
+  // workspace root. The directory does not have to exist for the text to print.
+  const evilHome = path.join(tmpdir(), 'dsh-home-esc-' + String.fromCharCode(27) + '[31mred')
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = evilHome
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, { hostKeyPolicy: 'tofu', auditLog: true, machines: { box: { host: 'h.example', user: 'u' } } })
+    const shown = [
+      String((await tools.ssh_config.execute({}, {})).text),
+      String((await tools.ssh_credentials.execute({}, {})).text),
+      String((await tools.ssh_workspace.execute({}, {})).text),
+    ]
+    for (const text of shown) {
+      assert.doesNotMatch(text, /\u001b/, 'a control character reached the reader: ' + JSON.stringify(text.slice(0, 200)))
+      assert.match(text, /\\x1b\[31mred/, 'the path is still shown, escaped')
+    }
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+  }
+})

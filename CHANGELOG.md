@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.354 — 2026-11-01
+
+### Fixed — three replies printed the DSH home as a raw path
+`DSH_HOME` comes from the environment. A home whose name holds a control character reached three replies
+unescaped (the directory does not have to exist for the text to be printed):
+```
+DSH_HOME=<tmp>/dsh-env145<ESC>[31mred
+ssh_config       Credential file: …\dsh-env145<ESC>[31mred\dsh-ssh-safe\credentials.json
+                 Audit log:       …\dsh-env145<ESC>[31mred\dsh-ssh-safe\audit.ndjson
+ssh_credentials    credential file …\dsh-env145<ESC>[31mred\dsh-ssh-safe\credentials.json
+ssh_workspace    根目录: …\dsh-env145<ESC>[31mred\dsh-ssh-safe\remotes
+after            …\dsh-env145\x1b[31mred\…   (escaped, backslashes still single)
+```
+All four sites use `printableText()` — these are local paths, so `printable()` would have doubled the
+backslashes.
+
+### Verified this round (no defect found)
+- `ssh_audit` and `ssh_machines` printed nothing home-derived that was unescaped; `ssh_doctor` was clean too.
+
+### My own mistakes
+- My first patch wrapped the audit-log expression without balancing the parentheses (`SyntaxError: missing ) after
+  argument list`); `node --check` caught it before anything ran. I then rewrote the line instead of patching
+  around it.
+
+### Tests
+- New: a home path with an escape sequence is quoted as `\x1b[31m` in `ssh_config`, `ssh_credentials` and
+  `ssh_workspace`, with no raw control character left.
+  Suite 944 / 939 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.353 — 2026-11-01
 
 ### New — the whole tool surface is swept for unescaped values
