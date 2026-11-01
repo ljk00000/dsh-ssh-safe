@@ -223,6 +223,34 @@ test(
   }
 )
 
+
+test('a bare -- does not hide a whole-tree find from the rules', () => {
+  // 'find / -delete' was blocked and 'find -- / -delete' was not: the terminator stayed
+  // in the text, so the path never followed 'find'. Stripped in normalizeCommand, so
+  // every rule sees the same command.
+  const DEFAULT = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
+  for (const cmd of [
+    'find -- / -delete',
+    'find -- ~ -delete',
+    'find -- / -exec rm {} +',
+    'find -- "$HOME" -delete',
+    'find -- / -mindepth 1 -delete',
+    'find / -delete',
+  ]) {
+    assert.equal(checkCommand(cmd, DEFAULT).blocked, true, 'should block: ' + cmd)
+  }
+  for (const cmd of [
+    'find /tmp -delete',
+    'find . -delete',
+    'find / -name x -print',
+    'ls | xargs -- rm',
+    'grep -- -r file',
+    'cp --reflink=auto -- a b',
+  ]) {
+    assert.equal(checkCommand(cmd, DEFAULT).blocked, false, 'should allow: ' + cmd)
+  }
+})
+
 test('the home directory cannot be deleted with an option terminator or split flags', () => {
   // 'rm -rf -- ~' was allowed while 'rm -rf ~' was blocked: a bare '--' stayed in the
   // canonical target list and matched neither rule. The canonical form was also

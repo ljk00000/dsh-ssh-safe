@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.328 — 2026-11-01
+
+### Fixed — `find -- / -delete` walked the filesystem and was allowed
+Yesterday's `rm` fix stripped the option terminator only inside `canonicalizeRm()`, so the `find` rules still
+saw the raw text and the path never followed `find` in it:
+```
+before                    after
+find / -delete    BLOCK   BLOCK
+find -- / -delete allow   BLOCK   ← fixed
+find -- ~ -delete allow   BLOCK
+find -- / -exec rm {} + allow   BLOCK
+find -- /etc      allow   allow   (a subtree is not the whole tree)
+```
+The strip moved into `normalizeCommand()`, the one place every rule reads, so any future rule gets it too. Quotes
+are removed before it runs, so `find -- "-~"`-style spellings are covered as well.
+
+### Verified this round (no defect found)
+- No rule depends on a bare `--` being present, and the false-positive guard held: `find /tmp -delete`,
+  `find . -delete`, `ls | xargs -- rm`, `grep -- -r file` and `cp --reflink=auto -- a b` all stay allowed.
+
+### My own mistakes
+- The probe expected `ls | xargs -- rm` to be blocked. It should not be: that deletes the listed files, not a
+  whole tree, and the guard's xargs rule is about `rm -r`/`-f` carrying forms. One of the four "failures" was
+  my expectation, not the code.
+
+### Tests
+- New: a bare `--` does not hide a whole-tree `find` (delete, `-exec rm`, home path), with six allowed
+  spellings next to it as the false-positive control.
+  Suite 914 / 909 pass / 5 skipped / 0 fail, run twice concurrently; guard files 139/139; `tsc` clean.
+
 ## 0.7.327 — 2026-11-01
 
 ### Fixed — `rm -rf -- ~` deleted the home directory and was allowed

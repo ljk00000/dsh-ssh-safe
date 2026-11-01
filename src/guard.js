@@ -67,6 +67,12 @@ export function normalizeCommand(command) {
   s = s.replace(/\$\([^()]*\)/g, '')
   s = s.replace(/`[^`]*`/g, '')
   s = s.replace(/['"]/g, '')
+  // '--' ends the option list; it is not an argument. It stayed in the text and
+  // 'find -- / -delete' walked the whole filesystem without matching the rule that
+  // spells the same act as 'find / -delete'. Quotes are already gone above, so
+  // '"--"' is caught too. Every rule sees the same stripped text, and no rule
+  // depends on a bare '--' being present.
+  s = s.replace(/(?:^|\s)--(?=\s|$)/g, ' ')
   s = s.replace(/^(\/(?:[\w.+-]+\/)*)([\w.+-]+)/, '$2')
   // A backslash escapes any character, including the path separator: the shell
   // turns 'rm -rf \/ ' into 'rm -rf /', and the deny rule saw the backslash.
