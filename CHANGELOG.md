@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.424 — 2026-11-01
+
+### Fixed — `ssh_machines` promised a key whose stored passphrase cannot be decrypted
+
+Coverage pointed at `machines.js:213-215`, the branch for a DPAPI blob that this account cannot decrypt — what a
+credential file copied from another machine looks like. The message was right where it appeared, and missing where it
+mattered:
+
+```
+ssh_credentials   passphrase none (UNUSABLE) — the stored key passphrase cannot be decrypted on this account or
+                  machine; re-run scripts/set-password.mjs here
+
+ssh_machines  before   auth: key C:/keys/id_ed25519 (file)
+              after    auth: key C:/keys/id_ed25519 (file) — the stored key passphrase cannot be decrypted on this
+                       account or machine; re-run scripts/set-password.mjs here
+```
+
+The same note covers the other reason (`does not look like DPAPI output`), and a key with no stored passphrase keeps
+its plain line. Under `machineInventory: alias` the note names no path, so it is printed there too.
+
+### Verified this round (no defect found beyond the above)
+
+- Coverage re-measured after 0.7.423: 1011 tests, 98.6 % of lines. `remote-path.js` and `connect.js` are at 100 %;
+  the remainder is platform-gated (`audit.js` chmod on Windows), error paths that need a hostile server, and
+  argument-validation branches.
+
+### Tests
+
+- New: both passphrase reasons appear in `ssh_machines`, and a key without one keeps a clean line.
+  Suite 1011 / 1006 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.423 — 2026-11-01
 
 ### Fixed — a server that answers readdir with a non-list produced a JavaScript internal

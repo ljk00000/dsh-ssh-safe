@@ -2119,3 +2119,36 @@ test('the denyPatterns summary counts in English and knows the built-in set in a
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('ssh_machines says when a stored key passphrase cannot be used', async () => {
+  // ssh_credentials called the passphrase UNUSABLE while ssh_machines printed
+  // 'auth: key <path> (file)' with no hint: the inventory promised a key the next
+  // connection was about to refuse. Both reasons have a line now — a blob that is
+  // not DPAPI output, and one that is hex but cannot be decrypted on this account
+  // (a credential file copied from another machine).
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-passphrase-note-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      nothex: { host: 'h.example', user: 'u', keyPath: 'C:/keys/id_ed25519', keyPassphraseDpapi: 'not-hex' },
+      foreign: { host: 'h.example', user: 'u', keyPath: 'C:/keys/id_ed25519', keyPassphraseDpapi: 'a'.repeat(48) },
+      ok: { host: 'h.example', user: 'u', keyPath: 'C:/keys/id_ed25519' },
+    }), 'utf8')
+    await apply(ctx, { hostKeyPolicy: 'tofu' })
+    const text = String((await tools.ssh_machines.execute({}, {})).text)
+    const block = (alias) => (text.split(/\n(?=• )/).find((part) => part.startsWith('• ' + alias)) || '')
+    assert.match(block('nothex'), /does not look like DPAPI output/, block('nothex'))
+    assert.match(block('foreign'), /cannot be decrypted on this account or machine/, block('foreign'))
+    // A key with no stored passphrase stays a plain key line.
+    assert.match(block('ok'), /auth: key .*id_ed25519 \(file\)\n/, block('ok'))
+    assert.doesNotMatch(block('ok'), /UNUSABLE|—/, block('ok'))
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

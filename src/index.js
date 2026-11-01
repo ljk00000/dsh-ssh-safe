@@ -1051,16 +1051,20 @@ const trustedLine = (m) => {
         // printed for a value that could only fail to decrypt.
         const blobProblem = pwSource === 'file-dpapi' ? m.passwordBlobProblem || '' : ''
         const usablePassword = Boolean(pwSource) && pwSource !== 'none' && !plaintextIgnored && !blobProblem
+        // A stored key passphrase that cannot be decrypted is not a credential either:
+        // ssh_credentials said UNUSABLE while this line said 'auth: key <path>', so the
+        // inventory promised a key the connection was about to refuse.
+        const keyNote = m.keyPassphraseProblem ? ' — ' + m.keyPassphraseProblem : ''
         const authKind = usablePassword
           ? 'password (' + pwSource + ')'
           : m.keyPath
             ? (lean
-                ? 'private key (' + m.sources.keyPath + ', path hidden)'
+                ? 'private key (' + m.sources.keyPath + ', path hidden)' + keyNote
                 // m.keyPath is a LOCAL file: printable() escapes remote text and doubled
                 // every backslash, so the listing showed C:\\Users\\... instead of the path
                 // that was configured. printableText() keeps backslashes and still escapes
                 // control characters — a hand-edited keyPath put an ANSI escape here.
-                : 'key ' + printableText(m.keyPath) + ' (' + m.sources.keyPath + ')')
+                : 'key ' + printableText(m.keyPath) + ' (' + m.sources.keyPath + ')' + keyNote)
             : blobProblem
               ? 'NONE (' + blobProblem + ')'
               : plaintextIgnored
