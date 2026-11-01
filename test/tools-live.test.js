@@ -4456,3 +4456,38 @@ test('an unusable host-key store says which path, which code and which side fail
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a write through a symlinked directory says where the bytes went', async () => {
+  // The file itself was not a link, so the existing note did not fire: writing
+  // /link/a.txt through 'link -> /real' put the bytes in /real/a.txt while the reply
+  // named only the path it was given. Only the immediate parent is checked.
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-parentlink-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+      machines: { box: machineFor('box', server.port) },
+    })
+    server.vfs.putDir('/real')
+    server.vfs.putLink('/link', '/real')
+    const text = String((await tools.ssh_write.execute({ machine: 'box', path: '/link/a.txt', content: 'hello' }, {})).text)
+    assert.match(text, /\[note\] the directory \/link is a symbolic link to \/real/, text)
+    assert.match(text, /the file was written there \(\/real\/a\.txt\)/, text)
+    assert.equal(server.vfs.stat('/real/a.txt').size, 5, 'the bytes land in the real directory')
+
+    // An ordinary directory says nothing extra.
+    const plain = String((await tools.ssh_write.execute({ machine: 'box', path: '/real/b.txt', content: 'x' }, {})).text)
+    assert.doesNotMatch(plain, /symbolic link/, plain)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.7.388 — 2026-11-01
+
+### Fixed — a write through a symlinked *directory* said only "Wrote … to /link/a.txt"
+
+The reply already warned when the file itself was a link, but not when the directory it went into was one:
+
+```
+/real/  and  /link -> /real
+ssh_write { path: "/link/a.txt", content: "hello" }
+before   Wrote 5 bytes to /link/a.txt (mode 0666)
+         ← the bytes are in /real/a.txt, and the reply never says so
+after    Wrote 5 bytes to /link/a.txt (mode 0666)
+         [note] the directory /link is a symbolic link to /real; the file was written there (/real/a.txt)
+```
+
+`writeRemoteFile()` now `lstat`s the immediate parent when the final component is not a link, follows its chain,
+and returns `parentLink`; the reply names the real directory and the audit line records `viaLinkDir=/link -> /real`.
+A plain directory adds nothing to the reply.
+
+**Boundary, documented rather than hidden:** only the *immediate* parent is checked. `/a/b/c.txt` where `/a` is a
+link is still not reported — one `lstat` per write is the cost this was willing to pay.
+
+### My own mistake
+
+- The suite was green (979 tests) while `tsc` reported **7** errors: the new `parentLink` field was missing from
+  the `@returns` JSDoc. Third time this session that the type checker saw what the tests did not; the JSDoc now
+  carries the field and `tsc` is clean.
+
+### Verified this round (no defect found)
+
+- `ssh_close` in five shapes (unknown alias, nothing open, a live one, twice, forced, close-all) answers one clear
+  sentence each.
+- `ssh_config` on Windows prints "(exists; access is governed by Windows ACLs, not by a POSIX mode)" for an existing
+  credential file instead of inventing a mode.
+
+### Tests
+
+- New: a write through a symlinked directory names the real path; a plain directory stays quiet.
+  Suite 979 / 974 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.387 — 2026-11-01
 
 ### New — the "no machine given" message is pinned across every tool

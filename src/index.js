@@ -1569,6 +1569,7 @@ const trustedLine = (m) => {
         // the log after 'why did /etc change?' needs it. The mode says who can
         // read the file afterwards.
         ...(r.linkTarget ? { linkTarget: r.linkFinalTarget || r.linkTarget } : {}),
+        ...(r.parentLink ? { viaLinkDir: r.parentLink.path + ' -> ' + r.parentLink.target } : {}),
         ...(typeof r.mode === 'number' ? { mode: r.mode.toString(8).padStart(4, '0') } : {}),
         ms: Date.now() - startedAt,
       })
@@ -1583,7 +1584,14 @@ const trustedLine = (m) => {
           (r.linkFinalTarget ? ' chain ending at ' + printable(landedAt) : ' to ' + printable(landedAt)) +
           '; the content was written there, not to the link itself' +
           (r.linkFinalTarget ? ' (the first hop was ' + printable(r.linkTarget) + ')' : '')
-        : ''
+        // The file was not a link; the directory it went into was. '/home/u/live/app.conf'
+        // through 'live -> /etc/app' wrote into /etc/app while the reply named only the
+        // path it was given.
+        : r.parentLink
+          ? '\n[note] the directory ' + printable(r.parentLink.path) + ' is a symbolic link to ' +
+            printable(r.parentLink.target) + '; the file was written there (' +
+            printable(String(r.parentLink.target).replace(/\/$/, '') + '/' + String(r.path).split('/').pop()) + ')'
+          : ''
       // The mode the file ended up with decides who can read what was just
       // written; the server applies its umask, so it is not always the one asked
       // for.
