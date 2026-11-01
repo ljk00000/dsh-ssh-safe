@@ -47,7 +47,11 @@ export function envNames(alias) {
  * @returns {number|string}
  */
 function portValue(text) {
-  if (!text) return 22
+  // Empty means 'no port asked for', not 22: returning 22 made every machine
+  // look as if the environment supplied its port, so ssh_machines read
+  // 'port=env' for a machine with no DSH_SSH_*_PORT at all. The 22 fallback
+  // belongs to the resolver, which knows when nothing was set.
+  if (!text) return ''
   const n = Number(text)
   return Number.isFinite(n) ? n : text
 }

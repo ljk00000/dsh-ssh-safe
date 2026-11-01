@@ -312,10 +312,16 @@ export function machineDefinition(alias, { machines = {}, dshHome = '' } = {}) {
 
   // The schema default is 0, not 22: a filled-in 22 made the environment
   // unreachable for every machine defined in the settings form.
+  //
+  // 0 means 'not set' in EVERY source, not just the form. Treating it as a value
+  // in the file or the environment produced 'port 0 from the file is not an
+  // integer between 1 and 65535' for the very number the form uses to say
+  // 'unset' — and a page save that copies the default would have hit it.
+  const unsetPort = (value) => value === 0 || value === '0'
   const port = firstSet([
-    ['config', cfg.port > 0 ? cfg.port : ''],
-    ['file', file.port],
-    ['env', env.port],
+    ['config', unsetPort(cfg.port) ? '' : cfg.port],
+    ['file', unsetPort(file.port) ? '' : file.port],
+    ['env', unsetPort(env.port) ? '' : env.port],
   ])
   // Only the settings form is schema-validated. The credential file is raw JSON
   // and the environment is a string, so port 99999 or -1 reached net.connect and

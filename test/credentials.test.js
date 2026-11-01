@@ -18,7 +18,10 @@ test('machineFromEnv reads only what is present', () => {
   const m = machineFromEnv('prod', env)
   assert.equal(m.host, '10.0.0.5')
   assert.equal(m.username, 'ubuntu')
-  assert.equal(m.port, 22, 'port defaults to 22')
+  // Empty, not 22: returning 22 for an absent DSH_SSH_*_PORT made every machine
+  // look environment-sourced ('port=env' with no variable in sight). The 22
+  // fallback belongs to the resolver in machines.js.
+  assert.equal(m.port, '', 'an absent port is empty, and the resolver decides')
   assert.equal(m.password, '', 'absent password is an empty string, not undefined')
   // Empty, not 'strict'. effectivePolicy(global, machine) lets the machine win
   // when it holds a valid value, so a default here would make the global

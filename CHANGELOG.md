@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.333 — 2026-11-01
+
+### Fixed — every machine without a port looked environment-sourced
+The follow-up to 0.7.332, found by probing the same field from the other side: `machineFromEnv()` returned **22**
+for an absent `DSH_SSH_*_PORT`, so the resolver saw a filled value and reported it as the source:
+```
+machines: { plain: { host: h5.example, user: u } }        (no port anywhere)
+before  u@h5.example:22   sources: host=config, port=env, ...     <- no such variable
+after   u@h5.example:22   sources: host=config, ...               <- 22 is the fallback
+```
+`0` now means "not set" in **every** source, not just the settings form — otherwise the very number the form
+uses for "unset" became `BAD PORT: port 0 from the file is not an integer between 1 and 65535` when it reached the
+credential file or the environment. A genuinely bad port (`-5`) is still reported, not silently dropped.
+
+### Verified this round (no defect found)
+- The other machine fields were already correct: they default to an empty string, which the resolver treats as
+  absent, so `DSH_SSH_<ALIAS>_HOST` / `_USER` / `_HOST_KEY_POLICY` win whenever the form leaves the field empty.
+
+### My own mistakes
+1. 0.7.332 fixed the settings-form half of "0 means unset" and left the file and environment halves reporting
+   it as an invalid port — a half-fix I only found by probing the same value from the other two sources.
+2. My new test looked up a machine block by splitting on a bullet that is absent in front of the first entry,
+   so the first machine "was not found" and the assertion failed on an empty string.
+3. Changing `machineFromEnv()` broke an existing test that asserted `port defaults to 22`; that assertion
+   encoded the behaviour I was fixing, so it is now an empty string with the reason written next to it. The
+   full suite caught it, as it should.
+
+### Tests
+- New: an unset port names no source, `port: 0` in the form and in the file fall back to 22 without a warning,
+  the environment still wins when set, and `-5` is still reported.
+  Suite 919 / 914 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.332 — 2026-11-01
 
 ### Fixed — `DSH_SSH_<ALIAS>_PORT` never reached a machine defined in the settings form

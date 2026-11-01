@@ -969,6 +969,61 @@ test('ssh_audit says how many records the log holds', async () => {
   }
 })
 
+test('a port nobody configured is not reported as coming from the environment', async () => {
+  // machineFromEnv returned 22 for an absent DSH_SSH_*_PORT, so every machine
+  // without a port looked environment-sourced: 'port=env' with no variable in
+  // sight. 0 means 'not set' in every source now, and the 22 fallback belongs to
+  // the resolver.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-portsource-'))
+  const previousHome = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+    weird: { host: 'h.example', user: 'u', port: -5 },
+    zeroed: { host: 'h2.example', user: 'u', port: 0 },
+  }))
+  process.env.DSH_SSH_ENVPORTED_PORT = '2200'
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu',
+      machines: {
+        formwithport: { host: 'h3.example', user: 'u', port: 0 },
+        envported: { host: 'h4.example', user: 'u' },
+        plain: { host: 'h5.example', user: 'u' },
+      },
+    })
+    const shown = String((await own.ssh_machines.execute({}, {})).text)
+    // The first entry has no '\n• ' in front of it; strip a leading bullet either way.
+    const block = (alias) => (shown.split(/\n• /).map((part) => part.replace(/^• /, ''))
+      .find((part) => part.startsWith(alias)) || '')
+    // Nobody configured a port: 22 is used, and nothing claims a source for it.
+    assert.match(block('plain'), /u@h5\.example:22/,
+      'no port configured: ' + block('plain'))
+    assert.doesNotMatch(block('plain'), /port=/,
+      'an unset port must not name a source: ' + block('plain'))
+    // port: 0 in the form is 'unset', not an invalid value.
+    assert.match(block('formwithport'), /u@h3\.example:22/,
+      'port 0 must fall back: ' + block('formwithport'))
+    assert.doesNotMatch(block('formwithport'), /BAD PORT/,
+      'port 0 is not an error: ' + block('formwithport'))
+    // The environment still wins when it is set.
+    assert.match(block('envported'), /u@h4\.example:2200/,
+      'the environment port must be used: ' + block('envported'))
+    assert.match(block('envported'), /port=env/)
+    // A port that really is wrong is still reported, not silently dropped.
+    assert.match(block('zeroed'), /u@h2\.example:22/,
+      'port 0 in the file falls back: ' + block('zeroed'))
+    assert.match(block('weird'), /BAD PORT: port -5 from the file/,
+      'a bad port is reported: ' + block('weird'))
+  } finally {
+    delete process.env.DSH_SSH_ENVPORTED_PORT
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('an environment port still reaches a machine defined in the settings form', async () => {
   // The schema defaulted port to 22, so every settings-form machine carried a
   // 'configured' 22 before the resolver ran: DSH_SSH_<ALIAS>_PORT could never win,
