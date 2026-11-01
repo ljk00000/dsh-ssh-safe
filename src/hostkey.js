@@ -15,7 +15,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync, existsSync } from 'node:fs'
 import path from 'node:path'
-import { stripBom } from './format.js'
+import { stripBom, printableText } from './format.js'
 
 const STORE_VERSION = 1
 
@@ -34,6 +34,22 @@ export function storePath(dshHome) {
  * @param {string} file
  * @returns {{store: {version: number, hosts: Record<string, any>}, problem: string}}
  */
+/**
+ * One sentence for a store path that cannot be used, read or written.
+ *
+ * The read branch used to say 'could not be written', which it is not: the read
+ * failed. The path is a local path, so printableText() keeps its backslashes.
+ */
+function storeFailure(file, code, verb) {
+  const failure = new Error(
+    'the host key store ' + printableText(String(file)) + ' could not be ' + verb + ' (' + code + '). ' +
+    'The key could not be recorded, so the connection was refused; fix that path (a file where the ' +
+    'directory belongs, or a permission problem) and retry.'
+  )
+  Object.assign(failure, { code, local: true })
+  return failure
+}
+
 function readStore(file) {
   const empty = { version: STORE_VERSION, hosts: /** @type {Record<string, any>} */ ({}) }
   let text
@@ -44,13 +60,7 @@ function readStore(file) {
     const code = err && /** @type {{code?: string}} */ (err).code
     if (code === 'ENOENT') return { store: empty, problem: '' }
     if (code && /^(ENOTDIR|EACCES|EPERM|EROFS|ENOSPC)$/.test(String(code))) {
-      const failure = new Error(
-        'the host key store ' + file + ' could not be written (' + code + '). The key could not be ' +
-        'recorded, so the connection was refused; fix that path (a file where the directory belongs, ' +
-        'or a permission problem) and retry.'
-      )
-      Object.assign(failure, { code, local: true })
-      throw failure
+      throw storeFailure(file, code, 'read')
     }
     return {
       store: empty,
@@ -109,12 +119,7 @@ function writeStore(file, store) {
     // fix was named, but nothing said it was the host key store, why the
     // connection was refused, or what to do about it.
     const code = err && /** @type {{code?: string}} */ (err).code
-    const failure = new Error(
-      'the host key store ' + file + ' could not be written (' +
-      (code || (err && err.message) || 'unknown error') + '). The key could not be recorded, so the ' +
-      'connection was refused; fix that path (a file where the directory belongs, or a permission ' +
-      'problem) and retry.'
-    )
+    const failure = storeFailure(file, code || (err && err.message) || 'unknown error', 'written')
     // Tells connectFailure() that the connection never got involved: without
     // this the message was rewrapped as "Could not connect to user@host", which
     // points the reader at the remote machine for a local problem.

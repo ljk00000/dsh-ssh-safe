@@ -4411,3 +4411,47 @@ test('hostKeyPolicy off verifies nothing and records nothing', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('an unusable host-key store says which path, which code and which side failed', async () => {
+  // A file where the state directory belongs makes every store write fail. The
+  // message has to name the path and the errno, say the connection was refused, and
+  // not blame the remote host; under machineInventory: 'alias' the path is hidden.
+  // (The read branch is POSIX-only: Windows answers EEXIST from the write instead.)
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-store-fail-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  writeFileSync(path.join(home, 'dsh-ssh-safe'), 'not a directory', 'utf8')
+  const text = async (tools, args) => String(await tools.ssh_connect.execute(args, {})
+    .then((r) => r.text, (err) => 'ERR: ' + err.message))
+  try {
+    const lean = {}
+    await apply({ tools: { register: (def) => { lean[def.name] = def } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machineInventory: 'alias',
+      reconnectCooldownMs: 0, connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+      machines: { box: machineFor('box', server.port) },
+    })
+    const hidden = await text(lean, { machine: 'box' })
+    assert.match(hidden, /could not be written \([A-Z]+\)/, hidden)
+    assert.match(hidden, /The key could not be recorded, so the connection was refused/, hidden)
+    assert.match(hidden, /filesystem problem on this machine/, 'it must not blame the remote host: ' + hidden)
+    assert.doesNotMatch(hidden, /dsh-ssh-safe/, 'the path is hidden in lean mode: ' + hidden)
+    assert.match(hidden, /<path hidden>/, hidden)
+    await lean.ssh_close.execute({ force: true }, {}).catch(() => {})
+
+    const full = {}
+    await apply({ tools: { register: (def) => { full[def.name] = def } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machineInventory: 'full',
+      reconnectCooldownMs: 0, connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+      machines: { box: machineFor('box', server.port) },
+    })
+    const shown = await text(full, { machine: 'box' })
+    assert.match(shown, /the host key store .*known_hosts\.json could not be written \([A-Z]+\)/, shown)
+    await full.ssh_close.execute({ force: true }, {}).catch(() => {})
+  } finally {
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.378 — 2026-11-01
+
+### Fixed — a *read* failure of the host-key store was reported as a write failure
+`readStore()` grew a branch for a path that cannot be used at all (ENOTDIR, EACCES, …). It was copy-pasted from the
+write path, so it said:
+```
+readFileSync(<store>) → ENOTDIR
+before   the host key store C:\…\known_hosts.json could not be written (ENOTDIR) …
+after    the host key store C:\…\known_hosts.json could not be read (ENOTDIR) …
+```
+Both sides now share one `storeFailure(file, code, verb)` builder, so the verb matches the side that failed, and the
+path goes through `printableText()` (a local path: its backslashes stay single). The read branch itself is
+POSIX-only here — Windows answers `EISDIR` (read, reported as a problem) or `EEXIST` (write) instead, so the wording
+is verified through the write branch and the read variant is labelled defensive.
+
+### Verified this round (no defect found)
+
+- The store-failure message names the path and the errno, says the connection was refused, and the pool repeats that
+  it is a local filesystem problem — it never blames the remote host.
+- Under `machineInventory: "alias"` the pool replaces the store path with `<path hidden>` even though `hostkey.js`
+  prints it: `the host key store <path hidden> could not be written (EEXIST) …`.
+
+### Notes on the release
+
+- `main` had moved while I was working (commit `5359119`, "store lock / Linux CI", not mine). My push was rejected;
+  I rebased onto it, then re-ran the suite and `tsc` on the merged tree rather than trusting the pre-rebase results.
+- Two tags (`v0.7.376`, `v0.7.377`) still pointed at the pre-rebase commits after that. Re-pointed with `git tag -f`
+  to the commits that are on `main` and force-pushed them; `merge-base --is-ancestor` confirms both.
+
+### Tests
+
+- New: the store-failure sentence (path, errno, refusal, local problem) and lean-mode hiding.
+  Suite 968 / 963 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.377 — 2026-11-01
 
 ### New — `hostKeyPolicy: off` verifies nothing and records nothing
