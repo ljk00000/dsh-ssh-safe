@@ -1705,3 +1705,36 @@ test('a setting name with control characters is escaped in both messages', async
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the workspace create reply escapes the endpoint it is bound to', async () => {
+  // The line was built by hand: unlike endpointOf() it neither escaped the host and
+  // user nor bracketed an IPv6 literal.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-ws-endpoint-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  const ctx = { tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      machines: {
+        evil: { host: 'h\u0000\u001b[31mred', user: 'u\u0000\u001b[31mred', port: 2222 },
+        v6: { host: '::1', user: 'u', port: 2222 },
+      },
+    })
+    const created = String((await own.ssh_workspace.execute({ action: 'create', machine: 'evil' }, {})).text)
+    const bound = created.split('\n').find((line) => line.includes('绑定')) || ''
+    assert.doesNotMatch(bound, /\u0000|\u001b/, 'the endpoint must be escaped: ' + JSON.stringify(bound))
+    assert.match(bound, /\\x00\\x1b\[31mred/)
+
+    const six = String((await own.ssh_workspace.execute({ action: 'create', machine: 'v6' }, {})).text)
+    assert.match(six, /绑定\s+u@\[::1\]:2222/, 'an IPv6 literal is bracketed: ' + six)
+    // The same shape in both listings.
+    assert.match(String((await own.ssh_credentials.execute({}, {})).text), /u@\[::1\]:2222/)
+    assert.match(String((await own.ssh_workspace.execute({}, {})).text), /u@\[::1\]:2222/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

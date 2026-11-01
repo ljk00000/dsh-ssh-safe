@@ -1766,7 +1766,9 @@ const trustedLine = (m) => {
             ? '<host hidden>'
             // Config-supplied text, like the inventory: an escape sequence or a newline
             // here printed raw into the conversation. The inventory was fixed first.
-            : printable(m.username || '?') + '@' + printable(m.host || '?') + ':' + (m.port || 22)
+            // formatHost(), like the inventory: an IPv6 literal printed as u@::1:22 is
+            // ambiguous about where the host ends and the port begins.
+            : printable(m.username || '?') + '@' + printable(formatHost(m.host || '?')) + ':' + printable(m.port || 22)
           return '• ' + printable(alias) + '  ' + endpoint +
             '\n    ' + state +
             (existsSync(dir) ? '\n    ' + dir : '')
@@ -1886,9 +1888,10 @@ const trustedLine = (m) => {
           (created ? '已创建远程工作区' : '已刷新远程工作区') + '\n' +
           '  别名   ' + alias + '\n' +
           '  目录   ' + dir + '\n' +
-          '  绑定   ' + (cfg.machineInventory === 'alias'
-            ? '<host hidden>'
-            : m.username + '@' + m.host + ':' + (m.port || 22)) + '\n' +
+          // endpointOf() hides the address under machineInventory: alias and escapes it
+          // otherwise. Building the string by hand here skipped the escaping, so a user
+          // or host holding a NUL and an ANSI escape printed them into the reply.
+          '  绑定   ' + endpointOf(m) + '\n' +
           '  ' + registered + '\n\n' +
           '下一步：在侧栏的这个工作区里新开会话。该会话会自动读到 AGENTS.md，' +
           '所有文件与命令操作都会走 ssh_* 工具（machine: "' + alias + '"）。\n' +
@@ -2313,7 +2316,7 @@ function passphraseLine(st) {
           '• ' + printable(alias) + '  ' + (lean
             ? (st.configured ? '<host hidden>' : 'INCOMPLETE (needs host and user)')
             : (st.configured
-              ? printable(st.username || '?') + '@' + printable(st.host || '?') + ':' + printable(st.port)
+              ? printable(st.username || '?') + '@' + printable(formatHost(st.host || '?')) + ':' + printable(st.port)
               : 'INCOMPLETE (needs host and user)')),
           // A source that is present but ignored must not be reported as the
           // source: the line said 'config' and only the next line admitted it was

@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.352 — 2026-11-01
+
+### Fixed — the workspace create reply printed the endpoint raw
+A sweep that calls every tool with hostile credential values and scans each reply found exactly one leak left:
+```
+credentials.json: { evil: { host: "127.0.0.1\u0000\u001b[31mred", user: "u\u0000\u001b[31mred", … } }
+ssh_workspace create
+before    绑定   u<NUL><ESC>[31mred@127.0.0.1<NUL><ESC>[31mred:6021
+after     绑定   u\x00\x1b[31mred@127.0.0.1\x00\x1b[31mred:6021
+```
+The line was built by hand instead of using `endpointOf()`, so it skipped both the escaping and the
+`machineInventory: alias` path (it did handle that one) — and an IPv6 literal came out as `u@::1:22`.
+
+### Also fixed — two listings did not bracket an IPv6 host
+`ssh_workspace action: "list"` and `ssh_credentials` printed `u@::1:2222` where `ssh_machines` printed
+`u@[::1]:2222`; the unbracketed form is ambiguous about where the host ends. Both use `formatHost()` now, so all
+three listings agree:
+```
+• v6  u@[::1]:2222        machines / credentials / workspace
+```
+
+### Verified this round (no defect found)
+- After the fix the same 16-call sweep (every tool, hostile host/user/keyPath/knownHosts/hostKeyPolicy, a refused
+  port for the error paths, plus a hostile settings-form machine) reports zero replies carrying a control character.
+
+### Tests
+- New: the create reply escapes the endpoint and brackets an IPv6 host, and both listings agree on the bracket.
+  Suite 942 / 937 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.351 — 2026-11-01
 
 ### Fixed — the credential messages printed the local key path raw
