@@ -995,6 +995,7 @@ const server = createServer(async (req, res) => {
 
   // Declared outside the try: a const inside it is invisible to the finally.
   let lock = null
+  let lockWarning = ''
   try {
     if (req.method === 'GET' && url.pathname === '/') {
       if (!pageAuthorized(req, url)) {
@@ -1027,8 +1028,14 @@ const server = createServer(async (req, res) => {
       } catch {
         lock = null
       }
+      // The page has to know too: its reply said 'saved' while another writer may have
+      // been holding the file. The console line never reaches the person looking at the
+      // form.
       if (lock && lock.timedOut) {
-        console.log('  另一个进程长时间持有凭据文件锁：本次保存未加锁，可能覆盖对方同时保存的修改。')
+        lockWarning = '另一个进程长时间持有凭据文件锁，本次保存没有加锁：对方同时保存的修改可能被覆盖。'
+        console.log('  ' + lockWarning)
+      } else if (!lock) {
+        lockWarning = '无法创建凭据文件锁（目录或权限问题），本次保存没有加锁：并发保存可能互相覆盖。'
       }
     }
 
@@ -1113,6 +1120,7 @@ const server = createServer(async (req, res) => {
 
       store[alias] = entry
       writeStore(store)
+      if (lockWarning) warnings.push(lockWarning)
       return sendJson(res, 200, { ok: true, warnings })
     }
 
@@ -1152,6 +1160,7 @@ const server = createServer(async (req, res) => {
       if (!removed && !warnings.length) {
         warnings.push('凭据文件里没有该别名的记录，没有可删除的内容')
       }
+      if (lockWarning) warnings.push(lockWarning)
       return sendJson(res, 200, { ok: true, removed, warnings })
     }
 
@@ -1192,6 +1201,7 @@ const server = createServer(async (req, res) => {
       if (settings && (settings.password || settings.privateKey)) {
         warnings.push('已清除凭据文件里的密码；该别名在 DSH 设置界面里也提供了凭据，仍然可用，要移除请改设置')
       }
+      if (lockWarning) warnings.push(lockWarning)
       return sendJson(res, 200, { ok: true, cleared: true, removedEntry, warnings })
     }
 
@@ -1222,6 +1232,7 @@ const server = createServer(async (req, res) => {
       writeStore(store)
       const warnings = []
       if (removedEntry) warnings.push('该条目只剩口令，已一并删除')
+      if (lockWarning) warnings.push(lockWarning)
       return sendJson(res, 200, { ok: true, cleared: true, removedEntry, warnings })
     }
 

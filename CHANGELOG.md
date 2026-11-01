@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.383 — 2026-11-01
+
+### Fixed — the settings page said "saved" when the save had run without the lock
+When another process held the credential-file lock for the full 4 s window, the server printed one line to **its own
+console** and answered `{ ok: true }`. The person looking at the form saw a normal save while a concurrent save could
+have been overwritten:
+```
+POST /api/save   (a live lock is already held)
+before   { ok: true }                                          ← nothing to see
+after    { ok: true, warnings: ["另一个进程长时间持有凭据文件锁，本次保存没有加锁：对方同时保存的修改可能被覆盖。"] }
+```
+The note is appended **last** to the warnings array: the page shows only `warnings[0]`, so a more serious warning
+("this page is saving where the plugin does not read") keeps the one slot. The same note appears when the lock file
+cannot be created at all (a directory or permission problem) — that path was silent in both places.
+
+### My own mistakes (two)
+
+1. My first edit inserted the push after `const warnings = []` in all four write endpoints, which put the lock note
+   **first** — the exact warning that gets hidden behind it is the one that says the save will never be read.
+2. The rewrite left the save endpoint with **two** pushes (an early one with a comment, plus the late one); the
+   duplicate would have shown the same sentence twice. Removed, and the GUI file's 65 tests pass.
+
+### Verified this round (no defect found)
+
+- `scripts/gui.test.js` (65 tests) passes with the change, including the two-page concurrent save test.
+
+### Tests
+
+- New: a save with a live lock held returns `ok: true` **and** the warning, and the entry is still written.
+  Suite 973 / 968 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.382 — 2026-11-01
 
 ### Fixed — `--dsh-home` did not expand `~` and overrode `DSH_HOME` in silence

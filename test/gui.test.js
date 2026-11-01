@@ -1743,3 +1743,35 @@ test('--help prints the usage and exits 0 instead of being refused', async () =>
     assert.match(help.out, new RegExp('default: ' + value + '.'), 'help must quote the real default')
   } finally { removeHome(home) }
 })
+
+test('a save that could not take the lock says so in the reply', async () => {
+  // The server logged a line to its own console and answered { ok: true } as if
+  // nothing had happened; the person looking at the form never saw it. The reply now
+  // carries the warning, and the entry is still written (a save is not lost to a
+  // lock timeout — it is reported).
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-lock-'))
+  const { child, base, token } = await start(home)
+  try {
+    const dir = path.join(home, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    // A lock whose owner is THIS process: alive, so it is not stale and cannot be
+    // broken. acquireStoreLock() then waits its full 4 s and times out.
+    writeFileSync(path.join(dir, 'credentials.json.lock'),
+      JSON.stringify({ pid: process.pid, at: new Date().toISOString() }), 'utf8')
+
+    const saved = await call(base, token, '/api/save',
+      { alias: 'box', host: 'h.example', user: 'u', password: 'pw' })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    assert.equal(saved.body.ok, true)
+    const warned = (saved.body.warnings || []).join('\n')
+    assert.match(warned, /没有加锁/, 'the reply must mention the missing lock: ' + warned)
+    assert.match(warned, /可能被覆盖/, warned)
+
+    // The save still happened, so the warning is about concurrency, not a loss.
+    const stored = JSON.parse(readFileSync(path.join(dir, 'credentials.json'), 'utf8'))
+    assert.equal(stored.box.user, 'u')
+  } finally {
+    try { child.kill() } catch {}
+    rmSync(home, { recursive: true, force: true })
+  }
+})
