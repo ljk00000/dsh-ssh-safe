@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.317 — 2026-11-01
+
+### Added — a close while the machine is still dialling is covered
+`ssh_close` answers `pending` when the connection is still being established, and that answer decides the
+"close it as soon as it completes" path. Nothing tested either half:
+```
+ssh_close  (connection dialling)  A connection to s is still being established; it will be closed as soon
+                                  as it completes.
+audit                             {"kind":"close","outcome":"pending"}
+the call that was dialling        Could not connect … Timed out while waiting for handshake …
+ssh_close again                   No live connection for s
+```
+Measured separately through a proxy that forwards after 400 ms: the connect does complete, the operation that
+was waiting reports "The connection to t is gone: it was closed while the operation was starting or running",
+and the real server ends with **0** clients — the pending close really does close it.
+
+### Verified this round (no defect found)
+- `close` outcomes across all reachable branches: `none` (nothing live), `busy` (a command runs), `pending`
+  (dialling) — and `ok` on a real close.
+- **Listing through links**: a symlink to a directory lists the target (`/linkdir` and `/linkdir/` both show
+  `inside.txt`), a dangling link answers "that path is a symbolic link to /nowhere/at/all, but the target does
+  not exist", and a link to a file says "not a directory … use ssh_read".
+- **`createDirs` through links**: a directory link is followed and the tree is created behind it; a dangling
+  component refuses with "… is a symbolic link to /nowhere/at/all, and that target cannot be reached; fix that
+  link first"; a self-referential path that still resolves is written through.
+- **The page escapes every value it interpolates**: `esc()` covers `& < > " '`, used for host, user, port,
+  key path, alias and `data-alias`; a saved payload (`</script><img onerror=…>`) never appears verbatim in the
+  page HTML and does not break out of a tag.
+
+### My own mistakes
+1. I assumed `ssh_close` during dialling would **cancel** the dial; it does not — it lets the connection finish
+   and closes it right after. Both are reasonable, but my first expectation was wrong.
+2. The first version of the test took the *last* audit row as the close record without filtering by kind,
+   which only works while nothing else is written afterwards; it filters on `kind: close` now.
+
+### Tests
+- One new case: pending close, its audit outcome, the doomed dial, and the "No live connection" follow-up.
+  Suite 903 / 898 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.316 — 2026-11-01
 
 ### Fixed — a hand-edited audit row rendered as `[object Object]`

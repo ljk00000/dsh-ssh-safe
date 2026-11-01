@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import net from 'node:net'
 
 import { apply } from '../src/index.js'
 import { looksBinary } from '../src/sftp.js'
@@ -3752,6 +3753,43 @@ test('a hand-edited audit row renders its fields instead of [object Object]', as
   } finally {
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('closing a machine while it is still dialling is recorded as pending', async () => {
+  // ssh_close has three answers beyond ok: pending (still dialling), busy (a
+  // command is running) and none (nothing live). The pending one decides the
+  // 'close as soon as it completes' path, and nothing covered it: a silent TCP
+  // peer keeps the connection in that state for as long as the test needs.
+  const silent = net.createServer((socket) => { socket.on('error', () => {}) })
+  await new Promise((resolve) => silent.listen(0, '127.0.0.1', resolve))
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-pending-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      allowPlaintextPassword: true, hostKeyPolicy: 'off', auditLog: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 1000, commandTimeoutMs: 1000,
+      machines: { s: { host: '127.0.0.1', port: silent.address().port, user: 'u', password: 'p' } },
+    })
+    const dialling = own.ssh_exec.execute({ machine: 's', command: 'echo hi' }, {})
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    const said = String((await own.ssh_close.execute({ machine: 's', force: true }, {})).text)
+    assert.match(said, /still being established/)
+    assert.match(said, /closed as soon as it completes/)
+    const dialled = await dialling.then(() => 'resolved', (err) => 'ERR: ' + err.message)
+    assert.match(dialled, /Timed out while waiting for handshake/)
+    const rows = readFileSync(path.join(home, 'dsh-ssh-safe', 'audit.ndjson'), 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+    const close = rows.filter((row) => row.kind === 'close').pop()
+    assert.equal(close.outcome, 'pending')
+    const again = String((await own.ssh_close.execute({ machine: 's', force: true }, {})).text)
+    assert.match(again, /No live connection/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    silent.close()
     rmSync(home, { recursive: true, force: true })
   }
 })
