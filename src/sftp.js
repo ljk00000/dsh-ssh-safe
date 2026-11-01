@@ -858,6 +858,18 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
  * @returns {Array<{name: string, size?: number, dir: boolean, type: string, mtime: string|null, linkTarget?: string}>}
  */
 export function listingEntries(items) {
+  // A server that answers readdir with something that is not a list used to reach
+  // the caller as 'items.filter is not a function: /tmp/x' — a JavaScript
+  // internal on a defensive path, naming nothing the reader can act on.
+  if (!Array.isArray(items)) {
+    // 'a object' was the first version of this sentence: pick the article.
+    const shape = items === null ? 'null'
+      : typeof items === 'object' ? 'an object'
+      : typeof items === 'string' ? 'a string'
+      : String(typeof items) === 'number' ? 'a number'
+      : 'a ' + typeof items
+    throw new Error('the server sent ' + shape + ' where a list of directory entries belongs')
+  }
   return items
     // An entry without a name cannot be a row, and an entry without attrs is a
     // server that sent SSH_FXP_NAME without them: reading it as an empty object

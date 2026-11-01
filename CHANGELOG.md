@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.423 — 2026-11-01
+
+### Fixed — a server that answers readdir with a non-list produced a JavaScript internal
+
+The defensive catch in `listRemoteDir` was the last uncovered branch, and it was reachable: a server (or something
+pretending to be one) that answers `readdir` with anything but a list reached the caller as
+
+```
+before   items.filter is not a function: /tmp/x
+after    the server sent a string where a list of directory entries belongs: /tmp/x
+         the server sent an object …   / a number …
+```
+
+`listingEntries()` now refuses a non-list with the shape it received, and `remoteError()` still appends the path, so
+the message names both the cause and where it happened. A pushed `null` is covered by the guard but cannot be
+reached through this test’s fake (it answers `entries || []`), which the test says out loud.
+
+### My own mistakes
+
+- The guard’s first sentence said "a object". Caught by reading the probe output rather than by a test.
+- My first version of the test included a `null` case; the fake turned it into `[]`, so `assert.rejects` failed with
+  "Missing expected rejection" — the fake could not express what the case claimed to test. Removed, with the reason
+  written into the test.
+
+### Tests
+
+- New: string, object and number payloads each name the shape and keep the path; no `is not a function` reaches the
+  caller. Suite 1010 / 1005 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.422 — 2026-11-01
 
 ### Fixed — the doctor recorded every failure as `error`, including the timeouts `ssh_connect` calls `timeout`

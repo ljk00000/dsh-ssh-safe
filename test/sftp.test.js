@@ -349,3 +349,28 @@ test('a malformed readdir entry does not fail the listing', () => {
   const text = formatListing({ path: '/x', items: rows }, 0, 0)
   assert.doesNotMatch(text, /undefined/)
 })
+
+test('a server that answers readdir with a non-list names what it sent', async () => {
+  // The async callback in listRemoteDir has a defensive catch so a rejection
+  // settles the promise instead of hanging it. What reached the caller was
+  // 'items.filter is not a function: /tmp/x' — a JavaScript internal naming
+  // nothing a reader can act on.
+  // No null case: this FakeSftp answers 'entries || []', so null never reaches the
+  // guard — a test for it here would assert something the fake cannot express.
+  const cases = [
+    ['not-an-array', /the server sent a string where a list of directory entries belongs/],
+    [{ 0: 'x' }, /the server sent an object where a list/],
+    [42, /the server sent a number where a list/],
+  ]
+  for (const [entries, expected] of cases) {
+    await assert.rejects(
+      () => listRemoteDir(client(new FakeSftp({ entries })), '/tmp/x', opts()),
+      (err) => {
+        assert.match(err.message, expected, String(err.message))
+        assert.match(err.message, /\/tmp\/x$/, 'the path is still named: ' + err.message)
+        assert.doesNotMatch(err.message, /is not a function|Cannot read properties/, String(err.message))
+        return true
+      },
+    )
+  }
+})
