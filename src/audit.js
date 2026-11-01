@@ -193,7 +193,7 @@ export class AuditLog {
    * looking.
    *
    * @param {number} limit
-   * @returns {{records: Array<Record<string, any>>, problem: string}}
+   * @returns {{records: Array<Record<string, any>>, problem: string, total: number}}
    */
   recentDetailed(limit = 50) {
     try {
@@ -235,11 +235,15 @@ export class AuditLog {
           return { malformed: true, line: line.slice(0, 120) }
         }
       })
-      return { records, problem: problems.join('; ') }
+      // How many records exist, not just how many were asked for: 'the newest 20'
+      // and 'all 20' looked exactly alike, and an operator reviewing a trail wants
+      // to know when there is more of it.
+      return { records, problem: problems.join('; '), total: all.length }
     } catch (err) {
       return {
         records: [],
         problem: String(err && err.message ? err.message : err).slice(0, 200),
+        total: 0,
       }
     }
   }

@@ -927,11 +927,41 @@ test('asking for more records than the cap says the view is capped', async () =>
       defaultMachine: 'm', hostKeyPolicy: 'tofu', auditLog: true, machines: { m: { host: 'h', user: 'u' } },
     })
     const capped = String((await own.ssh_audit.execute({ limit: 500 }, {})).text)
-    assert.match(capped, /Showing the newest 200 records/)
+    // The cap note names the log total too now: 250 records, 200 shown.
+    assert.match(capped, /Showing the newest 200 of 250 records/)
     assert.equal(capped.split('\n').filter((line) => / exec /.test(line)).length, 200)
 
     const exact = String((await own.ssh_audit.execute({ limit: 200 }, {})).text)
     assert.doesNotMatch(exact, /Showing the newest 200 records/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('ssh_audit says how many records the log holds', async () => {
+  // 'the newest 20' and 'all 20' looked identical: an operator reviewing the trail
+  // could not tell whether there was more of it.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-auditcount-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const log = new AuditLog(path.join(home, 'dsh-ssh-safe'))
+    for (let i = 0; i < 25; i++) {
+      log.write({ kind: 'exec', machine: 'm', command: 'c' + i, outcome: 'ok', exitCode: 0 })
+    }
+    const own = {}
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'm', hostKeyPolicy: 'tofu', auditLog: true, machines: { m: { host: 'h', user: 'u' } },
+    })
+    const byDefault = String((await own.ssh_audit.execute({}, {})).text)
+    assert.match(byDefault, /^Showing the newest 20 of 25 records\./)
+    const five = String((await own.ssh_audit.execute({ limit: 5 }, {})).text)
+    assert.match(five, /^Showing the newest 5 of 25 records\./)
+    const all = String((await own.ssh_audit.execute({ limit: 25 }, {})).text)
+    assert.doesNotMatch(all, /Showing the newest/)
+    assert.equal(all.split('\n').filter((line) => / exec /.test(line)).length, 25)
   } finally {
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous

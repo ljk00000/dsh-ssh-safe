@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.7.330 — 2026-11-01
+
+### Added — ssh_audit says how many records the log holds
+"the newest 20" and "all 20 of them" rendered identically, so an operator reviewing the trail could not tell
+whether there was more of it:
+```
+before  (rows only)
+after   Showing the newest 20 of 25 records.
+        ...
+        Showing the newest 200 of 250 records: limit 500 is above what this tool displays. Read
+        audit.ndjson directly for more.
+        (limit 25 of 25 -> no note at all)
+```
+`recentDetailed()` reports the record total alongside the slice, and both notes are built after the log is read.
+
+### Verified this round (no defect found)
+- **Every documented guard shape still works**: `find ... -ok rm`, `-execdir rm`, `find / | xargs rm`,
+  `xargs rm -rf`, `mkfs.*`, `dd of=/dev/sda`, `>`, `>:`, `>|`, `&> /dev/sda`, `wipefs`, `shred`,
+  download-and-execute (`bash -c "$(curl ...)"`, `source <(...)`, `. <(...)`), `shutdown`, and the documented
+  allowances (`find . | xargs rm`, `cat <(curl ...)`, `grep -c shutdown`) — 20/20 as the README claims.
+- **Control characters in a remote path** are escaped in every reply: a file whose name holds a newline and an
+  ESC sequence shows escaped on one line in `ssh_write`, and `ssh_list` adds "3 names were shown escaped ..."
+  with the right plural.
+- **Output without a trailing newline** still gets the status on its own line (`xxxxx` then `[exit 0]`).
+- **Every kind is audited**, successes and failures: `read`/`write`/`list`/`doctor` rows carry the path and the
+  reason (`no such file: /missing.txt`, `not a file: /d (it is a directory; use ssh_list)`).
+- **Hostile aliases and hosts** are escaped in `ssh_machines` and do not add lines to `ssh_config`.
+
+### My own mistakes
+1. I put the total-based cap note **before** the line that reads the log, so `limit: 500` threw
+   "Cannot access total before initialization" — a crash I introduced, caught only because the probe covered
+   all four limits.
+2. The change broke the existing cap test (`/Showing the newest 200 records/`), which I saw in the full run;
+   the assertion now names the total, as the message does.
+3. `npm run typecheck` failed with two errors after the first full run — the JSDoc return type still said
+   `{records, problem}`. Fixed, then re-ran the whole suite twice again.
+
+### Tests
+- New: the count note at the default limit, at a smaller limit, and its absence when the limit covers the log;
+  the cap test now asserts the total in the message.
+  Suite 916 / 911 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.329 — 2026-11-01
 
 ### Fixed — a URL password that straddled the 200-character cut reached the audit log

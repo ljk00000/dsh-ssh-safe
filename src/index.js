@@ -1971,12 +1971,9 @@ function blockingFileAbove(dir) {
         throw new Error('limit must be 0 or more (received ' + requested + ')')
       }
       const limit = Math.min(Math.floor(requested), 200)
-      // Asking for more than the cap used to look exactly like a log that holds
-      // the cap: 500 records and 200 records gave the same answer.
-      const capNote = requested > 200
-        ? 'Showing the newest 200 records: limit ' + Math.floor(requested) +
-          ' is above what this tool displays. Read audit.ndjson directly for more.\n\n'
-        : ''
+      // Asking for more than the cap used to look exactly like a log that holds the
+      // cap: 500 records and 200 records gave the same answer. The 'of N' half needs
+      // the record count, so both notes are built after the log is read.
       if (limit === 0) {
         return { text:
           'limit is 0: no records were requested. Pass a positive limit, or omit it to see the ' +
@@ -1997,7 +1994,11 @@ function blockingFileAbove(dir) {
           ', so these records are incomplete.'
         : ''
       const lostPrefix = writeProblem ? writeProblem + '\n\n' : ''
-      const { records, problem } = audit.recentDetailed(limit)
+      const { records, problem, total } = audit.recentDetailed(limit)
+      const capNote = requested > 200
+        ? 'Showing the newest 200' + (Number(total) > 200 ? ' of ' + total : '') + ' records: limit ' +
+          Math.floor(requested) + ' is above what this tool displays. Read audit.ndjson directly for more.\n\n'
+        : ''
       // "No operations recorded yet" for a log that cannot be read is the one
       // answer that makes an operator stop looking.
       if (records.length === 0) {
@@ -2020,6 +2021,10 @@ function blockingFileAbove(dir) {
           : typeof v === 'object'
             ? clipText(JSON.stringify(v), 120)
             : String(v))
+      // 'limit' without a total reads as 'this is everything'. Say when it is not.
+      const countNote = capNote === '' && Number(total) > records.length
+        ? 'Showing the newest ' + records.length + ' of ' + total + ' records.\n\n'
+        : ''
       const rows = records.map((r) => {
         // The audit module already filters non-objects, but a renderer must not
         // be the place a bad file becomes a crash.
@@ -2094,7 +2099,7 @@ function blockingFileAbove(dir) {
         if (r.error) detail.push('error: ' + printableText(r.error))
         return detail.length > 0 ? head + '\n    ' + detail.join('  ') : head
       })
-      return { text: capNote + prefix + rows.join('\n') }
+      return { text: countNote + capNote + prefix + rows.join('\n') }
     },
   })
 
