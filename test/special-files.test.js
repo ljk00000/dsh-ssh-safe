@@ -65,7 +65,9 @@ test('a listing distinguishes a link, a FIFO and a socket from a regular file', 
   assert.equal(byName['sock'].dir, false, 'a socket is not a directory')
 
   const text = formatListing(listing)
-  assert.match(text, /^l +0 +\S+Z +link\.txt$/m)
+  // A link row carries its target, the way ls -l prints ' -> target': a row that
+  // says only 'l' hides what the link points at.
+  assert.match(text, /^l +0 +\S+Z +link\.txt -> \/tmp\/plain\.txt$/m)
   assert.match(text, /^p +0 +\S+Z +pipe$/m)
   assert.match(text, /^s +0 +\S+Z +sock$/m)
 })
@@ -100,7 +102,12 @@ test('the rendered listing puts directories first, then names in order', async (
   const firstNonDir = rows.findIndex((row) => !row.startsWith('d'))
   assert.ok(firstNonDir > 0, 'a directory row comes first: ' + text)
   assert.equal(rows.slice(firstNonDir).some((row) => row.startsWith('d')), false, text)
-  const names = rows.slice(firstNonDir).map((row) => row.split(/\s+/).pop())
+  // A link row ends with ' -> target' now, so the name is the first word after the
+  // time column, not the last word of the row.
+  const names = rows.slice(firstNonDir).map((row) => {
+    const withoutTarget = row.replace(/ -> .*$/, '')
+    return withoutTarget.split(/\s+/).pop()
+  })
   assert.deepEqual(names, names.slice().sort(), 'files are ordered by name')
 })
 test('a write blocked by a FIFO does not claim the file was truncated', async () => {

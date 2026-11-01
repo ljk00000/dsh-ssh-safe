@@ -130,7 +130,7 @@ export function plural(count, noun) {
 /**
  * Render a directory listing.
  *
- * @param {{path: string, items: Array<{name: string, size: number, dir: boolean, type?: string, mtime?: string|null}>}} listing
+ * @param {{path: string, items: Array<{name: string, size: number, dir: boolean, type?: string, mtime?: string|null, linkTarget?: string}>}} listing
  * @param {number} [limit] maximum rows; 0 or absent means no limit
  * @param {number} [offset] rows to skip after sorting, for paging
  * @returns {string}
@@ -164,7 +164,10 @@ export function formatListing(listing, limit = 0, offset = 0) {
     // A server that sends no size leaves it unknown; printing "undefined" in a
     // column of numbers reads like a bug in the listing rather than a gap.
     (Number.isFinite(it.size) ? String(it.size) : '-').padStart(10) + '  ' +
-    (it.mtime || '') + '  ' + printable(it.name))
+    (it.mtime || '') + '  ' + printable(it.name) +
+    // A link row without its target hides the one thing it is for: ls -l prints
+    // ' -> target' and so does this, escaped like every other remote name.
+    (it.type === 'l' && it.linkTarget ? ' -> ' + printable(String(it.linkTarget)) : ''))
 
   const head = start > 0 && sorted.length > start
     ? '… ' + start + ' entr' + (start === 1 ? 'y' : 'ies') + ' above not shown (offset = ' + start + ')\n'

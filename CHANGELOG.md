@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.390 — 2026-11-01
+
+### Fixed — a listing said "l" and never what the link points at
+
+`ssh_list` marked a symlink with `l`, which is the one row where the target matters:
+
+```
+before   l          0  2026-11-01T04:43:58Z  escape
+after    l          0  2026-11-01T04:43:58Z  escape -> /etc/passwd
+```
+
+A link pointing outside the tree is exactly what a listing has to make visible. `listRemoteDir()` resolves the
+target with one `readlink` per link row, capped at 40 (`LINK_TARGET_LIMIT`): a directory of 10,000 links must not
+turn one listing into 10,000 round trips. A link that vanishes keeps its row without a target, and a plain file row
+is unchanged.
+
+### My own mistakes (three)
+
+1. The new `await` went into the `sftp.readdir` callback, which was not `async`: `node --check` said "Unexpected
+   reserved word". Making it `async` then needed a `try/catch` around the block, or a rejection would have hung the
+   caller until the listing timeout instead of reporting the reason.
+2. Two existing tests broke, both correctly: `special-files.test.js` asserted a link row ends at the name, and its
+   order test took `row.split(/\s+/).pop()` as the name — which became the target. Both were updated to the new
+   contract (the row now carries ` -> target`; the name is read before the arrow).
+3. `tsc` reported **5** errors for the new `linkTarget` field (two JSDoc types: `listingEntries` input/output and
+   the `formatListing` listing shape). Fourth time this session that the type checker caught what the tests did
+   not.
+
+### Tests
+
+- New: a link row names its target, including one pointing at `/etc/passwd`; a plain file row has no arrow.
+  Suite 981 / 976 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.389 — 2026-11-01
 
 ### Fixed — the audit trail dropped the directory-link field it had just been given

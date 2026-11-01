@@ -582,6 +582,9 @@ export async function readRemoteFile(client, remotePath, { maxBytes, timeoutMs, 
   })
 }
 
+/** The most link targets one listing resolves (one readlink each). */
+const LINK_TARGET_LIMIT = 40
+
 /** How far a symlink chain is followed before it is treated as a loop. */
 const LINK_CHAIN_HOPS = 12
 
@@ -824,8 +827,8 @@ export async function writeRemoteFile(client, remotePath, content, { timeoutMs =
  * and the rows are noise next to real names (the loopback test server never
  * emits them, so nothing caught this).
  *
- * @param {Array<{filename: string, attrs: {size?: number, mode?: number, mtime?: number}}>} items
- * @returns {Array<{name: string, size?: number, dir: boolean, type: string, mtime: string|null}>}
+ * @param {Array<{filename: string, linkTarget?: string, attrs: {size?: number, mode?: number, mtime?: number}}>} items
+ * @returns {Array<{name: string, size?: number, dir: boolean, type: string, mtime: string|null, linkTarget?: string}>}
  */
 export function listingEntries(items) {
   return items
@@ -846,6 +849,9 @@ export function listingEntries(items) {
         // A symlink, a FIFO and a socket are not regular files, and a listing that
         // shows all three as '-' invites reading a FIFO, which blocks.
         type: typeChar(attrs.mode),
+        // A row that says 'l' but not where it points hides the one thing a link
+        // listing exists to show: ls -l prints ' -> target' for the same reason.
+        ...(it.linkTarget ? { linkTarget: it.linkTarget } : {}),
         // SFTP reports whole seconds, so the milliseconds are always .000 and only
         // make the column wider. A server can report a time no Date can represent
         // (or something that is not a number): toISOString() then throws "Invalid
@@ -899,7 +905,7 @@ export async function listRemoteDir(client, remotePath, { timeoutMs, signal }) {
 
     abortListener = onAbort(signal, 'listing ' + printable(target) + ' was cancelled', (error) => settle(null, error))
     try {
-      sftp.readdir(target, (err, items) => {
+      sftp.readdir(target, async (err, items) => {
         if (err) {
           // readdir on a regular file fails with the server's ENOENT text,
           // which reads as "the path does not exist" for a path that does.
@@ -908,7 +914,25 @@ export async function listRemoteDir(client, remotePath, { timeoutMs, signal }) {
             () => settle(null, remoteError(err, target, 'list')),
           )
         }
-        settle({ path: target, items: listingEntries(items) })
+        // One readlink per link row, capped: a directory of 10,000 links must not
+        // turn a listing into 10,000 round trips.
+        try {
+          const rows = listingEntries(items)
+          const links = rows.filter((row) => row.type === 'l').slice(0, LINK_TARGET_LIMIT)
+          if (links.length > 0 && typeof sftp.readlink === 'function') {
+            await Promise.all(links.map(async (row) => {
+              try {
+                const raw = String(await new Promise((resolve, reject) => sftp.readlink(posix.join(target, row.name), (err, value) => (err ? reject(err) : resolve(value)))))
+                row.linkTarget = raw
+              } catch { /* a link that vanished keeps its row without a target */ }
+            }))
+          }
+          settle({ path: target, items: rows })
+        } catch (err) {
+          // An async callback that rejects would leave the promise hanging: the
+          // caller then waits for the listing timeout instead of hearing the reason.
+          settle(null, remoteError(err, target, 'list'))
+        }
       })
     } catch (err) {
       settle(null, new Error(printableText(redact(err && err.message ? err.message : String(err)))))

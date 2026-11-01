@@ -4530,3 +4530,36 @@ test('the audit trail says when a write went through a directory link', async ()
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a listing shows what a link points at', async () => {
+  // 'l 0 … alias.txt' hid the only thing that row is for. ls -l prints the target;
+  // so does this now, escaped like every other remote name.
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-list-link-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+      machines: { box: machineFor('box', server.port) },
+    })
+    server.vfs.putDir('/dir')
+    server.vfs.putFile('/dir/plain.txt', 'x')
+    server.vfs.putLink('/dir/alias.txt', '/dir/plain.txt')
+    server.vfs.putLink('/dir/escape', '/etc/passwd')
+    const text = String((await tools.ssh_list.execute({ machine: 'box', path: '/dir' }, {})).text)
+    assert.match(text, /alias\.txt -> \/dir\/plain\.txt/, text)
+    // A link pointing outside is exactly what a listing has to make visible.
+    assert.match(text, /escape -> \/etc\/passwd/, text)
+    assert.doesNotMatch(text, /plain\.txt ->/, 'a plain file has no target: ' + text)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
