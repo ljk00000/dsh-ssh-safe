@@ -1698,3 +1698,29 @@ test('a misspelled page option is refused instead of ignored', async () => {
     if (good.code === null) return
   } finally { rmSync(home, { recursive: true, force: true }) }
 })
+
+test('--help prints the usage and exits 0 instead of being refused', async () => {
+  // 0.7.337 refused every unknown option, which included --help: the one flag a
+  // CLI is expected to answer.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-help-'))
+  try {
+    const run = (args) => new Promise((resolve) => {
+      const child = spawn(process.execPath, [script, ...args], { stdio: ['ignore', 'pipe', 'pipe'] })
+      let out = ''
+      child.stdout.on('data', (chunk) => { out += chunk.toString('utf8') })
+      child.stderr.on('data', (chunk) => { out += chunk.toString('utf8') })
+      child.on('exit', (code) => resolve({ code, out }))
+    })
+    const help = await run(['--help'])
+    assert.equal(help.code, 0, 'help must not be an error: ' + help.out)
+    for (const flag of ['--dsh-home', '--profile', '--port', '--idle-ms', '--no-open', '--help']) {
+      assert.match(help.out, new RegExp(flag), 'the usage must name ' + flag)
+    }
+    // The default it quotes is the one the code uses.
+    const source = readFileSync(script, 'utf8')
+    const declared = source.match(/const DEFAULT_IDLE_MS = ([^\n]+)/)
+    assert.ok(declared, 'the idle default must be a named constant')
+    const value = Function('return ' + declared[1])()
+    assert.match(help.out, new RegExp('default: ' + value + '.'), 'help must quote the real default')
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})

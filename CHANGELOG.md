@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.338 — 2026-11-01
+
+### Fixed — `--help` became "unknown option" after 0.7.337 tightened the parser
+Refusing options the script does not know was right, but it swept up the one flag every CLI is expected to
+answer:
+```
+node scripts/gui.mjs --help
+before  (0.7.337)  Unknown option(s): --help. Accepted: --dsh-home, --profile, --port, --idle-ms, --no-open  (exit 2)
+after              Usage: node scripts/gui.mjs [options]  … 5 options with their defaults … --help  (exit 0)
+```
+
+### My own mistake, found while writing the help text
+The first version of that text said the idle timeout defaults to **900000** ms. The code uses `10 * 60 * 1000`,
+i.e. **600000**. The number in the help would have been the only wrong statement in it — so the default is now a
+named constant (`DEFAULT_IDLE_MS`) used by both the timeout and the text, and a test reads the constant out of the
+source and asserts the help quotes that value.
+
+### Verified this round (no defect found)
+- `set-password.mjs` already refused unknown options against a `KNOWN_OPTIONS` list that includes `--help`;
+  only the page script was missing that (fixed in 0.7.337).
+- The README's "闲置 10 分钟即退出" and the page's `__IDLE__` substitution both describe the same 600000 ms the
+  code uses.
+- The `--all` / `--pass` / `--no` strings a flag scan turns up in the README are curl and pnpm examples, not
+  plugin options.
+
+### Tests
+- New: `--help` exits 0, names every accepted option, and quotes the real idle default (read from the constant).
+  Suite 924 / 919 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.337 — 2026-11-01
 
 ### Fixed — the settings page script ignored every option it did not know

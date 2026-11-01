@@ -63,6 +63,26 @@ const args = parseArgs(process.argv.slice(2))
 // same way: `--proflie desktop` started against the default profile without a
 // word, and every save then edited a credential file the user had not named.
 const ACCEPTED_OPTIONS = ['dsh-home', 'profile', 'port', 'idle-ms', 'no-open']
+// One constant, so the --help text cannot drift from the timeout the page uses.
+const DEFAULT_IDLE_MS = 10 * 60 * 1000
+// --help is not 'an option the script does not know': it is the one every CLI is
+// expected to answer. Refusing it with the accepted list (0.7.337) sent the reader
+// looking for a typo in a word they spelled correctly.
+if (args.help === true) {
+  console.log([
+    'Usage: node scripts/gui.mjs [options]',
+    '',
+    '  --dsh-home DIR   DSH home directory (default: $DSH_HOME or ~/.dsh)',
+    '  --profile DIR    profile directory (default: <dsh-home>/profiles/desktop)',
+    '  --port N         listen port; 0 picks a free one (default: 0)',
+    '  --idle-ms N      exit after N ms with no page open (default: ' + DEFAULT_IDLE_MS + ')',
+    '  --no-open        do not open a browser',
+    '  --help           show this text and exit',
+    '',
+    'The page holds no credential of its own: every request needs the token printed at startup.',
+  ].join('\n'))
+  process.exit(0)
+}
 const unknownOptions = Object.keys(args).filter((key) => !ACCEPTED_OPTIONS.includes(key))
 if (unknownOptions.length > 0) {
   console.error('Unknown option(s): ' + unknownOptions.map((key) => '--' + key).join(', ') +
@@ -90,7 +110,7 @@ if (typeof rawIdle === 'boolean') {
   console.error('--idle-ms needs a value in milliseconds, e.g. --idle-ms 600000.')
   process.exit(2)
 }
-const idleMs = rawIdle === undefined ? 10 * 60 * 1000 : Number(rawIdle)
+const idleMs = rawIdle === undefined ? DEFAULT_IDLE_MS : Number(rawIdle)
 if (!Number.isFinite(idleMs) || Math.floor(idleMs) !== idleMs || idleMs < 1000) {
   // 0 is not 'never': setTimeout(fn, 0) fires at once, which is the opposite of
   // what anyone typing it means. Say that instead of exiting immediately.
