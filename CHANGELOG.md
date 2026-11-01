@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.392 — 2026-11-01
+
+### New — the "HOST KEY CHANGED" refusal pinned, including under `machineInventory: "alias"`
+
+This is the one alarm whose meaning must not drift, and no test covered the lean-mode wording. Recorded now:
+
+```
+ssh_doctor → [ok] host key: SHA256:o… (first contact: recorded now)
+   … the server is restarted on the same port with a different key …
+ssh_connect → ERR: HOST KEY CHANGED for <host hidden>:
+                     recorded SHA256:o…, presented SHA256:M0…
+                     This can mean the server was reinstalled — or that traffic is being intercepted.
+                     Refusing to connect. If the server was legitimately rebuilt, remove the entry from
+                     <path hidden> after verifying the new fingerprint out of band.
+```
+
+The test asserts the refusal names **both** fingerprints, keeps the out-of-band advice, hides the host and the
+store path under `machineInventory: "alias"`, and that a following `ssh_exec` does not run the command.
+
+### Verified this round (no defect found)
+
+- Loosely typed arguments are refused by the schema, not by accident: `timeoutMs: "5000"` / `5000.5`,
+  `maxBytes: "100"`, `offset: "1"` / `-1` / `1.5`, `content: 123`, `limit: "2"` each name the field and the type.
+  `maxBytes: 0` and `mode: "644"` are accepted, both documented.
+- `tofu` re-records nothing when the key changed: the entry stays and the connection is refused (the recorded
+  fingerprint in the refusal is the OLD one, which is what makes it actionable).
+
+### Tests
+
+- New: the changed-key refusal above. Suite 983 / 978 pass / 5 skipped / 0 fail, run twice concurrently;
+  `tsc` clean.
+
 ## 0.7.391 — 2026-11-01
 
 ### New — the `execGuard: "confirm"` matrix pinned for all four tools

@@ -4605,3 +4605,62 @@ test('execGuard confirm gates exec, read and write but leaves the listing alone'
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a changed host key is refused, and machineInventory: alias hides where it was recorded', async () => {
+  // The one alarm that has to keep its meaning: a recorded key that differs is a
+  // refusal, not a prompt. Under machineInventory: 'alias' the same sentence must
+  // still name both fingerprints and neither the host nor the store path.
+  const first = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-changed-key-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const make = async (extra) => {
+    const tools = {}
+    await apply(
+      { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined },
+      {
+        hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machineInventory: 'alias',
+        reconnectCooldownMs: 0, connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+        machines: { box: machineFor('box', first.port) },
+        ...extra,
+      },
+    )
+    return tools
+  }
+  const text = async (def, args) => String(await def.execute(args, {})
+    .then((result) => result.text, (err) => 'ERR: ' + err.message))
+  let second = null
+  try {
+    const tools = await make({})
+    const doctor = await text(tools.ssh_doctor, { machine: 'box' })
+    assert.match(doctor, /first contact: recorded now/)
+    await tools.ssh_close.execute({ force: true }, {})
+    await Promise.race([first.close(), new Promise((resolve) => setTimeout(resolve, 600))])
+
+    // Same port, a different host key: what a reinstalled server (or an interception)
+    // looks like.
+    second = await startServer({ port: first.port, key: alternateHostKey() })
+    const tools2 = await make({})
+    const refused = await text(tools2.ssh_connect, { machine: 'box' })
+    assert.match(refused, /HOST KEY CHANGED/, refused)
+    assert.match(refused, /recorded SHA256:[A-Za-z0-9+/=]+/, refused)
+    assert.match(refused, /presented SHA256:[A-Za-z0-9+/=]+/, refused)
+    assert.match(refused, /Refusing to connect/, refused)
+    assert.match(refused, /out of band/, 'the advice must say how to clear it: ' + refused)
+    // Lean mode: the sentence keeps its force and drops the address.
+    assert.match(refused, /<host hidden>/, refused)
+    assert.doesNotMatch(refused, /127\.0\.0\.1:/, 'the address must stay hidden: ' + refused)
+    assert.doesNotMatch(refused, /known_hosts\.json/, 'the store path must stay hidden: ' + refused)
+    // And nothing ran: the refusal is not a warning.
+    const exec = await text(tools2.ssh_exec, { machine: 'box', command: 'echo should-not-run' })
+    assert.match(exec, /HOST KEY CHANGED|ERR/, exec)
+    assert.doesNotMatch(exec, /^should-not-run/m, 'the command must not have run: ' + exec)
+    await tools2.ssh_close.execute({ force: true }, {})
+  } finally {
+    await Promise.race([first.close(), new Promise((resolve) => setTimeout(resolve, 600))])
+    if (second) await Promise.race([second.close(), new Promise((resolve) => setTimeout(resolve, 600))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
