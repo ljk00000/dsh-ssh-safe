@@ -81,7 +81,11 @@ export function summarize(command, maxLength = 200) {
   const raw = String(command ?? '')
   const firstLine = raw.split(/\r?\n/)[0].trim()
   const multi = raw.includes('\n')
-  let text = firstLine
+  // Redact BEFORE cutting. A URL password is only recognisable as 'user:pass@host',
+  // and the cut at maxLength removed the '@': 'https://alice:SuperSecret@db/x' at
+  // position 175 was written to the log as 'https://alice:SuperSecre…' — eleven
+  // characters of the password, in the one place that promises no secrets.
+  let text = redact(firstLine)
   if (text.length > maxLength) {
     text = text.slice(0, maxLength)
     // Do not cut a surrogate pair in half: the record is NDJSON, and a lone

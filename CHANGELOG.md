@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.329 — 2026-11-01
+
+### Fixed — a URL password that straddled the 200-character cut reached the audit log
+`summarize()` cut the command at 200 characters and `audit.write()` redacted the result, so a documented shape
+lost the part the rule keys on before the rule ran — `user:pass@host` needs its `@host`:
+```
+ssh_exec, command at position 175: https://alice:SuperSecret@db.example/x
+before  … https://alice:SuperSecre…        ← eleven characters of the password
+after   … https://alice:<redacted>…
+```
+The summary is redacted **before** it is cut now, so every documented shape is matched against the complete
+text. `mysql -p…`, the PEM marker and `Authorization:` were already safe; they are pinned next to it.
+
+### Verified this round (no defect found)
+- Key-name redaction holds up wherever the cut lands: `--password=`, `--token=`, `AWS_SECRET_ACCESS_KEY=` and
+  `mysql -p` all still read `<redacted>` when the value starts before or after the cut.
+- The bare cloud-key shapes (`AKIA…`, `sk-…`, `ghp_…`) are **not** matched by any rule — that is the documented
+  best-effort boundary (redaction keys on a name or a known header), not a regression of this fix.
+
+### My own mistakes
+1. My first assertion demanded the full `<redacted>` placeholder survive a 200-character clamp of a 205-
+   character command, which it cannot: the clamp now cuts inside the placeholder (`-p<…`). Ugly, not a leak —
+   the assertion checks that the secret is absent instead.
+2. The first probe padded the secret past the cut and showed no leak at all, which nearly made me record the
+   whole area as clean; moving the secret back to position 175 is what exposed it.
+
+### Tests
+- New: a URL password straddling the cut is redacted rather than halved (fails without the ordering fix), with
+  the already-safe shapes and a plain command beside it.
+  Suite 915 / 910 pass / 5 skipped / 0 fail, run twice concurrently; audit/redaction files 47/47; `tsc` clean.
+
 ## 0.7.328 — 2026-11-01
 
 ### Fixed — `find -- / -delete` walked the filesystem and was allowed

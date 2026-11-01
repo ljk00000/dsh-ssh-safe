@@ -166,3 +166,23 @@ test('a long field is never cut between the halves of a surrogate pair', () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a secret that straddles the cut is redacted, not halved', () => {
+  // summarize() cut at maxLength first and audit.write() redacted the result, so a
+  // URL password lost its '@host' before the rule could see it:
+  // 'https://alice:SuperSecret@db/x' at position 175 became 'https://alice:SuperSecre…'
+  // — eleven characters of the password in the audit trail.
+  const command = 'x'.repeat(175) + ' https://alice:SuperSecret@db.example/x'
+  const out = summarize(command)
+  assert.ok(out.length <= 201, 'still one clamped line, got ' + out.length)
+  assert.doesNotMatch(out, /SuperSe/,
+    'no part of the password may survive the cut')
+  assert.match(out, /<redacted>/)
+
+  // The shapes that were already safe stay safe: the secret is gone even when the
+  // clamp then cuts inside the placeholder itself ('-p<…'), which is ugly but not a
+  // leak.
+  assert.doesNotMatch(summarize('x'.repeat(190) + ' mysql -pSuperSecret'), /SuperSecret/)
+  assert.match(summarize('x'.repeat(150) + ' -----BEGIN OPENSSH PRIVATE KEY-----'), /<redacted-pem>/)
+  assert.match(summarize('ls -la'), /^ls -la$/)
+})
