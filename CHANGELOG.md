@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.402 — 2026-11-01
+
+### New — the exec path's silent reconnect is pinned
+
+A peer that drops the connection is visible in two different ways, and only one was tested:
+
+```
+after srv.killClients()
+ssh_list  → one "stopped answering before the operation finished … the next call opens a new
+            connection" message (SFTP finds the dead socket by failing on it)   [pinned earlier]
+ssh_exec  → "ran: echo two / [exit 0]"                                          [new]
+```
+
+`exec` runs the liveness probe first, so the caller never learns the connection was replaced. The test asserts
+exactly that: the second exec succeeds, carries neither "No response from server" nor "stopped answering", and the
+server is back to one client.
+
+### Verified this round (no defect found)
+
+- stderr takes priority over stdout in the shared output budget, and the arithmetic is right: with
+  `maxOutputChars: 2000`, `tailerr 5000` keeps the error line, trims stdout to 1972 characters and reports
+  "3028 more characters were dropped from the end"; `tailerr 20000` reports 18028. The error line survives at every
+  size tested (100, 1500, 5000, 20000).
+
+### Tests
+
+- New: the exec reconnect above. Suite 991 / 986 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.401 — 2026-11-01
 
 ### Fixed — a test comment claimed the opposite of what the code does, and the case was untested

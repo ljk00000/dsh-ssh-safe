@@ -4889,3 +4889,41 @@ test('a per-call password is used only when allowed, and the refusal says so onc
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the first exec after the peer dropped reconnects without an error', async () => {
+  // The transfer path can surface one 'stopped answering' message (pinned above),
+  // because SFTP discovers the dead socket by failing on it. exec probes first, so
+  // the caller never sees the drop at all — measured: 'echo two' right after
+  // killClients() returned 'ran: echo two / [exit 0]'.
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-exec-reconnect-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 4000, commandTimeoutMs: 6000, healthCheckTimeoutMs: 1000,
+      machines: { box: machineFor('box', server.port) },
+    })
+    const text = async (def, args) => String(await def.execute(args, {})
+      .then((result) => result.text, (err) => 'ERR: ' + err.message))
+    assert.match(await text(tools.ssh_exec, { machine: 'box', command: 'echo one' }), /ran: echo one/)
+    assert.equal(server.clientCount(), 1, 'one pooled connection')
+    server.killClients()
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.equal(server.clientCount(), 0, 'the peer dropped it')
+
+    const second = await text(tools.ssh_exec, { machine: 'box', command: 'echo two' })
+    assert.match(second, /ran: echo two/, 'the drop is invisible to the caller: ' + second)
+    assert.doesNotMatch(second, /No response from server|stopped answering/, second)
+    assert.equal(server.clientCount(), 1, 'a new connection replaced the dropped one')
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
