@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.406 — 2026-11-01
+
+### Fixed — the page said "ignored" about a password the plugin was using
+
+`scripts/gui.mjs` never read `allowPlaintextPassword`. `credentialFor()` defaults it to false, so the test button
+behaved as if plaintext were always refused — while the plugin, reading the same `cordis.patch.yml`, used that
+password and connected:
+
+```
+cordis.patch.yml:  allowPlaintextPassword: true   machines.good.password: …
+
+before   [warn] 凭据: the settings form holds a plaintext password; it was ignored
+         [FAIL] 凭据: 没有可用的密码或私钥，请在上方填写密码后保存
+         test verdict: false      ← the plugin connects with exactly this password
+after    [ok] 认证: 已认证（凭据来源：config）
+         test verdict: true
+```
+
+`settingsAllowPlaintext()` reads the setting the same way `settingsUseCredentialFile()` does, and the value reaches
+the shared resolver. With the setting off the page still refuses the password and says so — that half is unchanged.
+
+### My own mistake
+
+Last round I compared the page against the plugin and read a difference as *my probe's config* (it was, for the
+credential file). This round, with the settings form made identical, the difference was real — and it only showed
+up because the second comparison controlled the config file instead of the in-process one.
+
+### Tests
+
+- New: with `allowPlaintextPassword: true` the page test passes and reports `凭据来源：config`; with `false` it fails
+  and says the password was ignored.
+  Suite 995 / 990 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.405 — 2026-11-01
 
 ### Fixed — pressing Enter at the password prompt stored half an entry and said "Stored"

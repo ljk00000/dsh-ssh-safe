@@ -1897,3 +1897,50 @@ test('an empty password box leaves the stored password alone, and spaces are a p
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the test button honours allowPlaintextPassword from the profile', async () => {
+  // The page resolved credentials without that setting, so it always behaved as if
+  // plaintext were refused: a machine whose password sits in the settings form was
+  // reported as 'ignored' and the test failed — while the plugin, reading the same
+  // file, used the password and connected.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-plaintext-'))
+  const server = await startServer()
+  const machine = machineFor('good', server.port)
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  const settings = (allow) => [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    hostKeyPolicy: tofu',
+    '    allowPlaintextPassword: ' + (allow ? 'true' : 'false'),
+    '    machines:',
+    '      good:',
+    "        host: '" + machine.host + "'",
+    "        port: '" + machine.port + "'",
+    "        user: '" + machine.user + "'",
+    "        password: '" + machine.password + "'",
+  ].join('\n') + '\n'
+  const { child, base, token } = await start(home)
+  try {
+    writeFileSync(path.join(profile, 'cordis.patch.yml'), settings(true), 'utf8')
+    const allowed = await call(base, token, '/api/test', { alias: 'good' })
+    assert.equal(allowed.status, 200, JSON.stringify(allowed.body))
+    const lines = (allowed.body.lines || []).map(String)
+    assert.ok(allowed.body.ok, 'the plugin would use this password: ' + lines.join(' | '))
+    assert.ok(lines.some((line) => /凭据来源：config/.test(line)), lines.join(' | '))
+
+    // With the setting off the page must refuse it, as the plugin does.
+    writeFileSync(path.join(profile, 'cordis.patch.yml'), settings(false), 'utf8')
+    const refused = await call(base, token, '/api/test', { alias: 'good' })
+    const refusedLines = (refused.body.lines || []).map(String)
+    assert.equal(refused.body.ok, false, refusedLines.join(' | '))
+    assert.ok(refusedLines.some((line) => /plaintext password; it was ignored/.test(line)),
+      refusedLines.join(' | '))
+    await call(base, token, '/api/shutdown', {}).catch(() => null)
+  } finally {
+    try { child.kill() } catch {}
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})

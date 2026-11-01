@@ -254,6 +254,25 @@ function settingsUseCredentialFile() {
 }
 
 /**
+ * The profile's allowPlaintextPassword, which defaults to false.
+ *
+ * The page ignored this setting and always behaved as if it were off: a machine
+ * whose password sat in the settings form was reported as 'ignored' and the test
+ * failed, while the plugin — reading the same file — used that password and
+ * connected. The two must agree about which credential wins.
+ */
+function settingsAllowPlaintext() {
+  const block = pluginBlock()
+  if (!block) return false
+  for (const line of block) {
+    if (!atConfigIndent(block, line)) continue
+    const match = line.match(/^\s*allowPlaintextPassword:\s*(true|false)\s*(?:#.*)?$/)
+    if (match) return match[1] === 'true'
+  }
+  return false
+}
+
+/**
  * Read one YAML scalar the way the plugin's parser will.
  *
  * 'host: "10.0.0.5"   # quoted' used to arrive as '10.0.0.5"   # quoted': the
@@ -765,7 +784,14 @@ async function testConnection(alias) {
 
   // One resolver, shared with the plugin: the page must not disagree with the
   // plugin about which credential source wins.
-  const auth = credentialFor(alias, { machines: settings, dshHome: credentialHome, useAgent: false })
+  const auth = credentialFor(alias, {
+    machines: settings,
+    dshHome: credentialHome,
+    useAgent: false,
+    // The plugin's own choice, from the same file: with plaintext allowed, a
+    // settings-form password is a real credential and the test must use it.
+    allowPlaintextPassword: settingsAllowPlaintext(),
+  })
   for (const warning of auth.warnings || []) say('凭据', 'warn', warning)
 
   return await new Promise((resolve) => {
