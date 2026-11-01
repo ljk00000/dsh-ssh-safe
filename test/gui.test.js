@@ -1827,7 +1827,7 @@ test('a file Notepad saved with a BOM is read, not called corrupt', async () => 
       const aliases = (state.body.machines || []).map((m) => m.alias)
       assert.deepEqual(aliases, ['box'], 'the machine in the file must be listed: ' + JSON.stringify(aliases))
       const saved = await call(restarted.base, restarted.token, '/api/save',
-        { alias: 'box', host: 'h.example', user: 'u', password: 'pw' })
+        { alias: 'box', host: 'h.example', user: 'u' })
       assert.equal(saved.status, 200, JSON.stringify(saved.body))
       const after = readFileSync(cred, 'utf8')
       assert.equal(after.charCodeAt(0) === 0xFEFF, false, 'the BOM is not written back')

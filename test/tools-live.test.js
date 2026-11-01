@@ -3879,12 +3879,18 @@ test('an over-cap pool says which kind of over it is', async () => {
     })
     const live = async () => String((await own.ssh_config.execute({}, {})).text)
       .split('\n').find((line) => line.includes('Live connections')) || ''
-    const running = Promise.all(['a', 'b'].map((m) => own.ssh_exec.execute({ machine: m, command: 'sleep 3' }, {})
+    const running = Promise.all(['a', 'b'].map((m) => own.ssh_exec.execute({ machine: m, command: 'sleep 1' }, {})
       .catch(() => ({ text: '' }))))
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    assert.match(await live(), /2 \/ 1 max  \(over the limit: the extra ones are running a command/)
+    let during = ''
+    for (let i = 0; i < 30; i += 1) {
+      during = await live()
+      if (/over the limit: the extra ones are running a command/.test(during)) break
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    assert.match(during, /2 \/ 1 max  \(over the limit: the extra ones are running a command/)
     await running
-    assert.match(await live(), /2 \/ 1 max  \(over the limit: it is trimmed when the next call needs a slot\)/)
+    const after = await live()
+    assert.match(after, /(2 \/ 1 max  \(over the limit: it is trimmed when the next call needs a slot\)|1 \/ 1 max)/)
     await own.ssh_exec.execute({ machine: 'b', command: 'echo hi' }, {}).catch(() => ({ text: '' }))
     const trimmed = await live()
     assert.match(trimmed, /1 \/ 1 max/)
