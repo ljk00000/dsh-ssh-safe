@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.385 — 2026-11-01
+
+### Fixed — a credentials file Notepad re-saved (UTF-8 with BOM) read as corrupt in the page
+
+`JSON.parse` rejects a leading BOM. The page parsed the file with it, so a file that had only been opened and
+saved in Notepad looked broken:
+```
+credentials.json = BOM + {"box":{"host":"h.example","user":"u"}}
+before   /api/state  fileProblem: "… 现在无法解析（Unexpected token BOM …）", machines: []
+         /api/save   409, "为避免把它整个覆盖掉，本页不会写入"   ← every save refused
+after    /api/state  fileProblem: "", machines: ["box"]
+         /api/save   200 { ok: true }, and the BOM is not written back
+```
+`scripts/set-password.mjs` already stripped the BOM (its comment records the same lesson); the page did not. One
+`stripBom()` now serves both readers in `scripts/gui.mjs`.
+
+### Verified this round (no defect found)
+
+- A genuinely broken file is still refused: `/api/save` answers 409 with the file name and the parse error, and
+  the page shows the banner `凭据文件读不了，本页已停止写入（避免覆盖）：…`.
+
+### Tests
+
+- New: a BOM-prefixed file lists its machine, saves normally, and loses the BOM on write.
+  Suite 975 / 970 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.384 — 2026-11-01
 
 ### Fixed — the page dropped every warning after the first, and the save handler showed none

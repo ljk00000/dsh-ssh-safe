@@ -1804,3 +1804,36 @@ test('the page shows every warning, not just the first', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a file Notepad saved with a BOM is read, not called corrupt', async () => {
+  // JSON.parse rejects a leading BOM, so a credentials.json that had only been opened
+  // and saved in Notepad read as broken: the page listed no machines and refused every
+  // save with 409. scripts/set-password.mjs stripped the BOM; the page did not.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-bom-'))
+  const { child, base, token } = await start(home)
+  try {
+    const dir = path.join(home, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    const cred = path.join(dir, 'credentials.json')
+    writeFileSync(cred, '\uFEFF' + JSON.stringify({ box: { host: 'h.example', user: 'u' } }), 'utf8')
+
+    // Restart so the server reads the file written above.
+    child.kill()
+    const restarted = await start(home)
+    try {
+      const state = await call(restarted.base, restarted.token, '/api/state')
+      assert.equal(state.body.fileProblem, '', 'a BOM is not a syntax error: ' + JSON.stringify(state.body.fileProblem))
+      const aliases = (state.body.machines || []).map((m) => m.alias)
+      assert.deepEqual(aliases, ['box'], 'the machine in the file must be listed: ' + JSON.stringify(aliases))
+      const saved = await call(restarted.base, restarted.token, '/api/save',
+        { alias: 'box', host: 'h.example', user: 'u', password: 'pw' })
+      assert.equal(saved.status, 200, JSON.stringify(saved.body))
+      const after = readFileSync(cred, 'utf8')
+      assert.equal(after.charCodeAt(0) === 0xFEFF, false, 'the BOM is not written back')
+      assert.equal(JSON.parse(after).box.host, 'h.example')
+    } finally { try { restarted.child.kill() } catch {} }
+  } finally {
+    try { child.kill() } catch {}
+    rmSync(home, { recursive: true, force: true })
+  }
+})

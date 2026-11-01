@@ -437,10 +437,16 @@ function idleWords(ms) {
  */
 const RESERVED_ALIASES = new Set(['__proto__', 'prototype', 'constructor'])
 const filled = (v) => v !== undefined && v !== null && v !== ''
+/**
+ * Notepad saves 'UTF-8 with BOM', and JSON.parse rejects the BOM: the file then read
+ * as corrupt when it had only been opened and saved, the page listed no machines and
+ * refused every save. scripts/set-password.mjs already stripped it; the page did not.
+ */
+const stripBom = (text) => String(text).replace(/^\uFEFF/, '')
 
 function readStore() {
   try {
-    const parsed = JSON.parse(readFileSync(credFile, 'utf8'))
+    const parsed = JSON.parse(stripBom(readFileSync(credFile, 'utf8')))
     return parsed && typeof parsed === 'object' ? parsed : {}
   } catch { return {} }
 }
@@ -460,7 +466,7 @@ function storeProblem() {
     return err && err.code === 'ENOENT' ? '' : ('无法读取 ' + credFile + '：' + (err && err.message))
   }
   try {
-    const parsed = JSON.parse(text)
+    const parsed = JSON.parse(stripBom(text))
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return ''
     return credFile + ' 的内容不是 JSON 对象（收到 ' + (Array.isArray(parsed) ? 'array' : typeof parsed) + '）'
   } catch (err) {
