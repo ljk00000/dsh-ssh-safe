@@ -735,6 +735,23 @@ function assertKnownArgs(args, known, toolName) {
     // escape sequence here repaints the line the user is reading.
     : printable(m.username || '?') + '@' + printable(formatHost(m.host || '?')) + ':' + printable(m.port || 22)
 
+  /**
+   * Whether an alias names a machine this profile can use at all.
+   *
+   * A placeholder's marker can name a machine that was deleted (or hand-edited to
+   * a name that never existed). Every refusal then said 'use machine: "ghost"',
+   * which cannot work: create() refuses it for missing host and user, and remove()
+   * never gets that far. Advice that cannot be followed is worse than none.
+   */
+  const machineUsable = (name) => {
+    try {
+      const def = machineDefinition(name, { machines: cfg.machines, dshHome: credentialHome })
+      return Boolean(def && def.host && def.username)
+    } catch {
+      return false
+    }
+  }
+
   const machineFor = (args) => {
     const alias = normalizeAlias(args?.machine || cfg.defaultMachine || '')
     if (!alias) {
@@ -1827,8 +1844,11 @@ const trustedLine = (m) => {
               '无法创建机器 "' + alias + '" 的远程工作区：那个目录是别名 "' + owner + '" 的占位目录。\n' +
               '  目录：' + dir + '\n' +
               '改写它会让 "' + owner + '" 的会话读到 "' + alias + '" 的连接说明，命令可能发到错的主机。\n' +
-              '用 machine: "' + owner + '" 打开这个工作区；或者先删除 "' + owner + '" 的工作区\n' +
-              '（action: "remove", machine: "' + owner + '", deleteFiles: true），再为 "' + alias + '" 创建。'
+              (machineUsable(owner)
+                ? '用 machine: "' + owner + '" 打开这个工作区；或者先删除 "' + owner + '" 的工作区\n' +
+                  '（action: "remove", machine: "' + owner + '", deleteFiles: true），再为 "' + alias + '" 创建。'
+                : '"' + owner + '" 不是这个 profile 里可用的机器（主机或用户没配置），所以上面那条路走不通。\n' +
+                  '这个目录是残留：把 ' + dir + ' 整个删掉（或在 marker 里把 alias 改回 "' + alias + '"），再重试。')
             )
           }
           // The directory exists; one of the two files this plugin writes could not
@@ -1945,7 +1965,13 @@ const trustedLine = (m) => {
         if (owner && owner !== alias) {
           throw new Error(
             '没有删除任何东西：目录 ' + dir + ' 是别名 "' + owner + '" 的占位目录，不是 "' + alias + '" 的。\n' +
-            '要删它，请用 machine: "' + owner + '"。'
+            (machineUsable(owner)
+              ? '要删它，请用 machine: "' + owner + '"。'
+              // The owner can be a machine that no longer exists, so 'use machine: X' is
+              // advice the caller cannot follow. Say what does work.
+              : '"' + owner + '" 不是这个 profile 里可用的机器（主机或用户没配置），所以没法用 machine: "' +
+                owner + '" 删它。这个目录是残留：把它整个删掉即可（没有别的办法），' +
+                '或者先在 marker 里把 alias 改回 "' + alias + '"，再用 action: "remove"。')
           )
         }
         let removed = '没有注册记录'

@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.7.370 — 2026-11-01
+
+### Fixed — a placeholder whose marker named a deleted machine gave advice nobody could follow
+A marker can name a machine that no longer exists (the machine was deleted, or the file was edited by hand). Both
+refusals then said "use machine: \"ghost\"":
+```
+marker: { alias: "ghost" }        no machine called ghost exists
+ssh_workspace { action: "create", machine: "box" }
+before   … 用 machine: "ghost" 打开这个工作区；或者先删除 "ghost" 的工作区 …
+         ← create "ghost" fails on missing host and user; the way out does not exist
+after    … "ghost" 不是这个 profile 里可用的机器（主机或用户没配置），所以上面那条路走不通。
+         这个目录是残留：把 <dir> 整个删掉（或在 marker 里把 alias 改回 "box"），再重试。
+
+ssh_workspace { action: "remove", machine: "box", deleteFiles: true }
+before   没有删除任何东西：… 要删它，请用 machine: "ghost"。        ← also a dead end
+after    … 没法用 machine: "ghost" 删它。这个目录是残留：把它整个删掉即可（没有别的办法），
+         或者先在 marker 里把 alias 改回 "box"，再用 action: "remove"。
+```
+`machineUsable(alias)` decides which advice is printed, so a marker naming a **configured** machine still gets the
+original (and correct) "use machine: X" wording.
+
+### Verified this round (no defect found)
+
+- The listing shows such a placeholder normally, with its registry title; nothing else is affected.
+
+### My own mistakes
+
+1. My first patch replaced only the opening line of the create message, leaving the old tail line behind the new
+   ternary — `node --check` caught "missing ) after argument list". I deleted the leftover line rather than
+   rewriting the block.
+2. The test's last assertion used `other` as a configured machine without configuring it, and my first fix edited
+   the wrong `apply(...)` call: that exact line appears three times in the file, and `String.replace` takes the
+   first. The second attempt replaced all three.
+
+### Tests
+
+- New: a marker naming a missing machine gets advice that works on both paths, and a marker naming a real machine
+  keeps the original wording.
+  Suite 960 / 955 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.369 — 2026-11-01
 
 ### New — the guard × confirm matrix is a test

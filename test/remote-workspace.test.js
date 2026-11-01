@@ -724,7 +724,10 @@ test('a directory named AGENTS.md is the user\'s, not this plugin\'s file', asyn
   }
   const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => registry }
   try {
-    await apply(ctx, { hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machines: { box: { host: 'h.example', user: 'u' } } })
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      machines: { box: { host: 'h.example', user: 'u' }, other: { host: 'h2.example', user: 'u2' } },
+    })
     const text = async (promise) => String(await promise.then((r) => (r && r.text !== undefined ? r.text : ''), (err) => 'ERR: ' + err.message))
     await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
     const dir = remoteDir(home, 'box')
@@ -763,7 +766,10 @@ test('create refuses to write through a symlinked AGENTS.md', async () => {
   const registry = { items: [], list() { return this.items.slice() }, async create(p, t) { const w = { id: 'w', path: p, title: t }; this.items.push(w); return w }, async delete() { return true } }
   const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => registry }
   try {
-    await apply(ctx, { hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machines: { box: { host: 'h.example', user: 'u' } } })
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      machines: { box: { host: 'h.example', user: 'u' }, other: { host: 'h2.example', user: 'u2' } },
+    })
     const text = async (promise) => String(await promise.then((r) => (r && r.text !== undefined ? r.text : ''), (err) => 'ERR: ' + err.message))
     await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
     const dir = remoteDir(home, 'box')
@@ -800,7 +806,10 @@ test('a read-only AGENTS.md is named as the file that could not be written', asy
   const registry = { items: [], list() { return this.items.slice() }, async create(p, t) { const w = { id: 'w', path: p, title: t }; this.items.push(w); return w }, async delete() { return true } }
   const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => registry }
   try {
-    await apply(ctx, { hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machines: { box: { host: 'h.example', user: 'u' } } })
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      machines: { box: { host: 'h.example', user: 'u' }, other: { host: 'h2.example', user: 'u2' } },
+    })
     const text = async (promise) => String(await promise.then((r) => (r && r.text !== undefined ? r.text : ''), (err) => 'ERR: ' + err.message))
     await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
     const dir = remoteDir(home, 'box')
@@ -814,6 +823,52 @@ test('a read-only AGENTS.md is named as the file that could not be written', asy
     const marker = await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
     assert.match(marker, /\.dsh-remote-workspace\.json 写不进去/, marker)
     chmodSync(join(dir, '.dsh-remote-workspace.json'), 0o644)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a marker naming a machine that no longer exists gives advice that works', async () => {
+  // The marker can name a deleted machine (or a name typed by hand). Both refusals used
+  // to say 'use machine: "ghost"', which cannot work: create refuses that alias for
+  // missing host and user, and remove never gets that far. Measured: the user is left
+  // with no way forward from the messages alone.
+  const home = mkdtempSync(join(tmpdir(), 'dsh-ws-ghost-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const registry = { items: [], list() { return this.items.slice() }, async create(p, t) { const w = { id: 'w', path: p, title: t }; this.items.push(w); return w }, async delete() { return true } }
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => registry }
+  try {
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+      machines: { box: { host: 'h.example', user: 'u' }, other: { host: 'h2.example', user: 'u2' } },
+    })
+    const text = async (promise) => String(await promise.then((r) => (r && r.text !== undefined ? r.text : ''), (err) => 'ERR: ' + err.message))
+    await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
+    const dir = remoteDir(home, 'box')
+    const markerPath = join(dir, '.dsh-remote-workspace.json')
+    const marker = JSON.parse(readFileSync(markerPath, 'utf8'))
+    marker.alias = 'ghost'
+    writeFileSync(markerPath, JSON.stringify(marker, null, 2) + '\n')
+
+    const created = await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
+    assert.match(created, /不是这个 profile 里可用的机器/, created)
+    assert.doesNotMatch(created, /用 machine: "ghost" 打开/, 'the dead-end advice must be gone')
+    assert.match(created, /删掉|改回/, 'it must say what does work')
+
+    const removed = await text(tools.ssh_workspace.execute({ action: 'remove', machine: 'box', deleteFiles: true }, {}))
+    assert.match(removed, /不是这个 profile 里可用的机器/, removed)
+    assert.doesNotMatch(removed, /要删它，请用 machine: "ghost"/, 'the dead-end advice must be gone')
+    assert.equal(existsSync(dir), true, 'nothing may be deleted')
+
+    // And when the named machine does exist, the original advice stays.
+    marker.alias = 'other'
+    writeFileSync(markerPath, JSON.stringify(marker, null, 2) + '\n')
+    const usable = await text(tools.ssh_workspace.execute({ action: 'remove', machine: 'box', deleteFiles: true }, {}))
+    assert.match(usable, /要删它，请用 machine: "other"/, usable)
   } finally {
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous
