@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.7.387 — 2026-11-01
+
+### New — the "no machine given" message is pinned across every tool
+
+This is the first thing a new user meets (no `defaultMachine`, no `machine:` argument) and no test reached it —
+the coverage run listed the branch as unexecuted:
+
+```
+ssh_connect / ssh_exec / ssh_read / ssh_write / ssh_list / ssh_doctor   with no machine
+→ No machine given. Pass machine: "<alias>" or set defaultMachine in the plugin config.
+  An alias maps to environment variables: alias "prod" reads DSH_SSH_PROD_HOST.
+ssh_close        → No live connections
+ssh_workspace    → action "create" 需要 machine: "<alias>"（或先设置 defaultMachine）。
+```
+
+The six tools that need one now have a test that also checks the message names the environment shape; a regression
+here would surface as a `TypeError` or `undefined` in the middle of that sentence.
+
+### Verified this round (no defect found)
+
+- `/api/test` diagnoses a refused port and a missing host with complete, actionable lines, and stops at the stage
+  that failed instead of guessing about the rest.
+- A save that outlives `--idle-ms` is not cut off: with `--idle-ms 1200` and a 4 s lock wait, the request still
+  completes (4217 ms, `ok: true`) and the file holds the entry; the idle timer waits for the in-flight request.
+- The GUI argument validation is complete: `--idle-ms 0` / `-5` / `abc`, `--port 99999` / `abc`, an unknown option,
+  and a value option with no value each print their own sentence and exit.
+
+### My own mistake
+
+- My first version of the test used a `text()` helper that exists in a different test file (`textOf` and
+  `capture()` are the names here), and my rewrite looked for the closing `})` in the wrong place. Rewritten by line
+  index instead of by string anchor.
+
+### Tests
+
+- New: the no-machine message for the six tools, `ssh_close`, and `ssh_workspace`.
+  Suite 978 / 973 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.386 — 2026-11-01
 
 ### Fixed — two more page paths dropped the warnings the API returned

@@ -1893,3 +1893,31 @@ test('machineInventory: alias also hides key paths in ssh_credentials and ssh_do
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('every tool that needs a machine says so instead of throwing', async () => {
+  // The first thing a new user hits: no defaultMachine, no machine: argument. The
+  // message names the argument and the setting; a regression here would surface as a
+  // TypeError or 'undefined' in the middle of a sentence.
+  const { tools, restore } = capture({ hostKeyPolicy: 'tofu' })
+  try {
+    const needsMachine = [
+      ['ssh_connect', {}],
+      ['ssh_exec', { command: 'echo hi' }],
+      ['ssh_read', { path: '/etc/hostname' }],
+      ['ssh_write', { path: '/tmp/x', content: 'x' }],
+      ['ssh_list', { path: '/tmp' }],
+      ['ssh_doctor', {}],
+    ]
+    for (const [name, args] of needsMachine) {
+      const out = await tools[name].execute(args).then(textOf, (err) => 'ERR: ' + err.message)
+      assert.match(out, /No machine given\. Pass machine: "<alias>" or set defaultMachine/, name + ': ' + out)
+      assert.match(out, /DSH_SSH_PROD_HOST/, name + ' must name the env shape: ' + out)
+    }
+    // ssh_close needs no machine at all.
+    const closed = await tools.ssh_close.execute({}).then(textOf, (err) => 'ERR: ' + err.message)
+    assert.match(closed, /No live connections|No connection/, closed)
+    // And the workspace tool has its own sentence, in the caller's language.
+    const workspace = await tools.ssh_workspace.execute({ action: 'create' }).then(textOf, (err) => 'ERR: ' + err.message)
+    assert.match(workspace, /需要 machine/, workspace)
+  } finally { restore() }
+})
