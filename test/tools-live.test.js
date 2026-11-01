@@ -3879,3 +3879,38 @@ test('an over-cap pool says which kind of over it is', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a gate refusal names which direction it stopped', async () => {
+  // The row ended with a bare 'read from', which read as a cut-off sentence:
+  // 'reason=execGuard is "confirm" and confirm was not passed  read from'.
+  const srv2 = await startServer()
+  const home2 = mkdtempSync(path.join(tmpdir(), 'dsh-gate-audit-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home2
+  const own = {}
+  const ctx2 = {
+    tools: { register: (def) => { own[def.name] = def } },
+    effect: () => {},
+    get: () => undefined,
+  }
+  try {
+    await apply(ctx2, {
+      defaultMachine: 't', allowPlaintextPassword: true, hostKeyPolicy: 'tofu', auditLog: true,
+      execGuard: 'confirm', reconnectCooldownMs: 0, connectTimeoutMs: 3000, commandTimeoutMs: 3000,
+      machines: { t: machineFor('t', srv2.port) },
+    })
+    await assert.rejects(() => own.ssh_read.execute({ path: '/etc/passwd' }, {}), /execGuard is "confirm"/)
+    await assert.rejects(() => own.ssh_write.execute({ path: '/tmp/x', content: 'x' }, {}), /execGuard is "confirm"/)
+    const shown = String((await own.ssh_audit.execute({}, {})).text)
+    assert.match(shown, /reason=execGuard is "confirm" and confirm was not passed  direction=read from/,
+      'the read gate must be labelled: ' + shown.slice(0, 400))
+    assert.match(shown, /direction=write to/, 'the write gate must be labelled: ' + shown.slice(0, 400))
+    assert.doesNotMatch(shown, /not passed  read from/, 'the bare fragment must be gone')
+  } finally {
+    await own.ssh_close.execute({ force: true }, {}).catch(() => {})
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await Promise.race([srv2.close(), new Promise((resolve) => setTimeout(resolve, 1000))])
+    rmSync(home2, { recursive: true, force: true })
+  }
+})

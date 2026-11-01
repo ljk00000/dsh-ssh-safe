@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.339 — 2026-11-01
+
+### Fixed — an audit row for a gated read ended in a dangling fragment
+The confirmation gate records which gate stopped an operation, but the renderer appended the direction without a
+label, so the line read as if the sentence had been cut:
+```
+before  2026-11-01 01:27:11Z t refused blocked /w.txt
+          reason=execGuard is "confirm" and confirm was not passed  read from
+after      reason=execGuard is "confirm" and confirm was not passed  direction=read from
+```
+
+### Verified this round (no defect found)
+- `execGuard: "confirm"` gates `ssh_exec`, `ssh_read` and `ssh_write` (each with its own explanation, and the
+  read message no longer talks about writes); `ssh_list` and `ssh_connect` are deliberately not gated, and the
+  tool schemas declare `confirm` on every gated tool, so the advice can actually be followed.
+- Every refusal is recorded with `kind: refused`, `outcome: blocked` and its reason: the confirmation gate, a
+  `denyPatterns` rule, and `pipeToShell: refuse` all leave a row naming the rule or the gate.
+
+### My own mistakes
+- My first audit probe showed "no refusals recorded" and I nearly filed it as a missing-audit bug: I had not
+  enabled `auditLog: true` in that probe. With the setting on, every gate refusal was there.
+
+### Tests
+- New: a refused read is labelled `direction=read from` and a refused write `direction=write to`; the bare
+  fragment is asserted to be gone.
+  Suite 925 / 920 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.338 — 2026-11-01
 
 ### Fixed — `--help` became "unknown option" after 0.7.337 tightened the parser

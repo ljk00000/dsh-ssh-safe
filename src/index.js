@@ -2102,7 +2102,9 @@ function blockingFileAbove(dir) {
         // 'matches deny pattern' is the matcher talking. The rule it matched is
         // what tells an operator whether the refusal was right.
         if (r.pattern) detail.push('rule: ' + describeRule(String(r.pattern)))
-        if (r.direction) detail.push(String(r.direction))
+        // Bare, this read as a cut-off sentence: 'reason=execGuard is "confirm" and
+        // confirm was not passed  read from'. It names which gate refused.
+        if (r.direction) detail.push('direction=' + printable(String(r.direction)))
         // An error message may name a local file (a host-key store, a credential
         // file) as well as remote text: printable() doubled every backslash, so an
         // audit row read C:\\Users\\... for a message that said C:\Users\.... Control
