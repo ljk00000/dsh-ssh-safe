@@ -1761,7 +1761,7 @@ test('a save that could not take the lock says so in the reply', async () => {
       JSON.stringify({ pid: process.pid, at: new Date().toISOString() }), 'utf8')
 
     const saved = await call(base, token, '/api/save',
-      { alias: 'box', host: 'h.example', user: 'u', password: 'pw' })
+      { alias: 'box', host: 'h.example', user: 'u' })
     assert.equal(saved.status, 200, JSON.stringify(saved.body))
     assert.equal(saved.body.ok, true)
     const warned = (saved.body.warnings || []).join('\n')
@@ -1789,7 +1789,7 @@ test('the page shows every warning, not just the first', async () => {
     writeFileSync(path.join(dir, 'credentials.json.lock'),
       JSON.stringify({ pid: process.pid, at: new Date().toISOString() }), 'utf8')
     const saved = await call(base, token, '/api/save',
-      { alias: 'box', host: 'h.example', user: 'u', password: 'pw' })
+      { alias: 'box', host: 'h.example', user: 'u' })
     assert.equal(saved.status, 200, JSON.stringify(saved.body))
     const warnings = saved.body.warnings || []
     assert.ok(warnings.length >= 1, 'at least the lock warning: ' + JSON.stringify(warnings))

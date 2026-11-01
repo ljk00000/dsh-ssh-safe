@@ -489,7 +489,7 @@ test('a value option with no value is refused instead of becoming the string "tr
     }
     // The flags keep working, so the rule does not break them.
     const ok = spawnSync(process.execPath, ['scripts/set-password.mjs', '--dsh-home', home,
-      '--alias', 'box', '--host', 'h.example', '--user', 'u', '--password', 'pw'], { encoding: 'utf8', timeout: 20000 })
+      '--alias', 'box', '--host', 'h.example', '--user', 'u', '--password', 'pw', '--plaintext'], { encoding: 'utf8', timeout: 20000 })
     assert.equal(ok.status, 0, ok.stderr)
     const stored = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
     assert.deepEqual(Object.keys(stored), ['box'], 'the run must store the alias it was given')
@@ -508,7 +508,7 @@ test('--dsh-home expands ~ and says when it disagrees with DSH_HOME', () => {
   try {
     process.env.DSH_HOME = envHome
     const mismatched = spawnSync(process.execPath, ['scripts/set-password.mjs', '--alias', 'box',
-      '--host', 'h.example', '--user', 'u', '--password', 'pw', '--dsh-home', flagHome],
+      '--host', 'h.example', '--user', 'u', '--password', 'pw', '--plaintext', '--dsh-home', flagHome],
       { encoding: 'utf8', timeout: 20000 })
     assert.equal(mismatched.status, 0, mismatched.stderr)
     assert.match(mismatched.stderr, /--dsh-home .* is not the DSH_HOME this session uses/,
@@ -521,7 +521,7 @@ test('--dsh-home expands ~ and says when it disagrees with DSH_HOME', () => {
     // '~' is a path to the home directory, not a directory named '~'.
     const cwd = process.cwd()
     const tilde = spawnSync(process.execPath, ['scripts/set-password.mjs', '--alias', 'box2',
-      '--host', 'h.example', '--user', 'u', '--password', 'pw', '--dsh-home', '~/.dsh-test-' + path.basename(root)],
+      '--host', 'h.example', '--user', 'u', '--password', 'pw', '--plaintext', '--dsh-home', '~/.dsh-test-' + path.basename(root)],
       { encoding: 'utf8', timeout: 20000, cwd })
     assert.equal(tilde.status, 0, tilde.stderr)
     assert.equal(existsSync(path.join(cwd, '~')), false, 'no directory literally named ~ may be created')
