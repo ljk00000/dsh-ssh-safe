@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.403 — 2026-11-01
+
+### New — the five shapes of a malformed credential entry are pinned
+
+`describeEntryValue()` keeps `ssh_credentials` from printing a value (it may be a secret) and from saying the
+useless "invalid entry". Only some shapes were exercised before; all five are now:
+
+```
+IGNORED   "str"  in the credential file is a string, not an object of fields
+IGNORED   "arr"  is an array, …     "num" is a number, …
+IGNORED   "bool" is a boolean, …    "nul" is null, …
+```
+
+The test also checks that the value itself never appears — the `str` entry holds
+`http://user:password@example.com` and neither the password nor the URL reaches the output.
+
+### Verified this round (no defect found)
+
+- A per-machine `knownHosts` that is unusable is named three ways, all correct: a directory
+  (`… could not be read (EISDIR)`), junk (`… is not in a format this plugin can verify`), an empty file
+  (`… is an OpenSSH known_hosts file … no entry for host:port yet`). The listing repeats them as
+  `known-hosts store unreadable (EISDIR / parse error): <path>`.
+- `host: 123` and `user: 42` are treated as text, deliberately: the comment in `machines.js` records that numbers are
+  left alone because `String()` is exact and a numeric user name is plausible. `host: ["a"]` is refused with the
+  field named, which is the case that could not be a host at all.
+
+### Tests
+
+- New: the five shapes above. Suite 992 / 987 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.402 — 2026-11-01
 
 ### New — the exec path's silent reconnect is pinned

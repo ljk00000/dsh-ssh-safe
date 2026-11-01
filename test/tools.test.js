@@ -1998,3 +1998,38 @@ test('an incomplete machine names the field it is missing, not both', async () =
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a credential entry that is not an object is named by its shape', async () => {
+  // describeEntryValue() exists so the listing never prints the value (it may be a
+  // secret) and never says the useless 'invalid entry'. Null, an array, a string, a
+  // number and a boolean each have a name, and no test covered them at tool level.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-entry-shape-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+  writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+    str: 'http://user:password@example.com',
+    arr: ['a', 'b'],
+    num: 42,
+    bool: true,
+    nul: null,
+  }), 'utf8')
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, { hostKeyPolicy: 'tofu', allowPlaintextPassword: true })
+    const text = String((await tools.ssh_credentials.execute({}, {})).text)
+    const shape = (alias) => text.split('\n').find((line) => line.includes('"' + alias + '"')) || ''
+    assert.match(shape('str'), /is a string, not an object of fields/, shape('str'))
+    assert.match(shape('arr'), /is an array, not an object of fields/, shape('arr'))
+    assert.match(shape('num'), /is a number, not an object of fields/, shape('num'))
+    assert.match(shape('bool'), /is a boolean, not an object of fields/, shape('bool'))
+    assert.match(shape('nul'), /is null, not an object of fields/, shape('nul'))
+    // The value itself must not be printed: 'str' holds a password in its URL.
+    assert.doesNotMatch(text, /password@example|http:\/\/user/, 'a value is never shown: ' + text)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
