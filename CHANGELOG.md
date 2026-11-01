@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.7.400 — 2026-11-01
+
+### Fixed — the "no credentials" refusal promised something that did not happen, twice
+
+`allowSessionPassword` is off by default, so a password passed with a call is ignored. The refusal said it
+twice and made one false claim:
+
+```
+before   … Also checked: SSH_AUTH_SOCK for an agent, which none was found at.
+         Passing a password in conversation is disabled for this profile — set allowSessionPassword to true …
+         a password came with this call, but allowSessionPassword is off …, so it was not used — the call
+         authenticated with the configured credential. Turn on allowSessionPassword in the plugin config …
+
+after    … Also checked: SSH_AUTH_SOCK for an agent, which none was found at.
+         a password came with this call, but allowSessionPassword is off in the plugin config, so it was not
+         used. Turn on allowSessionPassword in the plugin config (it defaults to off) to let a tool call
+         supply its own password; it is never written to disk.
+```
+
+Two changes: the warning no longer claims "the call authenticated with the configured credential" (on this path
+there was no credential and nothing authenticated), and the failure text skips its own "disabled for this profile"
+clause when the warning already names the setting.
+
+### My own mistake
+
+- An existing test asserted the old phrase (`allowSessionPassword to true`). It was not wrong to fail — the wording
+  changed deliberately — but I had not looked for tests pinning that sentence before changing it. Updated to assert
+  the new single statement, and that the setting is named twice (fact + how to fix), not three times.
+
+### Verified this round (no defect found)
+
+- `removeRemoteDir` refuses a placeholder whose marker names another alias (naming the owner), one that cannot be
+  parsed, and one without an alias; the tool layer re-words the foreign case with followable advice, including when
+  the owner alias no longer exists.
+
+### Tests
+
+- New: a per-call password is used when allowed and refused when not, with the advice exactly once.
+  Suite 990 / 985 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.399 — 2026-11-01
 
 ### Fixed — a connection cancelled before it started stayed open on the server

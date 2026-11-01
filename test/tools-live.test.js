@@ -1773,8 +1773,12 @@ test('a refused session password names the setting that allows it', async () => 
     })
     const message = await own.ssh_connect.execute({ machine: 's', password: 'secret' }, {})
       .then(() => '', (err) => String(err.message))
-    assert.match(message, /allowSessionPassword to true/)
-    assert.match(message, /disabled for this profile/)
+    // Since 0.7.401 the sentence is one statement (the setting used to be named
+    // twice, and the second one claimed an authentication that never happened).
+    assert.match(message, /Turn on allowSessionPassword/)
+    assert.match(message, /it defaults to off/)
+    assert.equal((message.match(/allowSessionPassword/g) || []).length, 2,
+      'named as a setting, not repeated as advice: ' + message)
   } finally {
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous
@@ -4832,6 +4836,52 @@ test('a connection cancelled before it starts leaves nothing behind', async () =
     // which is how the first version of this test passed with the leak in place.
     await new Promise((resolve) => setTimeout(resolve, 1200))
     assert.equal(server.clientCount(), 0, 'the cancelled dial must not stay connected')
+  } finally {
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a per-call password is used only when allowed, and the refusal says so once', async () => {
+  // allowSessionPassword defaults to off. The refusal used to say the setting twice
+  // ('disabled … set allowSessionPassword to true' and 'Turn on allowSessionPassword')
+  // and claimed 'the call authenticated with the configured credential' on a machine
+  // that had none — nothing authenticated.
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-session-pw-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const build = async (extra) => {
+    const tools = {}
+    await apply(
+      { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined },
+      {
+        hostKeyPolicy: 'tofu', reconnectCooldownMs: 0, connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+        machines: { box: machineFor('box', server.port) },
+        ...extra,
+      },
+    )
+    return tools
+  }
+  const text = async (def, args) => String(await def.execute(args, {})
+    .then((result) => result.text, (err) => 'ERR: ' + err.message))
+  try {
+    const allowed = await build({ allowSessionPassword: true })
+    const password = machineFor('box', server.port).password
+    const ran = await text(allowed.ssh_exec, { machine: 'box', command: 'echo ses', password })
+    assert.match(ran, /ran: echo ses/, ran)
+    await allowed.ssh_close.execute({ force: true }, {})
+
+    const refusedTools = await build({})
+    const refused = await text(refusedTools.ssh_exec, { machine: 'box', command: 'echo ses', password })
+    assert.match(refused, /no usable credentials/, refused)
+    assert.match(refused, /allowSessionPassword/, refused)
+    assert.equal((refused.match(/Turn on allowSessionPassword/g) || []).length, 1,
+      'the advice appears once: ' + refused)
+    assert.doesNotMatch(refused, /authenticated with the configured credential/,
+      'nothing authenticated, so nothing may claim it: ' + refused)
   } finally {
     await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
     if (previous === undefined) delete process.env.DSH_HOME

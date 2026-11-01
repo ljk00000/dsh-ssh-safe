@@ -470,10 +470,12 @@ export function credentialFor(alias, {
   // 'my password worked', which is a claim this plugin must not make.
   if (filled(sessionPassword) && allowSessionPassword !== true) {
     warnings.push(
+      // No claim about what authenticated: this warning is also appended to the
+      // 'no usable credentials' refusal, where nothing authenticated at all (it said
+      // 'the call authenticated with the configured credential' next to that refusal).
       'a password came with this call, but allowSessionPassword is off in the plugin config, ' +
-      'so it was not used — the call authenticated with the configured credential. Turn on ' +
-      'allowSessionPassword in the plugin config (it defaults to off) to let a tool call ' +
-      'supply its own password; it is never written to disk.'
+      'so it was not used. Turn on allowSessionPassword in the plugin config (it defaults ' +
+      'to off) to let a tool call supply its own password; it is never written to disk.'
     )
   }
   const warnShadowedSession = () => {

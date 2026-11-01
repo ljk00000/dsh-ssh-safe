@@ -988,6 +988,11 @@ export class SshPool {
         ' which none was found at.' +
         (this.config.allowSessionPassword
           ? ' Or pass password (this profile allows it).'
+          // The warning below carries the same advice when a password came with the
+          // call, and the message said it twice (once as 'disabled … set
+          // allowSessionPassword to true', once as 'Turn on allowSessionPassword').
+          : (auth.warnings || []).some((w) => String(w).includes('allowSessionPassword'))
+            ? ''
           // The user just passed one; saying only 'disabled' left them with no idea
           // which setting to change. Every other refusal in this plugin names its
           // setting.
