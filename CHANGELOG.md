@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.345 — 2026-11-01
+
+### Fixed — the workspace instructions described a policy the connection does not use
+`ssh_workspace create` wrote `AGENTS.md` with the raw per-machine value, and `remoteInstructions()` renders an
+unrecognised value as `strict`. A machine whose policy is a typo therefore told every session in that workspace to
+expect strict verification, while the connection was using the global policy:
+```
+credentials.json: { typo: { host: h, user: u, hostKeyPolicy: "stict" } }   plugin: hostKeyPolicy: "tofu"
+before  4. 主机密钥策略（strict）：未知主机的密钥不会被自动接受…
+after   4. 主机密钥策略（tofu）：首次连接会记录指纹…
+        (a padded but valid value still describes itself: hostKeyPolicy: " OFF " -> off)
+```
+
+Also fixed: `ssh_credentials` printed the raw value (`host key   stict`) with no hint that it was ignored. It now
+says `host key   stict (ignored: not one of strict | tofu | off, so "tofu" is used)`, the same wording
+`ssh_machines` and `ssh_connect` use since 0.7.344.
+
+### Verified this round (no defect found)
+- Every other `hostKeyPolicy` reference is already the right one: the pool entries and the doctor read the effective
+  policy, `ssh_config` shows the global setting (which is what it lists), and the known_hosts read-only note mentions
+  the strict case it actually describes.
+
+### My own mistakes
+- My first probe looked for `AGENTS.md` under `<dsh-home>/dsh-ssh-safe/workspaces/`, which does not exist; the
+  placeholders live in `remotes/`. Three "no policy line" answers were my path, not the product.
+
+### Tests
+- New: an invalid machine policy yields the effective (global) sentence in `AGENTS.md`, a padded valid value
+  yields its own, and `ssh_credentials` flags the ignored one while leaving the valid one unmarked.
+  Suite 934 / 929 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.344 — 2026-11-01
 
 ### Fixed — the connect reply reported the GLOBAL host key policy, not the one in effect

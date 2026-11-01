@@ -1615,3 +1615,40 @@ test('a credential file with the wrong types renders each field, not [object Obj
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the workspace instructions and ssh_credentials describe the policy in effect', async () => {
+  // The instructions were written with the RAW machine value, and an invalid one
+  // was described as 'strict' — a rule the agent would follow while the connection
+  // used the global policy. ssh_credentials showed the raw value with no hint that
+  // it was ignored.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-policy-docs-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    mkdirSync(path.join(home, 'dsh-ssh-safe'), { recursive: true })
+    writeFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), JSON.stringify({
+      typo: { host: 'h.example', user: 'u', hostKeyPolicy: 'stict' },
+      spaced: { host: 'h.example', user: 'u', hostKeyPolicy: ' OFF ' },
+    }), 'utf8')
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true,
+    })
+    const instructions = (alias) => {
+      const file = path.join(home, 'dsh-ssh-safe', 'remotes', alias, 'AGENTS.md')
+      return readFileSync(file, 'utf8').split('\n').find((line) => line.includes('主机密钥策略')) || ''
+    }
+    await own.ssh_workspace.execute({ action: 'create', machine: 'typo' }, {})
+    await own.ssh_workspace.execute({ action: 'create', machine: 'spaced' }, {})
+    assert.match(instructions('typo'), /主机密钥策略（tofu）/, 'an invalid value must not be described as strict')
+    assert.match(instructions('spaced'), /主机密钥策略（off）/, 'a padded valid value is the policy')
+
+    const creds = String((await own.ssh_credentials.execute({}, {})).text)
+    assert.match(creds, /host key   stict \(ignored: not one of strict \| tofu \| off, so "tofu" is used\)/)
+    assert.doesNotMatch(creds, /" OFF " \(ignored/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

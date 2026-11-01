@@ -1780,7 +1780,11 @@ const trustedLine = (m) => {
         }
         let created
         try {
-          ({ created } = writeRemoteWorkspace(dshHome, alias, m, m.hostKeyPolicy || cfg.hostKeyPolicy,
+          ({ created } = writeRemoteWorkspace(dshHome, alias, m,
+              // effectivePolicy(), not the raw machine value: an invalid value is ignored
+              // by the resolver, and remoteInstructions() then described 'strict' — a rule
+              // the agent would follow while the connection actually used the global one.
+              effectivePolicy(cfg.hostKeyPolicy, m.hostKeyPolicy),
   cfg.machineInventory === 'alias'))
         } catch (err) {
           // A file sitting where the placeholder directory should be fails as a
@@ -2306,6 +2310,9 @@ function passphraseLine(st) {
             (st.keyPath ? '  ' + printable(String(st.keyPath).replace(/^.*[\\/]/, '…/')) : '') +
             passphraseLine(st),
           '    host key   ' + printable(st.hostKeyPolicy) +
+          (st.hostKeyPolicy && st.hostKeyPolicy !== '(global)' && machinePolicyIgnored({ hostKeyPolicy: st.hostKeyPolicy }, cfg)
+            ? ' (ignored: not one of strict | tofu | off, so "' + effectivePolicy(cfg.hostKeyPolicy, '') + '" is used)'
+            : '') +
           (st.passwordSource === 'file-plaintext'
             ? '\n    WARNING    plaintext password in the credential file is ignored;' +
               ' re-run scripts/set-password.mjs to store it encrypted'
