@@ -308,8 +308,12 @@ function machinesBlock() {
         machines[current] = {}
         continue
       }
-      // `gpu: { host: 10.0.0.1 }` -- flow style one level down.
-      problem = problem || 'a machine is written on one line (`' + key + ': { … }`), which this page cannot edit; use the tools or edit cordis.patch.yml directly'
+      // `gpu: { host: 10.0.0.1 }` -- flow style one level down. A plain scalar
+      // (`plain: 'just a string'`) is not that shape, and the message used to name
+      // `{ … }` for it, describing a block that is not in the file.
+      const shape = valueText.startsWith('{') ? 'on one line (`' + key + ': { … }`)'
+        : 'as a single value (`' + key + ': ' + valueText.slice(0, 40) + '`), not a block of fields'
+      problem = problem || 'a machine is written ' + shape + ', which this page cannot edit; use the tools or edit cordis.patch.yml directly'
       current = ''
       continue
     }
@@ -321,6 +325,21 @@ function machinesBlock() {
       if (value === 'false') value = false
       machines[current][key] = value
     }
+  }
+  // The plugin's schema requires text for these, and a number or a boolean there
+  // stops the whole plugin from loading. The page used to render `host: 123` as the
+  // string "123" and say nothing, so it looked like a machine that works.
+  const TEXT_FIELDS = new Set(['host', 'user', 'keyPath', 'password', 'keyPassphrase', 'hostKeyPolicy', 'knownHosts'])
+  const wrong = []
+  for (const [alias, fields] of Object.entries(machines)) {
+    for (const [field, value] of Object.entries(fields)) {
+      if (!TEXT_FIELDS.has(field) || typeof value === 'string') continue
+      wrong.push(alias + '.' + field + ' is ' + (typeof value) + ' (' + JSON.stringify(value) + ')')
+    }
+  }
+  if (wrong.length > 0) {
+    problem = problem || 'the plugin refuses to load this machines block: ' + wrong.join(', ') +
+      ' — host, user and the other text fields must be quoted text in cordis.patch.yml'
   }
   if (pluginEntryCount() > 1) {
     problem = problem || 'this profile has more than one plugin entry for dsh-ssh-safe; this page reads'

@@ -1592,3 +1592,60 @@ test('a taken --port says how to fix it, not just the errno', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a machine field the plugin refuses to load is named, not rendered as text', async () => {
+  // `host: 123` fails the plugin's schema and the whole plugin does not load, while
+  // the page rendered it as the string "123" and said nothing — the settings looked
+  // usable and the tools would never start.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-badfield-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    machines:',
+    '        good:',
+    '            host: h.example',
+    '            user: u',
+    '        numeric:',
+    '            host: 123',
+    '            user: u',
+  ].join('\n'))
+  const { child, base, token } = await start(home)
+  try {
+    const state = await call(base, token, '/api/state')
+    assert.match(state.body.machinesProblem, /refuses to load this machines block/)
+    assert.match(state.body.machinesProblem, /numeric\.host is number \(123\)/)
+    assert.match(state.body.machinesProblem, /quoted text/)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a machine whose value is a plain string is named as such, not as a flow map', async () => {
+  // `plain: "just a string"` was reported as `plain: { … }` — a block that is not in
+  // the file — so the advice pointed at the wrong shape.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-scalar-'))
+  const profile = path.join(home, 'profiles', 'desktop')
+  mkdirSync(profile, { recursive: true })
+  writeFileSync(path.join(profile, 'cordis.patch.yml'), [
+    '- id: dsh-ssh-safe',
+    '  config:',
+    '    machines:',
+    '        good:',
+    '            host: h.example',
+    '            user: u',
+    '        plain: "just a string"',
+  ].join('\n'))
+  const { child, base, token } = await start(home)
+  try {
+    const state = await call(base, token, '/api/state')
+    assert.match(state.body.machinesProblem, /as a single value/)
+    assert.doesNotMatch(state.body.machinesProblem, /one line/)
+    assert.equal(state.body.machines.find((m) => m.alias === 'good')?.host, 'h.example', 'the good machine still shows')
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

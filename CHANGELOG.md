@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.7.326 — 2026-11-01
+
+### Fixed — the settings page showed a machine the plugin refuses to load
+`machines.numeric.host: 123` fails the plugin schema, so **the whole plugin does not load**. The page turned it
+into the string `"123"` and said nothing, so the settings looked usable while the tools would never start:
+```
+before  machinesProblem: ""                       machines: good, numeric (host "123")
+after   machinesProblem: "the plugin refuses to load this machines block: numeric.host is number (123)
+        — host, user and the other text fields must be quoted text in cordis.patch.yml"
+```
+Text-typed fields (`host`, `user`, `keyPath`, `password`, `keyPassphrase`, `hostKeyPolicy`, `knownHosts`) are
+checked for a non-string value; `port` stays numeric, as the schema wants it.
+
+### Fixed — a machine written as a plain value was described as a flow map
+`plain: "just a string"` was reported as `` `plain: { … }` `` — a block that is not in the file, and advice
+about the wrong shape. It now says the entry is "as a single value (`plain: …`), not a block of fields"; the
+flow-map wording is kept for an actual `{ … }`.
+
+### Verified this round (no defect found)
+- **A retry refused by the cooldown is audited**: the failed attempt is
+  `{"kind":"exec","outcome":"error","ms":6,…}`, and the refused retry two milliseconds later is its own row,
+  `{"kind":"exec","outcome":"error","ms":0,"error":"Refusing to retry dead for another 30s (last failure: …"}`,
+  so the trail explains why a command failed without touching the host.
+
+### My own mistakes
+1. My first page probe wrote the settings block as `plugins: { dsh-ssh-safe: … }` instead of the real
+   `- id: dsh-ssh-safe` list shape (I checked the live profile
+  afterwards). Every case came back empty and
+   the empty answer briefly looked like a product bug.
+2. I read `machinesProblem: ""` from that wrong-shape probe as evidence about the parser, twice, before
+   checking the file shape.
+
+### Tests
+- New: a non-text field is named in `machinesProblem` with the alias, field and value; a scalar machine entry
+  is described as a single value, and the good machine beside it still shows.
+  Suite 912 / 907 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.325 — 2026-11-01
 
 ### Fixed — the `busy` and `none` close rows still had no `ms`
