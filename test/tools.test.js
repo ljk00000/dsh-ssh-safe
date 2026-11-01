@@ -1921,3 +1921,46 @@ test('every tool that needs a machine says so instead of throwing', async () => 
     assert.match(workspace, /需要 machine/, workspace)
   } finally { restore() }
 })
+
+test('an alias whose env carries only a user is listed, not silently dropped', async () => {
+  // knownAliases() discovered env machines from DSH_SSH_<ALIAS>_HOST only, so a
+  // half-configured machine was invisible in ssh_machines while a host-only one was
+  // listed with '<no user>' and a MISSING line. Any field the alias maps to names it
+  // now, and the listing says which one is missing.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-env-alias-'))
+  const previous = process.env.DSH_HOME
+  const saved = {}
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, { hostKeyPolicy: 'tofu', allowPlaintextPassword: true })
+    const setEnv = (name, value) => {
+      saved[name] = process.env[name]
+      process.env[name] = value
+    }
+    setEnv('DSH_SSH_USERSONLY_USER', 'someone')
+    const text = String((await tools.ssh_machines.execute({}, {})).text)
+    const block = text.split('\n').reduce((acc, line) => {
+      if (line.startsWith('• ')) acc.push([line])
+      else if (acc.length) acc[acc.length - 1].push(line)
+      return acc
+    }, []).find((b) => b.join(' ').includes('usersonly'))
+    assert.ok(block, 'the alias must be listed: ' + text.slice(0, 300))
+    assert.match(block[0], /someone@<no host>/, block.join(' | '))
+    assert.match(block.join(' '), /MISSING: DSH_SSH_USERSONLY_HOST/, block.join(' | '))
+
+    // A variable that is not a machine field must not invent an alias.
+    setEnv('DSH_SSH_NOTALIAS_DEBUG', '1')
+    const after = String((await tools.ssh_machines.execute({}, {})).text)
+    assert.doesNotMatch(after, /notalias/, 'only the eight known fields count: ' + after.slice(0, 300))
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

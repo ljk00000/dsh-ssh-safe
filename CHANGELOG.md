@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.395 — 2026-11-01
+
+### Fixed — a machine whose env carried only a user vanished from `ssh_machines`
+
+`knownAliases()` discovered environment machines from `DSH_SSH_<ALIAS>_HOST` alone, so the two half-configured cases
+were treated differently:
+
+```
+DSH_SSH_HALF_HOST=h.example   → • half  <no user>@h.example:22  … MISSING: DSH_SSH_HALF_USER
+DSH_SSH_HALF_USER=u           → (alias not listed at all)
+after                         → • half  u@<no host>:22         … MISSING: DSH_SSH_HALF_HOST
+```
+
+Every field the alias maps to (`HOST`, `USER`, `PORT`, `PASSWORD`, `KEY_PATH`, `KEY_PASSPHRASE`, `HOST_KEY_POLICY`,
+`KNOWN_HOSTS`) now names the alias, and the listing says which one is missing — the same shape the host-only case
+already had. A variable that is not one of those fields (`DSH_SSH_X_DEBUG`) does not invent a machine; the test
+pins that too.
+
+### My own mistakes (two)
+
+1. My first probe printed only the first line of each machine block, so I read `• badp u@h.example:abc` as "the
+   listing accepts a broken port" — the `BAD PORT:` line was there all along, three lines down. I nearly "fixed"
+   something that was correct; the second probe printed whole blocks.
+2. Patching a probe script with a string replacement put a literal newline inside a single-quoted JS string and the
+   probe died with "Invalid or unexpected token". The probe was rewritten whole instead.
+
+### Verified this round (no defect found)
+
+- Non-boolean flags are refused by the schema before any handler runs: `confirm: "true"`, `confirm: 1`, `raw: 1`,
+  `createDirs: "yes"`, `offset: null`, `password: 5` each name the field and the type.
+
+### Tests
+
+- New: a user-only env alias is listed with `MISSING: …_HOST`; a non-field variable creates no alias.
+  Suite 985 / 980 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.394 — 2026-11-01
 
 ### Fixed — a listing of a directory link never said whose contents it showed

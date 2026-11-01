@@ -602,8 +602,12 @@ export function knownAliases({ machines = {}, dshHome = '', env = process.env } 
   const set = new Set()
   for (const key of Object.keys(machines || {})) set.add(String(key).toLowerCase())
   for (const key of Object.keys(loadCredentialFile(dshHome) || {})) set.add(String(key).toLowerCase())
+  // HOST used to be the only field that made an alias exist, so a machine whose
+  // env carried only a user (or a key) was invisible in ssh_machines while a
+  // host-only one was listed with '<no user>' and a MISSING line. Any field the
+  // alias maps to names it now; the listing then says which one is missing.
   for (const key of Object.keys(env || {})) {
-    const match = /^DSH_SSH_(.+)_HOST$/.exec(key)
+    const match = /^DSH_SSH_(.+)_(HOST|USER|PORT|PASSWORD|KEY_PATH|KEY_PASSPHRASE|HOST_KEY_POLICY|KNOWN_HOSTS)$/.exec(key)
     if (match && env[key]) set.add(match[1].toLowerCase())
   }
   set.delete('')
