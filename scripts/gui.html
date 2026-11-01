@@ -62,7 +62,7 @@
     position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px);
     background: #232b3a; border: 1px solid #37425a; color: #e6e8ee;
     padding: 9px 16px; border-radius: 8px; opacity: 0; transition: .18s;
-    pointer-events: none; font-size: 13px; max-width: 80vw;
+    pointer-events: none; font-size: 13px; max-width: 80vw; white-space: pre-line;
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   #toast.err { border-color: #5a2a2c; background: #2a1718; }
@@ -138,6 +138,19 @@ const toast = (msg, isErr) => {
   el.className = "show" + (isErr ? " err" : "");
   clearTimeout(el._t);
   el._t = setTimeout(() => { el.className = ""; }, 2600);
+};
+
+// Every warning the API returned, not just the first one: the reply can carry two
+// (a lock that timed out, and a setting that means this save will not be read), and
+// showing warnings[0] silently dropped the other. A longer list stays up longer.
+const toastAll = (list, fallback) => {
+  const all = (Array.isArray(list) ? list : []).filter(Boolean).map(String);
+  if (all.length === 0) return toast(fallback);
+  if (all.length === 1) return toast(all[0]);
+  toast(all.map((w, i) => (i + 1) + ". " + w).join("\n"));
+  const el = document.getElementById("toast");
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.className = ""; }, 2600 + 1400 * (all.length - 1));
 };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
@@ -259,7 +272,7 @@ document.getElementById("list").addEventListener("click", async (ev) => {
   try {
     if (act === "save") {
       const password = readField(alias, "password");
-      await api("/api/save", {
+      const saved = await api("/api/save", {
         alias,
         host: readField(alias, "host"),
         port: readField(alias, "port"),
@@ -267,7 +280,7 @@ document.getElementById("list").addEventListener("click", async (ev) => {
         keyPath: readField(alias, "keyPath"),
         password: password || undefined,
       });
-      toast(password ? "已保存，密码已加密" : "已保存");
+      toastAll(saved && saved.warnings, password ? "已保存，密码已加密" : "已保存");
       await refresh();
       return;
     }
@@ -276,8 +289,8 @@ document.getElementById("list").addEventListener("click", async (ev) => {
       btn.disabled = true;
       const result = await api("/api/clear-password", { alias });
       const warnings = (result && result.warnings) || [];
-      toast(warnings.length ? warnings[0]
-        : (result && result.removedEntry ? "已清除密码（该条目已空，一并删除）" : "已清除已存密码"));
+      toastAll(warnings,
+        (result && result.removedEntry ? "已清除密码（该条目已空，一并删除）" : "已清除已存密码"));
       await refresh();
       return;
     }
@@ -289,7 +302,7 @@ document.getElementById("list").addEventListener("click", async (ev) => {
         !result || result.ok === false
           ? "清除失败：" + ((result && result.error) || "未知错误")
           : result.cleared === false
-            ? ((result.warnings && result.warnings[0]) || "没有可清除的口令")
+            ? ((result.warnings && result.warnings.join("\n")) || "没有可清除的口令")
             : (result.removedEntry ? "已清除口令（该条目已空，一并删除）" : "已清除已存口令"),
       );
       await refresh();
@@ -299,7 +312,7 @@ document.getElementById("list").addEventListener("click", async (ev) => {
       if (!confirm("删除 " + alias + " 的凭据条目？")) return;
       const result = await api("/api/delete", { alias });
       const warnings = (result && result.warnings) || [];
-      toast(warnings.length ? warnings[0] : "已删除 " + alias);
+      toastAll(warnings, "已删除 " + alias);
       await refresh();
       return;
     }

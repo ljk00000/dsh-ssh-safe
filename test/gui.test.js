@@ -1775,3 +1775,32 @@ test('a save that could not take the lock says so in the reply', async () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the page shows every warning, not just the first', async () => {
+  // A save can carry two warnings at once (a lock that timed out, and a setting that
+  // means the entry will not be read). The page toasted warnings[0] and dropped the
+  // rest; the save handler showed none of them at all.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-warn-'))
+  const { child, base, token } = await start(home)
+  try {
+    const dir = path.join(home, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, 'credentials.json.lock'),
+      JSON.stringify({ pid: process.pid, at: new Date().toISOString() }), 'utf8')
+    const saved = await call(base, token, '/api/save',
+      { alias: 'box', host: 'h.example', user: 'u', password: 'pw' })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    const warnings = saved.body.warnings || []
+    assert.ok(warnings.length >= 1, 'at least the lock warning: ' + JSON.stringify(warnings))
+
+    // The page must have a helper that renders the whole list and use it for saves.
+    const html = await (await fetch(base + '/?t=' + token)).text()
+    assert.match(html, /const toastAll = \(list, fallback\) =>/, 'the page needs a list renderer')
+    assert.match(html, /toastAll\(saved && saved\.warnings/, 'the save handler must use it: ' + html.slice(0, 80))
+    assert.doesNotMatch(html, /warnings\.length \? warnings\[0\]/, 'no handler may drop the rest any more')
+    assert.match(html, /white-space: pre-line/, 'the toast must keep the lines apart')
+  } finally {
+    try { child.kill() } catch {}
+    rmSync(home, { recursive: true, force: true })
+  }
+})

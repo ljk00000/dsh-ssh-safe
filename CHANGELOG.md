@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.384 — 2026-11-01
+
+### Fixed — the page dropped every warning after the first, and the save handler showed none
+Yesterday's lock note was added to the `/api/save` reply — and the page never rendered it: the save handler went
+straight to `toast("已保存")`. The other three write handlers toasted `warnings[0]` and silently lost the rest:
+```
+POST /api/save  → { ok: true, warnings: ["…没有加锁…", "设置里 useCredentialFile 为 false…"] }
+before   page: 已保存                              ← neither warning shown
+         delete: 只显示第一条                     ← the second dropped
+after    page: 1. …没有加锁…
+              2. 设置里 useCredentialFile 为 false…
+         (toast stays 2.6 s + 1.4 s per extra warning; #toast got white-space: pre-line
+          so the numbered lines stay apart)
+```
+`toastAll(list, fallback)` is used by save, delete and clear-password; the clear-passphrase path joins the list
+where it used to take `[0]`.
+
+### Verified this round (no defect found)
+
+- `scripts/gui.test.js` (65 tests before the addition) passes unchanged; the served page still renders the same
+  controls, and no handler reads `warnings[0]` any more.
+
+### Tests
+
+- New: a save returns at least one warning, the page defines `toastAll`, the save handler uses it, no handler
+  indexes `warnings[0]`, and the toast keeps its line breaks.
+  Suite 974 / 969 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.383 — 2026-11-01
 
 ### Fixed — the settings page said "saved" when the save had run without the lock
