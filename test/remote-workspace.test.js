@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import path from 'node:path'
@@ -782,6 +782,38 @@ test('create refuses to write through a symlinked AGENTS.md', async () => {
     const removed = await text(tools.ssh_workspace.execute({ action: 'remove', machine: 'box', deleteFiles: true }, {}))
     assert.match(removed, /没有删除/)
     assert.equal(readFileSync(outside, 'utf8'), 'DO NOT TOUCH')
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a read-only AGENTS.md is named as the file that could not be written', async () => {
+  // The reply used to say '目录无法创建（EPERM）' about a directory that existed all
+  // along; the caller then repairs the wrong thing. Both files this plugin writes
+  // are named now.
+  const home = mkdtempSync(join(tmpdir(), 'dsh-ws-readonly-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const registry = { items: [], list() { return this.items.slice() }, async create(p, t) { const w = { id: 'w', path: p, title: t }; this.items.push(w); return w }, async delete() { return true } }
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => registry }
+  try {
+    await apply(ctx, { hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machines: { box: { host: 'h.example', user: 'u' } } })
+    const text = async (promise) => String(await promise.then((r) => (r && r.text !== undefined ? r.text : ''), (err) => 'ERR: ' + err.message))
+    await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
+    const dir = remoteDir(home, 'box')
+    chmodSync(join(dir, 'AGENTS.md'), 0o444)
+    const refused = await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
+    assert.match(refused, /AGENTS\.md 写不进去/, 'the file must be named: ' + refused)
+    assert.doesNotMatch(refused, /目录无法创建/, 'the directory is not the problem')
+
+    chmodSync(join(dir, 'AGENTS.md'), 0o644)
+    chmodSync(join(dir, '.dsh-remote-workspace.json'), 0o444)
+    const marker = await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
+    assert.match(marker, /\.dsh-remote-workspace\.json 写不进去/, marker)
+    chmodSync(join(dir, '.dsh-remote-workspace.json'), 0o644)
   } finally {
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous

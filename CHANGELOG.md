@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.7.365 — 2026-11-01
+
+### Fixed — a read-only workspace file was reported as "the directory could not be created"
+A read-only `AGENTS.md` (or marker) made `create` fail with an fs code, so the wrapper took its code branch:
+```
+chmod 444 <placeholder>/AGENTS.md
+ssh_workspace { action: "create", machine: "box" }
+before   无法创建机器 "box" 的远程工作区：目录无法创建（EPERM）。
+after    无法创建机器 "box" 的远程工作区：占位目录里的 AGENTS.md 写不进去（EPERM）。
+           目录：…\remotes\box
+         它可能是只读的，或者当前账号没有权限。把只读去掉或把它删掉，再重试。
+```
+Both files this plugin writes go through `writeOwnFile()`, which carries `code: DSH_WORKSPACE_WRITE_FAILED`, the
+entry name and the fs reason; the tool renders them in the caller's language. Same family as 0.7.364's second half
+("directory could not be created" for a directory that exists), one branch further: the fs-code path.
+
+### Verified this round (no defect found)
+
+- A marker that is a **symlink** cannot make the plugin trust outside content in a harmful way: `readMarker()` reads
+  it, but `create` refuses to write through it (0.7.364), `workspaceOwner()` then sees whatever alias the link
+  names and both create and remove refuse on the mismatch.
+
+### My own mistakes
+
+1. My patch replaced the first line of the marker write and left `, 'utf8'` behind, so `writeOwnFile()` was called
+   with four arguments. The suite passed anyway; `tsc --noEmit` caught it (`Expected 0-3 arguments, but got 4`).
+   Worth noting: this is a case where the tests were green and the type checker was the one that saw it.
+2. I did not read the whole write call before replacing its opening line — the anchor was one line of a four-line
+   expression.
+
+### Tests
+
+- New: a read-only `AGENTS.md` and a read-only marker are both named, and the reply does not blame the directory.
+  Suite 955 / 950 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean (after the fix above).
+
 ## 0.7.364 — 2026-11-01
 
 ### Fixed — `create` wrote through a symlinked `AGENTS.md`

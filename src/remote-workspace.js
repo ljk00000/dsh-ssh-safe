@@ -210,6 +210,29 @@ export function readMarker(dshHome, alias) {
  * @returns {{dir: string, created: boolean}}
  */
 /**
+ * Write one of the two files this plugin owns, naming it if the write fails.
+ *
+ * A read-only AGENTS.md made `create` answer '目录无法创建（EPERM）' — about a
+ * directory that existed all along. The failing entry is what the caller needs.
+ */
+function writeOwnFile(dir, name, text) {
+  try {
+    writeFileSync(join(dir, name), text, 'utf8')
+  } catch (err) {
+    const reason = (err && /** @type {{code?: string}} */ (err).code) || 'unknown reason'
+    const failure = new Error('could not write ' + join(dir, name) + ' (' + reason + '): ' +
+      String(err && /** @type {any} */ (err).message || err).slice(0, 160))
+    // @ts-expect-error -- marking the error so the tool can say it in the user's language
+    failure.code = 'DSH_WORKSPACE_WRITE_FAILED'
+    // @ts-expect-error -- same
+    failure.entry = name
+    // @ts-expect-error -- same
+    failure.reason = reason
+    throw failure
+  }
+}
+
+/**
  * Whether 'AGENTS.md' in this directory is the file this plugin writes.
  *
  * Only a regular file counts. A *directory* of that name is the user's, and
@@ -302,7 +325,7 @@ export function writeRemoteWorkspace(dshHome, alias, machine = {}, policy = 'str
       throw err
     }
   }
-  writeFileSync(join(dir, 'AGENTS.md'), remoteInstructions(alias, machine, policy, hideHost), 'utf8')
+  writeOwnFile(dir, 'AGENTS.md', remoteInstructions(alias, machine, policy, hideHost))
   // readMarker() only ever reads .alias, so the endpoint fields were written and
   // never used -- except as the address that machineInventory: alias is meant to
   // keep out of sight, sitting in a file inside the agent's own workspace.
@@ -310,7 +333,7 @@ export function writeRemoteWorkspace(dshHome, alias, machine = {}, policy = 'str
   // the plain address is deliberately not written. It is what lets `list` notice that
   // the machine has moved since the placeholder was generated, without putting the
   // address into a file inside the agent's own workspace.
-  writeFileSync(join(dir, MARKER), JSON.stringify({
+  writeOwnFile(dir, MARKER, JSON.stringify({
     alias,
     ...(hideHost ? {} : {
       host: machine.host || '',
@@ -319,7 +342,7 @@ export function writeRemoteWorkspace(dshHome, alias, machine = {}, policy = 'str
     }),
     endpointHash: endpointHash(machine),
     generatedAt: new Date().toISOString(),
-  }, null, 2) + '\n', 'utf8')
+  }, null, 2) + '\n')
   return { dir, created }
 }
 

@@ -1831,6 +1831,18 @@ const trustedLine = (m) => {
               '（action: "remove", machine: "' + owner + '", deleteFiles: true），再为 "' + alias + '" 创建。'
             )
           }
+          // The directory exists; one of the two files this plugin writes could not
+          // be written (read-only, or no permission). Naming the entry is the
+          // difference between 'fix the directory' and 'fix that file'.
+          if (code === 'DSH_WORKSPACE_WRITE_FAILED') {
+            const entry = String(/** @type {{entry?: string}} */ (err).entry || 'AGENTS.md')
+            const reason = String(/** @type {{reason?: string}} */ (err).reason || 'unknown')
+            throw new Error(
+              '无法创建机器 "' + alias + '" 的远程工作区：占位目录里的 ' + entry + ' 写不进去（' + reason + '）。\n' +
+              '  目录：' + dir + '\n' +
+              '它可能是只读的，或者当前账号没有权限。把只读去掉或把它删掉，再重试。'
+            )
+          }
           // An entry in the placeholder that is not a regular file (a symlink, a
           // directory of that name): writing through it would change something
           // outside the placeholder, so the write refused.
