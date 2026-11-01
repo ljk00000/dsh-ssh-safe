@@ -412,6 +412,17 @@ test('a write that never opened does not claim the file was damaged', async () =
       return true
     },
   )
+  // The same path without createDirs does not try to make anything: it has to say
+  // it could not reach the file, and name the component that is in the way.
+  await assert.rejects(
+    () => run('ssh_write', { path: '/var/file.txt/child.txt', content: 'y' }),
+    (err) => {
+      assert.match(err.message, /cannot reach \/var\/file\.txt\/child\.txt/, err.message)
+      assert.match(err.message, /\/var\/file\.txt is a file, not a directory/, err.message)
+      assert.doesNotMatch(err.message, /partially written/, err.message)
+      return true
+    },
+  )
 })
 test('a command that cannot fit in one SSH request is refused with a reason', async () => {
   // ssh2 answers 'Unable to exec' for a command over the transport packet

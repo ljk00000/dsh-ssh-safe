@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.426 — 2026-11-01
+
+### New — a write blocked by a file says so with and without `createDirs`
+
+The two paths answer differently, and only one had a test:
+
+```
+ssh_write /var/file.txt/child.txt  createDirs: true
+  cannot create the parent directories of this path: /var/file.txt already exists and is a file, not a directory
+
+ssh_write /var/file.txt/child.txt
+  cannot reach /var/file.txt/child.txt: /var/file.txt is a file, not a directory      ← untested
+```
+
+Both refuse before opening anything, so neither claims a partial write. The second assertion is now in the same test
+as the first.
+
+### Verified this round (no defect found)
+
+- `ssh_exec` refuses a command holding a NUL ("A shell truncates the command there, so what runs would not be what
+  was sent") and one over the transport packet limit ("is 200005 bytes; a single SSH exec request carries at most
+  34000 …", answered in 45 ms without dialling).
+- 4000 repeated `rm -rf /` segments are refused in 9 ms — the deny scan does not degrade on a large command.
+- The coverage lines I planned to chase in `index.js` (2113-2115, 2166-2167) had drifted after this week’s edits:
+  they are ordinary, covered code now.
+
+### Tests
+
+- Extended: the no-`createDirs` blocking message. Suite 1012 / 1007 pass / 5 skipped / 0 fail, run twice
+  concurrently; `tsc` clean.
+
 ## 0.7.425 — 2026-11-01
 
 ### Fixed — a second, unreachable `policy off` branch that answered `firstSeen` differently
