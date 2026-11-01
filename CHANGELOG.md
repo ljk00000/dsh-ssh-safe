@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.7.360 — 2026-11-01
+
+### Documented — `ssh_exec` output is passed through, escape sequences included
+Every other surface escapes what it prints (file names, paths, audit rows, error messages, and — since 0.7.356 and
+0.7.357 — even the SFTP status text and the signal name a server chooses). Command output is the one exception, on
+purpose: it is data, and escaping it would corrupt what the caller asked to see. The README said "命令输出按原样呈现"
+but never drew the consequence:
+
+> 同一个原因，**命令输出里的 ANSI 转义序列会原样进入会话**：`ssh_exec` 不改写 stdout/stderr，远端程序打印的
+> `\u001b[2J`、`\u001b[31m` 会被终端当成清屏和着色解释。…要看干净的输出，让远端程序别开颜色（`ls --color=never`、
+> `NO_COLOR=1`），或在本地 `ssh_exec … | cat -v` 之后再读。
+
+A test asserts the paragraph stays, so the boundary cannot quietly disappear from the docs.
+
+### Verified this round (no defect found)
+
+- `ssh_write` `mode`: only octal-digit strings are accepted (`"0"`, `"rwxr-xr-x"`, `"777777"`, `"644 extra"` are
+  refused with a message naming `0600`), `"0000"` is accepted and reported as `mode 0000`, and a number is refused
+  as "must be a string" — no silent reinterpretation anywhere.
+- `createDirs: true` gives the directories `0755` and the file the requested `0600`: a tight file mode cannot lock
+  the caller out of its own path, and reading the file back works.
+- An audit path replaced by a directory is reported ("could not be read: … EISDIR … No records can be shown until
+  that is fixed") instead of a cheerful "nothing recorded yet".
+
+### My own mistakes
+
+1. My first test line mixed a regex and a string (`/…/'`), which the parser rejected before any test ran.
+2. The replacement then used a `here` variable that exists only inside a different test (`ReferenceError: here is
+   not defined`); it now builds the path the same way that test does.
+
+### Tests
+
+- New: the README paragraph about pass-through output is present.
+  Suite 950 / 945 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.359 — 2026-11-01
 
 ### Fixed — a listing header printed the path raw

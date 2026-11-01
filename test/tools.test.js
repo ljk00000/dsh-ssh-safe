@@ -1794,3 +1794,13 @@ test('an over-cap audit limit says how many records were actually shown', async 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('the README says command output is passed through, including escape sequences', async () => {
+  // Every other surface escapes what it prints; ssh_exec deliberately does not,
+  // because its output is data. That is the one place where a remote program can
+  // still paint the terminal, and the limitation has to be written down rather
+  // than discovered.
+  const readme = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'README.md'), 'utf8')
+  assert.match(readme, /ANSI 转义序列会原样进入会话/, 'the pass-through must be documented')
+  assert.ok(readme.includes('`ssh_exec` 不改写 stdout/stderr'), 'say which tool and what it does not touch')
+})
