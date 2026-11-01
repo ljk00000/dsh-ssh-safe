@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.369 — 2026-11-01
+
+### New — the guard × confirm matrix is a test
+The audit test already proved that a refused `rm -rf /` is recorded, including when `confirm: true` was passed.
+What was never asserted is that the command does **not** run: a deny list a flag can open is not a deny list.
+```
+execGuard: "confirm"
+ssh_exec { command: "rm -rf /" }                    → Command refused
+ssh_exec { command: "rm -rf /", confirm: true }     → Command refused        ← the cell that matters
+ssh_exec { command: "echo gated" }                  → execGuard is "confirm": pass confirm: true …
+ssh_exec { command: "echo gated", confirm: true }   → ran: echo gated
+```
+
+### Verified this round (no defect found)
+
+- `ssh_write` reports the mode it *got*, not the one it asked for: rewriting an existing 0600 file with `0644`
+  answers "Wrote 1 byte to /f1 (mode 0600) — asked for 0644 but the file ended up 0600 (the server applies its umask,
+  and a file that already existed keeps its own permissions)".
+- A refused command is audited as `refused blocked` with the rule text and no `ms` (nothing was dialled); an allowed
+  one follows as `exec ok exit=0`.
+- Remote paths keep `~` untouched and refuse the SFTP-unexpandable forms: `~` and `~/x` get "SFTP does not expand
+  '~' — use an absolute path", while `~user/x` is treated as a relative name and reported as "no such file …
+  (relative to the login user's home directory)"; control characters in a path are escaped in both.
+
+### Tests
+
+- New: the guard/confirm matrix above.
+  Suite 959 / 954 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.368 — 2026-11-01
 
 ### New — `maxFileBytes` is measured in UTF-8 bytes, and that is now a test

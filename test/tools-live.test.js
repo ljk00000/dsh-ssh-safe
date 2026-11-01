@@ -4196,3 +4196,37 @@ test('a rejected connection says the session password was shadowed', async () =>
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('confirm: true opens the confirm gate and never the deny list', async () => {
+  // Four cells, and the one that matters is the second: a caller who passes
+  // confirm: true must still be refused by a deny pattern. A gate that a flag can
+  // open is not a deny list.
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-guard-matrix-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, execGuard: 'confirm',
+      reconnectCooldownMs: 0, connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+      machines: { t: machineFor('t', server.port) },
+    })
+    const text = async (args) => String(await tools.ssh_exec.execute(args, {})
+      .then((result) => result.text, (err) => 'ERR: ' + err.message))
+
+    assert.match(await text({ command: 'rm -rf /' }), /Command refused/)
+    // The one that matters: confirm does not unlock a deny pattern.
+    assert.match(await text({ command: 'rm -rf /', confirm: true }), /Command refused/,
+      'confirm must not bypass the deny list')
+    assert.match(await text({ command: 'echo gated' }), /execGuard is "confirm"/)
+    assert.match(await text({ command: 'echo gated', confirm: true }), /ran: echo gated/)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
