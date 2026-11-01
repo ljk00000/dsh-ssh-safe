@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.374 — 2026-11-01
+
+### New — the `mode` spellings people actually type are pinned
+`ssh_write` accepted more than the documented `"600"` / `"0644"`, and nothing tested which spellings work:
+```
+mode: " 644"    → Wrote 1 byte … (mode 0644)      spaces trimmed
+mode: "0644 "   → Wrote 1 byte … (mode 0644)
+mode: "0o600"   → Wrote 1 byte … (mode 0600)      0o prefix read as octal
+mode: "777"     → Wrote 1 byte … (mode 0777)      3 digits are 0777, not 000777
+mode: "abc" / "9" / "07777" / "0x1ff"
+       → ERR: mode must be octal digits like "600" or "0644" (received "…") …
+         and nothing is written
+```
+
+### Verified this round (no defect found)
+
+- `HOST KEY CHANGED` in lean mode hides everything it names: `HOST KEY CHANGED for <host hidden>: recorded
+  SHA256:…, presented SHA256:… Refusing to connect. If the server was legitimately rebuilt, remove the entry from
+  <path hidden> …` — in both `ssh_doctor` and `ssh_connect` (which reach it by different paths).
+- `ssh_exec` with control characters: a NUL is refused (`command contains a NUL byte`), a blank command is refused
+  (`command is blank: it contains only whitespace`), and CR / CRLF / TAB survive into the reply and the audit as
+  escaped text (`echo a\rb`, `echo\ta`, `[+1 more lines]`).
+- `ssh_write` with `createDirs: false` and a missing parent: `no such file: /no/such/dir/f.txt — the parent
+  directory does not exist. Pass createDirs: true to create it.`
+
+### My own mistake
+
+- The first `mode` probe passed `mode: undefined` explicitly, which is not expressible in JSON; the harness answered
+  `invalid arguments: "arguments" must be a lossless JSON object` and my script then crashed on `padEnd`. A probe
+  that cannot be expressed in the tool schema tests the schema, not the product.
+
+### Tests
+
+- New: the mode matrix above.
+  Suite 964 / 959 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.373 — 2026-11-01
 
 ### Fixed — a host-key verdict printed the address under `machineInventory: alias`

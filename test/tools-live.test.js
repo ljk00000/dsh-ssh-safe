@@ -4270,3 +4270,28 @@ test('machineInventory: alias keeps the address out of a host-key verdict', asyn
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('mode accepts the spellings people type and refuses the rest', async () => {
+  // Measured: ' 644' and '0644 ' are trimmed, '0o644' is read as octal, '777'
+  // means 0777, and 'abc' / '9' / '07777' / '0x1ff' are refused with a message that
+  // names the accepted shape. Nothing is written when the mode is refused.
+  srv.vfs.putDir('/modes')
+  const written = async (name, mode) => run('ssh_write', { path: '/modes/' + name, content: 'x', mode })
+  const modeOf = (name) => (srv.vfs.stat('/modes/' + name).mode & 0o7777).toString(8).padStart(4, '0')
+
+  await written('trimmed', ' 644')
+  assert.equal(modeOf('trimmed'), '0644', 'surrounding spaces are trimmed')
+  await written('trailing', '0644 ')
+  assert.equal(modeOf('trailing'), '0644')
+  await written('prefixed', '0o600')
+  assert.equal(modeOf('prefixed'), '0600')
+  await written('three-digit', '777')
+  assert.equal(modeOf('three-digit'), '0777')
+
+  for (const bad of ['abc', '9', '07777', '0x1ff']) {
+    await assert.rejects(() => written('bad-' + bad.replace(/\W/g, ''), bad),
+      /mode must be octal digits like "600" or "0644"/)
+    assert.equal(srv.vfs.getFile('/modes/bad-' + bad.replace(/\W/g, '')), undefined,
+      'nothing may be written for a refused mode: ' + bad)
+  }
+})
