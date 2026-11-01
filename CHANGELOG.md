@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.425 — 2026-11-01
+
+### Fixed — a second, unreachable `policy off` branch that answered `firstSeen` differently
+
+`checkHostKey()` returns early when the policy is `off`, so the **second** `if (policy === 'off')` further down could
+never run — coverage had been listing it as unreachable for months. It also disagreed with the one that does run:
+
+```
+line 507 (the one that runs)   return { ok: true, reason: 'host key verification disabled by policy', fp, firstSeen: false }
+line 595 (dead)                return { ok: true, reason: …, firstSeen: !recorded }
+```
+
+`firstSeen` tells the caller whether a key was newly recorded, so two answers to the same question is the kind of
+disagreement that becomes a bug when someone deletes the first branch. The dead one is gone, with a comment saying
+why there is only one, and a test now pins the contract: policy `off` reports `firstSeen: false` even for a host the
+store could record, and the store is not rewritten.
+
+### Verified this round (no defect found beyond the above)
+
+- `hostKeyPolicy: off` writes no trust record at all and the inventory then says "not trusted yet"; the connect
+  reply carries the WARNING that the connection is not protected against a man-in-the-middle, and the effective
+  policy (per-machine override included) is the one named.
+- The remaining uncovered lines in `hostkey.js` are fs-error paths (a store that cannot be read at all, lean-mode
+  path masking on that error) — reachable only with a permission failure, which the suite cannot stage on both
+  platforms.
+
+### Tests
+
+- New: the `firstSeen: false` contract above. The three hostkey test files still pass unchanged (38 tests).
+  Suite 1012 / 1007 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.424 — 2026-11-01
 
 ### Fixed — `ssh_machines` promised a key whose stored passphrase cannot be decrypted

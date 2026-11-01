@@ -592,9 +592,10 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
   // `0`, `false` and `""` are the values that read as "never seen".
   const brokenRecord = hasEntry && !recorded
 
-  if (policy === 'off') {
-    return { ok: true, reason: 'host key verification disabled by policy', fp, firstSeen: !recorded }
-  }
+  // No second 'policy off' branch here: the early return above already answered for
+  // every off call (that is why coverage showed this spot as unreachable). It also
+  // disagreed with the early one — firstSeen: !recorded against firstSeen: false —
+  // so a reader had two answers to the same question.
   // Verification against a store that cannot be read is impossible, and trusting
   // the presented key would rewrite the file and drop everything else in it.
   if (read.problem) {

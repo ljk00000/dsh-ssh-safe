@@ -95,3 +95,19 @@ test('a healthy store still records new hosts without losing the existing ones',
   const after = JSON.parse(readFileSync(file, 'utf8'))
   assert.deepEqual(Object.keys(after.hosts).sort(), ['new.example:2222', 'other.example:22', 'shown.example:22'])
 })
+
+test('policy off says firstSeen false even for a host the store could record', () => {
+  // There used to be a second 'policy off' return further down — unreachable, because
+  // the first one always answers — and it said firstSeen: !recorded instead of false.
+  // The caller uses firstSeen to decide whether a key was newly recorded, so the two
+  // answers meant different things. This pins the one that runs.
+  writeFileSync(file, JSON.stringify(store()))
+  const before = readFileSync(file, 'utf8')
+  const verdict = checkHostKey({
+    dshHome: home, host: 'brand-new.example', port: 22, keyBlob: key,
+    policy: 'off', trustHostKey: false,
+  })
+  assert.equal(verdict.ok, true)
+  assert.equal(verdict.firstSeen, false, 'nothing was recorded, so nothing was first-seen')
+  assert.equal(readFileSync(file, 'utf8'), before, 'the store is not rewritten')
+})
