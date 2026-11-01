@@ -3724,3 +3724,34 @@ test('a cancelled call is audited as cancel, not as an error', async () => {
   assert.equal(record.outcome, 'cancel')
   assert.equal(record.error, undefined, 'a cancelled call is not an error of the host')
 })
+
+test('a hand-edited audit row renders its fields instead of [object Object]', async () => {
+  // ssh_audit is where an operator goes to see what happened, and the log is a
+  // file a human may edit. printable() turns an object into '[object Object]',
+  // which lost the content; object fields are clipped JSON now, and a rule whose
+  // text is missing says so instead of printing empty parentheses.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-auditreg-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const dir = path.join(home, 'dsh-ssh-safe')
+    mkdirSync(dir, { recursive: true })
+    const rows = [
+      { kind: 'exec', outcome: 'ok', command: { a: 1 }, machine: ['x'] },
+      { kind: 'refused', outcome: 'blocked', command: 'rm -rf /', pattern: [] },
+    ]
+    writeFileSync(path.join(dir, 'audit.ndjson'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n')
+    const tools = {}
+    await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      hostKeyPolicy: 'tofu', auditLog: true,
+    })
+    const shown = String((await tools.ssh_audit.execute({ limit: 10 }, {})).text)
+    assert.doesNotMatch(shown, /\[object Object\]/, 'an object field was flattened to [object Object]')
+    assert.match(shown, /\{"a":1\}/)
+    assert.match(shown, /the rule text is not available/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})

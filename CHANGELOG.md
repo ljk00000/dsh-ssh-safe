@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.316 — 2026-11-01
+
+### Fixed — a hand-edited audit row rendered as `[object Object]`
+`audit.ndjson` is a file a human may edit, and `ssh_audit` is where an operator goes to find out what
+happened. Every field went through `printable()`, so an object where a string belongs was flattened:
+```
+before  {"kind":"exec","outcome":"ok","command":{"a":1},"machine":["x"]}
+        x 5 [object Object]
+        exec ok [object Object]
+after   ["x"] 5 {}
+        exec ok {"a":1}
+```
+The `rule:` line for a record whose pattern is not a string printed empty parentheses; it now says the text
+is not available:
+```
+before  rule: it matches a denyPatterns rule ()
+after   rule: it matches a denyPatterns rule (the rule text is not available)
+```
+
+### Verified this round (no defect found)
+- **`close` outcomes are right**: closing a machine with nothing live records `{"kind":"close","outcome":"none"}`;
+  a close refused because a command runs records `outcome: busy` and the refusal message says "a command is
+  still running on it. Wait for it to finish, or pass force: true to cut it off."
+- **An externally truncated log** is read as far as it goes: the intact rows render, and the cut tail becomes
+  `[unreadable record] {"kind":"close","machine":"` instead of vanishing or throwing.
+- **Truncating a multi-byte character never produces U+FFFD**: `ééé` with `maxBytes` 2/4/5 gives
+  `"é"`, `"éé"`, `"éé"`; `😀😀` with 2/3 gives an empty body and 5 gives `"😀"` — the partial character is
+  dropped, and the note names the byte count that was read.
+
+### My own mistakes
+1. My first hostile-record probe filtered the output with `Select-Object -First 20` and I read the
+   `[object Object]` lines as the *whole* story — the same run also showed `rule: … ()` two lines below,
+   which I only noticed on the second read.
+
+### Tests
+- One new case: a record with object `command`/`machine` renders its JSON, and an empty `pattern` says the
+  rule text is missing.
+  Suite 902 / 897 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.315 — 2026-11-01
 
 ### Added — a cancelled call is recorded as `cancel`, not as `error`

@@ -2003,6 +2003,17 @@ function blockingFileAbove(dir) {
       const prefix = lostPrefix + (problem
         ? 'Warning: part of the audit log could not be read:\n  ' + problem + '\n\n'
         : '')
+      // A hand-edited row can hold an object where a string belongs, and
+      // printable() answers '[object Object]': the content is then lost in the
+      // one place an operator goes to see what happened. Objects are shown as
+      // clipped JSON instead.
+      const field = (v) => (v === null || v === undefined
+        ? ''
+        : typeof v === 'string'
+          ? v
+          : typeof v === 'object'
+            ? clipText(JSON.stringify(v), 120)
+            : String(v))
       const rows = records.map((r) => {
         // The audit module already filters non-objects, but a renderer must not
         // be the place a bad file becomes a crash.
@@ -2018,20 +2029,20 @@ function blockingFileAbove(dir) {
         const when = printable(stamp.replace('T', ' ').slice(0, 19)) + (/Z$/.test(stamp) ? 'Z' : '')
         // A command or path in the log is remote text: an escape sequence there
         // repainted the terminal of whoever was reading the audit trail.
-        const machine = r.machine ? ' ' + printable(r.machine) : ''
+        const machine = r.machine ? ' ' + printable(field(r.machine)) : ''
         // 'exec exit exit=3' said the same thing twice on one row; the status token
         // below already carries it. Everything else keeps its outcome word.
         const hasExit = r.exitCode !== null && r.exitCode !== undefined
         const hasSignal = Boolean(r.signal)
         const repeats = (r.outcome === 'exit' && hasExit) || (r.outcome === 'signal' && hasSignal)
-        const parts = [when, machine.trim(), printable(r.kind || '?')]
-        if (!repeats) parts.push(printable(r.outcome || ''))
+        const parts = [when, machine.trim(), printable(field(r.kind) || '?')]
+        if (!repeats) parts.push(printable(field(r.outcome)))
         if (r.exitCode !== null && r.exitCode !== undefined) parts.push('exit=' + r.exitCode)
         // A signal death has no exit status: without this the row said only
         // "exit=" with nothing after it.
         if (r.signal) parts.push('signal=' + r.signal)
         // Show the subject: a command for exec, a path for transfers.
-        const subject = printable(r.command || r.path || r.pattern || '')
+        const subject = printable(field(r.command || r.path || r.pattern))
         if (subject) parts.push(subject)
         const head = parts.filter(Boolean).join(' ')
         // A record that parses but carries nothing renderable (a bare {} from a

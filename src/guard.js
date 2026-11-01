@@ -410,6 +410,10 @@ export function describeRule(pattern) {
   const rule = DEFAULT_DENY_RULES.find((entry) => entry.pattern === String(pattern))
   if (rule) return rule.why
   const text = String(pattern || '').trim()
+  // A record whose pattern is not a string (a hand-edited log, or an entry built
+  // as a RegExp) produced 'it matches a denyPatterns rule ()': empty parentheses
+  // that name nothing. Say that the text is missing instead of printing nothing.
+  if (!text) return 'it matches a denyPatterns rule (the rule text is not available)'
   return 'it matches a denyPatterns rule (' + (text.length > 80 ? text.slice(0, 77) + '...' : text) + ')'
 }
 
