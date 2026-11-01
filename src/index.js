@@ -578,15 +578,22 @@ function editDistance(a, b) {
 function denyPatternsSummary(configured, pipeToShell) {
   const list = Array.isArray(configured) ? configured : []
   const builtIn = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
+  // '1 pattern(s)' is the kind of wording this file avoids everywhere else.
+  const count = list.length === 1 ? '1 pattern' : list.length + ' patterns'
   if (list.length === 0) {
     // An empty list switches off the pattern guard; the pipeline rule comes from
     // pipeToShell and still applies, so saying only 'guard is OFF' overstated it.
-    return '0 pattern(s) — the destructive-command guard is OFF' +
+    return '0 patterns — the destructive-command guard is OFF' +
       (pipeToShell === 'allow' ? ' (and pipes into an interpreter are allowed)' : ' (pipes into an interpreter are still refused)')
   }
-  const same = list.length === builtIn.length && list.every((pattern, index) => pattern === builtIn[index])
-  if (same) return list.length + ' pattern(s) (the built-in set)'
-  return list.length + ' pattern(s) — replaces the ' + builtIn.length + ' built-in rules'
+  // A rule set is a set: the same rules in another order guard exactly the same
+  // commands, and 'replaces the 13 built-in rules' described a change that is not
+  // one. A list that CONTAINS the built-in set is an extension, not a replacement.
+  const missing = builtIn.filter((pattern) => !list.includes(pattern))
+  const extras = list.filter((pattern) => !builtIn.includes(pattern)).length
+  if (missing.length === 0 && extras === 0) return count + ' (the built-in set)'
+  if (missing.length === 0) return count + ' (the built-in set plus ' + (extras === 1 ? '1 more' : extras + ' more') + ')'
+  return count + ' — replaces the ' + builtIn.length + ' built-in rules'
 }
 
 /** Fields a machine entry in the settings form may use. */

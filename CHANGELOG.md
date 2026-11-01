@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.415 — 2026-11-01
+
+### Fixed — the denyPatterns summary said "1 pattern(s)" and called an unchanged set a replacement
+
+```
+denyPatterns: [...built-in rules in another order]
+before   13 pattern(s) — replaces the 13 built-in rules     ← guards exactly the same commands
+after    13 patterns (the built-in set)
+
+denyPatterns: [...built-in rules, one more]
+before   14 pattern(s) — replaces the 13 built-in rules     ← it extends them, it does not replace them
+after    14 patterns (the built-in set plus 1 more)
+
+denyPatterns: ["x"]
+before   1 pattern(s) — replaces the 13 built-in rules
+after    1 pattern — replaces the 13 built-in rules
+```
+
+A rule set is a set: the summary now compares the configured rules with the built-in ones (order-insensitive),
+counts in English, and distinguishes "the same", "the built-in set plus N more" and "replaces". The empty case keeps
+yesterday’s sentence about the pipe rule.
+
+### My own mistake
+
+- I changed the wording before grepping for it: `README.md` documented the old spelling, and my own round-205 test
+  asserted `0 pattern(s)`. Both were caught by that grep and the suite, but the grep should have come first.
+
+### Tests
+
+- New: the five spellings above; the round-205 empty-list assertion updated to the new wording; the README line
+  updated too.
+  Suite 1004 / 999 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.414 — 2026-11-01
 
 ### Fixed — `denyPatterns: []` also switched off the pipe rule, which `pipeToShell` owns

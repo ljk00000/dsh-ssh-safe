@@ -2082,11 +2082,38 @@ test('the config summary says the pipe rule survives an empty denyPatterns', asy
   try {
     await apply(ctx, { hostKeyPolicy: 'tofu', denyPatterns: [] })
     const text = String((await tools.ssh_config.execute({}, {})).text)
-    assert.match(text, /0 pattern\(s\) — the destructive-command guard is OFF \(pipes into an interpreter are still refused\)/, text)
+    assert.match(text, /0 patterns — the destructive-command guard is OFF \(pipes into an interpreter are still refused\)/, text)
     await apply(ctx, { hostKeyPolicy: 'tofu', denyPatterns: [], pipeToShell: 'allow' })
     const allowed = String((await tools.ssh_config.execute({}, {})).text)
     assert.match(allowed, /pipes into an interpreter are allowed/, allowed)
+
+test('the denyPatterns summary counts in English and knows the built-in set in any order', async () => {
+  // '1 pattern(s)' is the wording this file avoids everywhere else, and a list
+  // holding exactly the built-in rules in another order was reported as replacing
+  // them — a change that guards exactly the same commands.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-deny-words-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  const line = async (config) => {
+    await apply(ctx, config)
+    const text = String((await tools.ssh_config.execute({}, {})).text)
+    return (text.split('\n').find((row) => row.trim().startsWith('denyPatterns')) || '').trim()
+  }
+  try {
+    const builtIn = DEFAULT_DENY_RULES.map((rule) => rule.pattern)
+    assert.match(await line({ hostKeyPolicy: 'tofu' }), /13 patterns \(the built-in set\)/)
+    assert.match(await line({ hostKeyPolicy: 'tofu', denyPatterns: ['x'] }), /1 pattern — replaces the 13 built-in rules/)
+    assert.match(await line({ hostKeyPolicy: 'tofu', denyPatterns: ['x', 'y'] }), /2 patterns — replaces the 13 built-in rules/)
+    assert.match(await line({ hostKeyPolicy: 'tofu', denyPatterns: [...builtIn].reverse() }), /13 patterns \(the built-in set\)/)
+    assert.match(await line({ hostKeyPolicy: 'tofu', denyPatterns: [...builtIn, 'extra'] }), /14 patterns \(the built-in set plus 1 more\)/)
   } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})  } finally {
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous
     rmSync(home, { recursive: true, force: true })
