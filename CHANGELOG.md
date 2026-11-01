@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.325 — 2026-11-01
+
+### Fixed — the `busy` and `none` close rows still had no `ms`
+0.7.324 gave the closed rows a duration and stopped there, so two of the four decisions a close can record
+still had none:
+```
+{"kind":"close","machine":"a","outcome":"ok","ms":1}
+{"kind":"close","machine":"b","outcome":"ok","ms":0}
+{"kind":"close","outcome":"none"}          ← nothing to close
+{"kind":"close","machine":"a","outcome":"busy"}   ← left open, command running
+```
+Both now carry it. A close is the one row an operator cannot time otherwise, and "left open because a command
+is running" is exactly the row they want a number on.
+
+### Verified this round (no defect found)
+- **`hostKeyPolicy: off` is disclosed twice**, not silently trusted: the reply ends with "WARNING:
+  hostKeyPolicy is \"off\" — this connection is not protected against a man-in-the-middle.", and the audit row
+  carries `"hostKey":"unverified"` next to the fingerprint (a tofu first contact reads `"first-seen"`).
+- **The idle health check against a wedged peer**: after the wire stops answering, the next `ssh_exec` drops
+  the dead connection and reconnects transparently — `ran: echo two [exit 0]` in 619 ms, with
+  `healthCheckIdleMs: 150` and `healthCheckTimeoutMs: 200`.
+- **The close-all texts and rows agree** in every branch: `Closed: b`, `No live connections`,
+  `Left open (command running): a — pass force: true to cut them off`.
+
+### My own mistakes
+1. I fixed the missing `ms` for the closed rows in the last round and declared the whole row-format question
+   settled without looking at the two rows written a few lines below.
+2. My new test passed in 2 s and then **hung the runner**: it deliberately left a busy connection open, so
+   the event loop never emptied. It force-closes at the end now.
+
+### Tests
+- New: every close decision (`ok`, `none`, `busy`) is recorded and every close row carries a numeric `ms`.
+  Suite 910 / 905 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.324 — 2026-11-01
 
 ### Fixed — `ssh_close` (all machines) audited an unconfirmed close as `ok`

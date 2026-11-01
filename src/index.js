@@ -2798,11 +2798,14 @@ skipRemaining('not reached: the host key was rejected first')
           ms: Date.now() - startedAt,
         })
       }
+      // These two rows were left without ms: a close is the one kind an operator cannot
+      // time, and 'left open because a command runs' is exactly the row they want a
+      // number on.
       for (const name of result.busy) {
-        audit.write({ kind: 'close', machine: name, outcome: 'busy' })
+        audit.write({ kind: 'close', machine: name, outcome: 'busy', ms: Date.now() - startedAt })
       }
       if (result.closed.length === 0 && result.busy.length === 0) {
-        audit.write({ kind: 'close', outcome: 'none' })
+        audit.write({ kind: 'close', outcome: 'none', ms: Date.now() - startedAt })
       }
       const parts = []
       const closedNow = result.closed.filter((name) => !unconfirmed.has(name))

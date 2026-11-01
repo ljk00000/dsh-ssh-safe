@@ -3793,3 +3793,52 @@ test('closing a machine while it is still dialling is recorded as pending', asyn
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('every close row carries a duration, whatever it decided', async () => {
+  // close is the one kind an operator cannot time, and the rows for 'left open
+  // because a command runs' and 'nothing to close' were written without ms even after
+  // the closed rows got one.
+  const srv2 = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-closems-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const own = {}
+  try {
+    await apply({ tools: { register: (d) => { own[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 'a', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 3000, auditLog: true,
+      machines: { a: machineFor('a', srv2.port), b: machineFor('b', srv2.port) },
+    })
+    const run = async (promise) => { try { await promise } catch { /* the point is the audit row */ } }
+    // none: nothing is live yet
+    await run(own.ssh_close.execute({ machine: 'a' }, {}))
+    await run(own.ssh_connect.execute({ machine: 'a' }, {}))
+    await run(own.ssh_connect.execute({ machine: 'b' }, {}))
+    // ok: one machine, then everything
+    await run(own.ssh_close.execute({ machine: 'a' }, {}))
+    await run(own.ssh_close.execute({}, {}))
+    // busy: a command runs on a and close-all is asked without force
+    await run(own.ssh_connect.execute({ machine: 'a' }, {}))
+    const running = own.ssh_exec.execute({ machine: 'a', command: 'sleep 1' }, {})
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    await run(own.ssh_close.execute({}, {}))
+    await run(running)
+    const file = path.join(home, 'dsh-ssh-safe', 'audit.ndjson')
+    const rows = readFileSync(file, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+    const closes = rows.filter((row) => row.kind === 'close')
+    assert.ok(closes.length >= 4, 'the four decisions must all be recorded, saw ' + closes.length)
+    const outcomes = new Set(closes.map((row) => row.outcome))
+    for (const expected of ['none', 'ok', 'busy']) assert.ok(outcomes.has(expected), 'missing outcome ' + expected)
+    for (const row of closes) {
+      assert.equal(typeof row.ms, 'number', 'close row without ms: ' + JSON.stringify(row))
+    }
+    // Nothing may keep the loop alive after the assertions: the busy connection was
+    // left open on purpose, and an open socket makes 'node --test' wait forever.
+    await run(own.ssh_close.execute({ machine: 'a', force: true }, {}))
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await Promise.race([srv2.close(), new Promise((resolve) => setTimeout(resolve, 1000))])
+    rmSync(home, { recursive: true, force: true })
+  }
+})
