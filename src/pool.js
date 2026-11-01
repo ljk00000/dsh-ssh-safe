@@ -829,6 +829,15 @@ export class SshPool {
         return client
       })
       .catch((err) => {
+        // The race can be lost by the dial itself: an abort rejects e.ready while
+        // #open keeps connecting, and the client it produces was never stored or
+        // closed. Measured: an already-aborted ssh_connect left one authenticated
+        // session on the server while ssh_close answered 'No live connections'.
+        // Nothing else holds that client, so close it here when it arrives.
+        opened.then(
+          (client) => { try { client.end() } catch { /* already gone */ } },
+          () => { /* the dial failed on its own; its own handler cleaned up */ },
+        )
         e.lastError = redact(err && err.message ? err.message : String(err))
         // Configuration errors are marked: they must not start a cooldown, or
         // the message after a quick fix is the cooldown rather than the result.

@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.399 — 2026-11-01
+
+### Fixed — a connection cancelled before it started stayed open on the server
+
+`connect()` races the dial against the abort signal. When the signal was **already aborted**, the race rejected
+immediately — and `#open` kept dialling. The client it produced was never stored, so nothing could close it:
+
+```
+ssh_connect { machine: "box" } with an already-aborted signal
+before   ERR: connection to box was cancelled before it started
+         server clients afterwards: 1        ← an authenticated session nobody tracks
+         ssh_close: "No live connections"
+after    server clients afterwards: 0
+```
+
+The `.catch` of `e.ready` now closes the client the dial eventually produces (`opened.then(close, noop)`). The
+leak was not visible to `ssh_close` because it only knows the connections the pool holds.
+
+### My own mistakes (three)
+
+1. My first version of the test polled `while (clientCount() > 0)` — which exits at once when the dial has not
+   connected yet. It "passed" with the leak still in place; the negative control is what caught that. It now waits a
+   fixed 1.2 s and asserts 0.
+2. The negative control (git stash the fix, run the test) **hung the test runner**: with the leaked client, the rig
+   never finishes closing, so the file ran past the tool deadline twice and left the fix stashed. I later ran the
+   control as a background job, killed it, and restored the stash — verified `fix present: 1` each time.
+3. One `git stash pop` ran against `…\deepseek-harness\dsh-ssh-safe` instead of
+   `…\deepseek-harness\default-workspace\dsh-ssh-safe`: "fatal: not a git repository". A second directory with a
+   similar name exists, and I had typed the path from memory.
+
+### Verified
+
+- Negative control result: without the fix the new test fails with `1 !== 0`; with it, it passes.
+
+### Tests
+
+- New: the cancelled dial leaves nothing connected. Suite 989 / 984 pass / 5 skipped / 0 fail, run twice
+  concurrently; `tsc` clean.
+
 ## 0.7.398 — 2026-11-01
 
 ### New — an unreadable host key store pinned, with the lean wording

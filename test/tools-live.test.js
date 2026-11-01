@@ -4803,3 +4803,39 @@ test('an unreadable host key store refuses the connection, and lean mode hides i
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a connection cancelled before it starts leaves nothing behind', async () => {
+  // The abort rejected e.ready while #open kept dialling, and the client it produced
+  // was never stored: the server kept an authenticated session that ssh_close could
+  // not reach (measured: clientCount 1 with 'No live connections').
+  const server = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-abort-clean-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => undefined }
+  try {
+    await apply(ctx, {
+      hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 4000, commandTimeoutMs: 4000,
+      machines: { box: machineFor('box', server.port) },
+    })
+    assert.equal(server.clientCount(), 0, 'nothing connects until asked')
+    const controller = new AbortController()
+    controller.abort()
+    const refused = await tools.ssh_connect.execute({ machine: 'box' }, { signal: controller.signal })
+      .then((result) => 'OK: ' + result.text, (err) => 'ERR: ' + err.message)
+    assert.match(refused, /cancelled before it started/, refused)
+
+    // The dial is already under way when the abort lands. Wait a fixed window for it
+    // to finish: polling for 'count === 0' would exit before the connection exists,
+    // which is how the first version of this test passed with the leak in place.
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    assert.equal(server.clientCount(), 0, 'the cancelled dial must not stay connected')
+  } finally {
+    await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 800))])
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
