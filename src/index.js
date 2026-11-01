@@ -456,7 +456,9 @@ export async function apply(ctx, config) {
     const keyPath = expandHome(auth.keyPath)
     try {
       const warning = keyModeWarning(statSync(keyPath).mode)
-      return warning ? warning + ' — chmod 600 "' + keyPath + '"' : ''
+      // printableText(): a local path, so backslashes stay single; a keyPath holding a
+      // control character is still escaped.
+      return warning ? warning + ' — chmod 600 "' + printableText(keyPath) + '"' : ''
     } catch {
       return ''
     }

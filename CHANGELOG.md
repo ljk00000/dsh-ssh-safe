@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.353 — 2026-11-01
+
+### New — the whole tool surface is swept for unescaped values
+`test/tool-surface.test.js` calls all twelve tools with a credential file whose host, user, key path, passphrase,
+known-hosts path and policy each carry a NUL and an ANSI escape, a refused port so the error paths run, and a
+hostile settings-form machine. Every reply (successful or thrown) must contain no raw control character and no
+`[object Object]`. This is the check that found the workspace "bound to" endpoint in 0.7.352, and it now runs on
+every change.
+
+### Changed — the POSIX-only chmod hint escapes its path (cannot be exercised here)
+`keyPermissionProblem()` builds `… — chmod 600 "<path>"`. It returns early on Windows, and Windows path names
+cannot contain control characters anyway, so the change from `+ keyPath +` to `printableText(keyPath)` is
+defensive: it cannot be measured on this machine and no test covers it. It is the same treatment as the key-path
+messages in 0.7.351, and it keeps the POSIX behaviour readable (backslashes stay single).
+
+### Verified this round (no defect found)
+- The audit log is written `0600` (`chmodSync(this.file, 0o600)`), and both the summary and every field go through
+  `redact()` before being stored — the log is not a second, more readable copy of the secrets.
+- An audit `limit` above what the tool shows is explained by name, and a non-numeric `limit` is refused.
+
+### My own mistakes
+1. My first attempt to exercise the chmod hint wrote a key file whose name contained a NUL; Node refuses that path
+   outright (`ERR_INVALID_ARG_VALUE`), which is why the probe never reached the plugin.
+2. The second attempt used an ESC in the file name; Windows rejects control characters in names (`ENOENT` on
+   write). The hint is simply unreachable from this platform.
+
+### Tests
+- New: the twelve-tool sweep. Suite 943 / 938 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.352 — 2026-11-01
 
 ### Fixed — the workspace create reply printed the endpoint raw
