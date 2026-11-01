@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.320 — 2026-11-01
+
+### Fixed — a top-level `knownHosts` was reported twice, once asking the user to report a bug
+`knownHosts` is a **per-machine** field, so a top-level one is not a setting. `ssh_config` said both things
+about it at once:
+```
+before  Settings not shown above (report this): knownHosts
+        Ignored settings (not recognised, so they govern nothing): knownHosts — check the spelling against
+        the README
+after   Ignored settings (not recognised, so they govern nothing): knownHosts — check the spelling against
+        the README
+```
+The first line is the "a setting exists but has no row in this report" self-check, and it was counting keys
+that are not settings at all — telling the user to report a plugin bug about their own misplaced key.
+The README also invited the mistake: both language sections described `knownHosts` without saying it is per
+machine. They now name `machines.<alias>.knownHosts` / `DSH_SSH_<ALIAS>_KNOWN_HOSTS` and state that a
+top-level one does nothing.
+
+### Verified this round (no defect found beyond the above)
+- A **global** `knownHosts` really does govern nothing: with a `strict` policy and a matching entry in the
+  top-level file, the machine is still verified against `~/.dsh/dsh-ssh-safe/known_hosts.json` and refused
+  as an unknown host — so "governs nothing" is the true half of the old message.
+- The per-machine form works: `ssh_machines` shows `trust: OpenSSH known_hosts <path> — no entry for
+  h.example:22 yet` and `sources: …, knownHosts=config`.
+
+### My own mistakes
+1. I set `knownHosts` at the top level *because the README reads that way*, then briefly took the
+   "Settings not shown above" line as evidence that `knownHosts` is a global setting. The schema shows it
+   only inside `machines`, and the strict-policy probe settled it.
+
+### Tests
+- One new case: an unrecognised top-level key is named once, by the ignored-settings line.
+  Suite 905 / 900 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.319 — 2026-11-01
 
 ### Fixed — an empty `.json` knownHosts file was called an unverifiable format

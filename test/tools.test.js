@@ -1395,3 +1395,16 @@ test('ssh_credentials warns when two aliases share an environment prefix', async
   // A machine whose alias has no twin is not mentioned in the warning.
   assert.doesNotMatch(text, /aliases "other"/)
 })
+
+test('ssh_config does not report an unrecognised setting as a missing row', async () => {
+  // knownHosts only exists per machine, so a top-level one is not a setting. It was
+  // named twice: once as 'not shown above (report this)' — asking the user to report a
+  // plugin bug — and once, correctly, as ignored. The first line must go.
+  const tools = {}
+  await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+    hostKeyPolicy: 'tofu', knownHosts: '/tmp/some-known-hosts', machines: {},
+  })
+  const text = String((await tools.ssh_config.execute({}, {})).text)
+  assert.doesNotMatch(text, /Settings not shown above \(report this\): .*knownHosts/)
+  assert.match(text, /Ignored settings \(not recognised, so they govern nothing\): knownHosts/)
+})

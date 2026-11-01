@@ -2339,7 +2339,10 @@ function passphraseLine(st) {
       // A setting added to Config but not to this list would be invisible to the
       // operator, which is how pipeToShell and healthCheckTimeoutMs went missing.
       const shown = new Set(rows.map((r) => r[0]))
-      const missing = Object.keys(cfg).filter((k) => !shown.has(k))
+      // A key that is not a setting at all is already named by ignoredSettings below,
+      // and asking the user to report it as a missing row was wrong: knownHosts is a
+      // per-machine field, and a top-level one produced both messages at once.
+      const missing = Object.keys(cfg).filter((k) => !shown.has(k) && !ignoredSettings.includes(k))
       if (missing.length > 0) {
         lines.push('', 'Settings not shown above (report this): ' + missing.join(', '))
       }
