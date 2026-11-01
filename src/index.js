@@ -1831,6 +1831,19 @@ const trustedLine = (m) => {
               '（action: "remove", machine: "' + owner + '", deleteFiles: true），再为 "' + alias + '" 创建。'
             )
           }
+          // An entry in the placeholder that is not a regular file (a symlink, a
+          // directory of that name): writing through it would change something
+          // outside the placeholder, so the write refused.
+          if (code === 'DSH_WORKSPACE_ENTRY_NOT_FILE') {
+            const entry = String(/** @type {{entry?: string}} */ (err).entry || 'AGENTS.md')
+            const kind = String(/** @type {{kind?: string}} */ (err).kind || 'special file')
+            const zh = kind === 'symbolic link' ? '符号链接' : kind === 'directory' ? '目录' : '特殊文件'
+            throw new Error(
+              '无法创建机器 "' + alias + '" 的远程工作区：占位目录里的 ' + entry + ' 不是普通文件（是' + zh + '），' +
+              '写进去会改到占位目录之外的东西。\n  目录：' + dir + '\n' +
+              '把 ' + entry + ' 删掉或改名，再重试。'
+            )
+          }
           // The blocker is not always the target: with remotes itself a file, the
           // message claimed a file named after the alias existed where the alias
           // directory does. Name the component that is actually in the way.
@@ -1839,7 +1852,12 @@ const trustedLine = (m) => {
             ? blocking + ' 已经是一个文件，占位目录建不出来'
             : code === 'EEXIST' || code === 'ENOTDIR'
               ? '那个位置已经有一个同名文件，占位目录建不出来'
-              : '目录无法创建（' + (code || (err && err.message) || '未知原因') + '）'
+              // An error without an fs code is this plugin's own refusal (a symlinked
+              // AGENTS.md, say): calling that 'the directory could not be created' says
+              // the wrong thing about a directory that exists.
+              : code
+                ? '目录无法创建（' + code + '）'
+                : ((err && err.message) || '目录无法创建（未知原因）')
           throw new Error(
             '无法创建机器 "' + alias + '" 的远程工作区：' + detail + '。\n' +
             '  目录：' + dir + '\n' +

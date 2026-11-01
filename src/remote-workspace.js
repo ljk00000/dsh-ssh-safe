@@ -277,6 +277,31 @@ export function writeRemoteWorkspace(dshHome, alias, machine = {}, policy = 'str
     }
   }
   mkdirSync(dir, { recursive: true })
+  // writeFileSync follows a symlink: an AGENTS.md linked to a file outside the
+  // placeholder had that file overwritten with these instructions (measured:
+  // 'DO NOT TOUCH' became the workspace text). Only a regular file is ours to
+  // rewrite; anything else there is the user's and is named in the refusal.
+  for (const name of ['AGENTS.md', MARKER]) {
+    let entry = null
+    try {
+      entry = lstatSync(join(dir, name))
+    } catch { /* absent: nothing to protect */ }
+    if (entry && !entry.isFile()) {
+      const kind = entry.isSymbolicLink() ? 'symbolic link' : entry.isDirectory() ? 'directory' : 'special file'
+      const err = new Error(
+        'refusing to write into ' + dir + ': ' + name + ' is not a regular file (it is a ' + kind +
+        '), and writing through it would change something outside the placeholder. ' +
+        'Move or delete it, then create the workspace again.'
+      )
+      // @ts-expect-error -- marking the error so the tool can say it in the user's language
+      err.code = 'DSH_WORKSPACE_ENTRY_NOT_FILE'
+      // @ts-expect-error -- same
+      err.entry = name
+      // @ts-expect-error -- same
+      err.kind = kind
+      throw err
+    }
+  }
   writeFileSync(join(dir, 'AGENTS.md'), remoteInstructions(alias, machine, policy, hideHost), 'utf8')
   // readMarker() only ever reads .alias, so the endpoint fields were written and
   // never used -- except as the address that machineInventory: alias is meant to

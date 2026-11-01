@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.364 — 2026-11-01
+
+### Fixed — `create` wrote through a symlinked `AGENTS.md`
+`writeFileSync` follows a symlink, so a placeholder whose `AGENTS.md` was a link to a file outside it had **that**
+file overwritten with the workspace instructions:
+```
+placeholder/AGENTS.md -> ~/outside-precious.txt   ("DO NOT TOUCH")
+ssh_workspace { action: "create", machine: "box" }
+before   outside-precious.txt = "# 远程工作区：box …"      the user's file, replaced
+after    ERR: … 占位目录里的 AGENTS.md 不是普通文件（是符号链接），写进去会改到占位目录之外的东西。
+         outside-precious.txt is still "DO NOT TOUCH"
+```
+Both entries this plugin writes (`AGENTS.md` and the marker) are `lstat`ed first: only a regular file, or nothing,
+is written. Anything else is refused with a code (`DSH_WORKSPACE_ENTRY_NOT_FILE`) that the tool renders in the
+caller's language, naming the entry and its kind. The remove side already treats those names the same way
+(0.7.363).
+
+### Also fixed — a refusal was reported as "the directory could not be created"
+The create wrapper used `code || err.message` for its detail line, so this plugin's own refusals (which carry no fs
+code) came out as `目录无法创建（refusing to write into …）` — about a directory that exists and was never the
+problem. A message without an fs code is now reported as itself.
+
+### Verified this round (no defect found)
+
+- Removing the workspace with that same link present refuses ("里面有你的东西") and leaves the linked file untouched.
+
+### My own mistakes
+
+1. My first patch tried to match a two-line anchor with `\n` while the file uses CRLF, so it reported "write anchor
+   missing"; I located the line by index and inserted there instead of fighting the line endings.
+2. After the guard worked, the reply still said "目录无法创建" — the fix was incomplete until I read the wrapper. I
+   only noticed because I printed the whole reply, not just the assertion.
+
+### Tests
+
+- New: a symlinked `AGENTS.md` makes `create` refuse, the linked file keeps its contents, and `remove` does not
+  delete through the link either.
+  Suite 954 / 949 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.363 — 2026-11-01
 
 ### Fixed — a directory named `AGENTS.md` was deleted with the workspace

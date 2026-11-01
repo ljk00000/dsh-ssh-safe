@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import path from 'node:path'
@@ -744,6 +744,44 @@ test('a directory named AGENTS.md is the user\'s, not this plugin\'s file', asyn
     const adopt = await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
     assert.match(adopt, /没有创建的内容|AGENTS\.md/)
     assert.equal(existsSync(path.join(dir, 'AGENTS.md', 'inside', 'keep.txt')), true)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('create refuses to write through a symlinked AGENTS.md', async () => {
+  // writeFileSync follows a symlink: an AGENTS.md linked outside the placeholder had
+  // that file overwritten with the workspace instructions (measured: 'DO NOT TOUCH'
+  // became '# 远程工作区：box …'). The outside file must survive and the reply must say
+  // which entry and why.
+  const home = mkdtempSync(join(tmpdir(), 'dsh-ws-symlink-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  const registry = { items: [], list() { return this.items.slice() }, async create(p, t) { const w = { id: 'w', path: p, title: t }; this.items.push(w); return w }, async delete() { return true } }
+  const ctx = { tools: { register: (def) => { tools[def.name] = def } }, effect: () => {}, get: () => registry }
+  try {
+    await apply(ctx, { hostKeyPolicy: 'tofu', allowPlaintextPassword: true, machines: { box: { host: 'h.example', user: 'u' } } })
+    const text = async (promise) => String(await promise.then((r) => (r && r.text !== undefined ? r.text : ''), (err) => 'ERR: ' + err.message))
+    await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
+    const dir = remoteDir(home, 'box')
+    const outside = join(home, 'outside-precious.txt')
+    writeFileSync(outside, 'DO NOT TOUCH')
+    const agents = join(dir, 'AGENTS.md')
+    rmSync(agents, { force: true })
+    symlinkSync(outside, agents, 'file')
+
+    const refused = await text(tools.ssh_workspace.execute({ action: 'create', machine: 'box' }, {}))
+    assert.match(refused, /不是普通文件/, 'the refusal must name the reason: ' + refused)
+    assert.match(refused, /AGENTS\.md/)
+    assert.equal(readFileSync(outside, 'utf8'), 'DO NOT TOUCH', 'the linked file must not be overwritten')
+
+    // And the linked file must not be deleted through the link either.
+    const removed = await text(tools.ssh_workspace.execute({ action: 'remove', machine: 'box', deleteFiles: true }, {}))
+    assert.match(removed, /没有删除/)
+    assert.equal(readFileSync(outside, 'utf8'), 'DO NOT TOUCH')
   } finally {
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous
