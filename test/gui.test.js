@@ -263,6 +263,30 @@ test('an unreachable host is reported, not thrown', async () => {
   }
 })
 
+test('port 0 means "not set" here too, as it does in the plugin', async () => {
+  // The page rejected 0 with '端口必须是 1-65535 的整数', a rule the plugin does not
+  // have: the settings form uses 0 for 'unset' and the resolver falls back to 22.
+  // A caller normalising 'no port' to 0 was refused while the same 0 in the form
+  // worked.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-port0-'))
+  const { child, base, token } = await start(home)
+  try {
+    const zero = await call(base, token, '/api/save', { alias: 'zero', host: 'h', port: 0, user: 'u' })
+    assert.equal(zero.status, 200)
+    const text = await call(base, token, '/api/save', { alias: 'text', host: 'h', port: '0', user: 'u' })
+    assert.equal(text.status, 200)
+    const saved = JSON.parse(readFileSync(path.join(home, 'dsh-ssh-safe', 'credentials.json'), 'utf8'))
+    assert.equal('port' in saved.zero, false, 'port 0 must not be written as a port: ' + JSON.stringify(saved.zero))
+    assert.equal('port' in saved.text, false, 'port "0" must not be written either')
+    // A real value is still validated.
+    const tooBig = await call(base, token, '/api/save', { alias: 'big', host: 'h', port: 70000, user: 'u' })
+    assert.equal(tooBig.status, 400)
+  } finally {
+    child.kill()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('a bad port is rejected before anything is written', async () => {
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-'))
   const { child, base, token } = await start(home)

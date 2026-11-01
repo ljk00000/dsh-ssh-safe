@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.334 — 2026-11-01
+
+### Fixed — the settings page refused `port: 0`, which the plugin treats as "not set"
+The page answered `400 端口必须是 1-65535 的整数` for a zero, quoting a rule the plugin does not have since
+0.7.332: the settings form uses 0 to mean "unset" and the resolver falls back to 22. A caller normalising
+"no port" to 0 was therefore rejected while the very same 0 in the form worked:
+```
+POST /api/save { alias: zero, host: h, port: 0, user: u }
+before  400 端口必须是 1-65535 的整数
+after   200 {"ok":true}   -> the entry is written without a port field, so 22 (or the environment) decides
+        port 70000 / "abc" / -5 are still refused
+```
+
+### Verified this round (no defect found)
+- `ssh_machines` reports the fallback honestly after 0.7.333: an unset port shows `:22` and names no source,
+  `port: 0` in the form or the credential file falls back silently, and `-5` is still `BAD PORT`.
+
+### My own mistakes
+- I nearly recorded this as "page is stricter, that is fine" — the deciding detail was that the *plugin* now
+  documents 0 as "unset", so a stricter page contradicts the product it configures.
+
+### Tests
+- New: `port: 0` and `"0"` save without a port field, while 70000 is still refused.
+  Suite 920 / 915 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.333 — 2026-11-01
 
 ### Fixed — every machine without a port looked environment-sourced

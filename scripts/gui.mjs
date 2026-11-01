@@ -1041,7 +1041,12 @@ const server = createServer(async (req, res) => {
       }
 
       if (filled(body.host)) entry.host = String(body.host).trim()
-      if (filled(body.port)) {
+      // 0 means 'not set' in the plugin (the settings form uses it that way since
+      // 0.7.332), so refusing it here quoted a rule the plugin does not have: a
+      // caller normalising 'no port' to 0 was rejected while the same 0 in the
+      // settings form simply falls back to 22.
+      const portAsked = filled(body.port) && Number(body.port) !== 0
+      if (portAsked) {
         const port = Number(body.port)
         if (!Number.isInteger(port) || port < 1 || port > 65535) {
           return sendJson(res, 400, { error: '端口必须是 1-65535 的整数' })
