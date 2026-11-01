@@ -1673,3 +1673,28 @@ test('a machine whose value is a plain string is named as such, not as a flow ma
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a misspelled page option is refused instead of ignored', async () => {
+  // The tools refuse an argument they do not declare. This script accepted any
+  // --key, so '--proflie desktop' started against the default profile without a
+  // word and every save edited a credential file the user had not named.
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-gui-args-'))
+  try {
+    const run = (args) => new Promise((resolve) => {
+      const child = spawn(process.execPath, [script, ...args], { stdio: ['ignore', 'pipe', 'pipe'] })
+      let out = ''
+      child.stdout.on('data', (chunk) => { out += chunk.toString('utf8') })
+      child.stderr.on('data', (chunk) => { out += chunk.toString('utf8') })
+      const timer = setTimeout(() => { child.kill(); resolve({ code: null, out }) }, 8000)
+      child.on('exit', (code) => { clearTimeout(timer); resolve({ code, out }) })
+    })
+    const typo = await run(['--no-open', '--proflie', 'desktop', '--dsh-home', home])
+    assert.equal(typo.code, 2, 'a misspelled option must be refused: ' + typo.out)
+    assert.match(typo.out, /Unknown option\(s\): --proflie/)
+    assert.match(typo.out, /Accepted: --dsh-home, --profile, --port, --idle-ms, --no-open/)
+    // The accepted spelling still starts the server.
+    const good = await run(['--no-open', '--port', '0', '--dsh-home', home, '--idle-ms', '5000'])
+    assert.match(good.out, /http:\/\/127\.0\.0\.1:\d+/, 'the accepted options must work: ' + good.out)
+    if (good.code === null) return
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})

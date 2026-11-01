@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.337 — 2026-11-01
+
+### Fixed — the settings page script ignored every option it did not know
+`scripts/gui.mjs` parsed any `--key` it was given and read only the five it cared about, so a typo started the page
+against the wrong target without a word:
+```
+node scripts/gui.mjs --proflie desktop --no-open
+before  (starts)  credentials: C:\Users\…\.dsh\dsh-ssh-safe\credentials.json    <- the DEFAULT profile
+after   Unknown option(s): --proflie. Accepted: --dsh-home, --profile, --port, --idle-ms, --no-open   (exit 2)
+```
+This is the same failure the tools already refuse ("a misspelled argument is accepted and silently ignored" —
+`rejectUnknown` in index.js); the script was the last place that still behaved the old way. Every save made from
+that window then edited a credential file the user had not named.
+
+### Fixed — the generated AGENTS.md pointed every session at /root
+The quick start example was `ssh_list { path: "/root" }`, readable only by root. For any other account the first
+command an agent ran in a fresh workspace failed with "permission denied", which reads as "these tools do not work
+here". It now lists the account's own home directory:
+```
+before  ssh_list { machine: "box", path: "/root" }
+after   ssh_list { machine: "box" }            # 家目录；path 可省略
+```
+
+### Verified this round (no defect found)
+- `ssh_read` / `ssh_write` really do require absolute remote paths (relative, `./x` and `../x` are refused by
+  name), while `ssh_list` accepts a relative path — so the instructions and the tools agree.
+
+### Tests
+- New: a misspelled page option exits 2 naming the accepted ones, and the accepted spelling still starts the
+  server.
+  Suite 923 / 918 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.336 — 2026-11-01
 
 ### Fixed — a placeholder whose machine moved kept teaching sessions the old host

@@ -148,8 +148,11 @@ export function remoteInstructions(alias, machine = {}, policy = 'strict', hideH
     '## 快速开始',
     '',
     FENCE,
+    // /root is readable only by root: for every other account the first command in a
+    // fresh workspace failed with 'permission denied', which reads as 'these tools do
+    // not work here'. Omitting path lists the account's own home directory.
     'ssh_exec { machine: "' + name + '", command: "uname -a" }',
-    'ssh_list { machine: "' + name + '", path: "/root" }',
+    'ssh_list { machine: "' + name + '" }            # 家目录；path 可省略',
     FENCE,
     '',
   ]

@@ -58,6 +58,17 @@ function parseArgs(argv) {
 }
 
 const args = parseArgs(process.argv.slice(2))
+// The tools refuse an argument they do not declare, because a misspelled one is
+// silently ignored and looks like it worked. This script accepted any --key the
+// same way: `--proflie desktop` started against the default profile without a
+// word, and every save then edited a credential file the user had not named.
+const ACCEPTED_OPTIONS = ['dsh-home', 'profile', 'port', 'idle-ms', 'no-open']
+const unknownOptions = Object.keys(args).filter((key) => !ACCEPTED_OPTIONS.includes(key))
+if (unknownOptions.length > 0) {
+  console.error('Unknown option(s): ' + unknownOptions.map((key) => '--' + key).join(', ') +
+    '. Accepted: ' + ACCEPTED_OPTIONS.map((key) => '--' + key).join(', '))
+  process.exit(2)
+}
 const dshHome = path.resolve(String(args['dsh-home'] || process.env.DSH_HOME || path.join(process.env.USERPROFILE || process.env.HOME || '.', '.dsh')))
 const profileDir = path.resolve(String(args.profile || path.join(dshHome, 'profiles', 'desktop')))
 // Both of these used to go straight into Number(): --port abc reached
