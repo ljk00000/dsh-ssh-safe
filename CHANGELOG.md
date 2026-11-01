@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.7.318 — 2026-11-01
+
+### Fixed — a `knownHosts` path to the plugin store refused every connection and was never created
+`knownHosts` normally names an OpenSSH file the plugin verifies but never writes. It may also name the
+plugin's own JSON store — the code parses one when the content is JSON — but a path that did **not exist yet**
+was read as an empty OpenSSH file, so `hostKeyPolicy: tofu` refused every connection and never created it:
+```
+knownHosts: ~/.dsh/dsh-ssh-safe/known_hosts.json   (absent)
+before  ERR: Unknown host 127.0.0.1:7286 with fingerprint SHA256:…  … is an OpenSSH known_hosts file,
+              which this plugin verifies but does not write to. Add the host with: ssh-keyscan …
+        (file created: no; every retry said the same thing)
+after   Connected … the store is created and holds {"version":1,"hosts":{"127.0.0.1:…":{"fingerprint":"SHA256:…"}}}
+        the next connection verifies the recorded key, and a different key is refused as HOST KEY CHANGED
+```
+A missing path is now decided by its name: `.json` is the plugin store (created on the first recorded key),
+anything else keeps its meaning as a read-only OpenSSH file, so `~/.ssh/known_hosts` behaves exactly as before.
+The "accepted for this connection only" note also had to learn the difference — it was printed right after
+recording the key into that store, telling the user the opposite of what had just happened.
+
+### Verified this round (no defect found)
+- An **empty** OpenSSH `knownHosts` file with tofu still refuses with the full remedy ("Add the host with:
+  ssh-keyscan -p … >> … — after confirming the fingerprint out of band — or call ssh_connect with
+  trustHostKey: true"), and the file stays empty and untouched.
+- The plugin store being consulted *instead* of the JSON store for one machine is documented ("can be used
+  instead") and per machine, so other machines keep their pinned fingerprints.
+
+### My own mistakes
+1. My first patch skipped the "empty OpenSSH file" branch but not the "not a format this plugin can verify"
+   branch below it, so the missing store answered `is not in a format this plugin can verify … first entry:
+   ""` — a stranger message than the one I was fixing.
+2. I only noticed the stale "accepted for this connection only" note because the probe printed the whole
+   reply; I had been slicing to 110 characters.
+
+### Tests
+- One new case: a missing `.json` store is created, verifies on the next connection, refuses a changed key,
+  and a missing OpenSSH path keeps refusing.
+  Suite 904 / 899 pass / 5 skipped / 0 fail, run twice; `tsc` clean.
+
 ## 0.7.317 — 2026-11-01
 
 ### Added — a close while the machine is still dialling is covered

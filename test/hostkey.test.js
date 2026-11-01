@@ -403,3 +403,42 @@ test('a store written by a newer plugin is explained, not called corrupt', () =>
     assert.match(other.reason, /Repair the file/)
   } finally { rmSync(home, { recursive: true, force: true }) }
 })
+
+test('a knownHosts path ending in .json is the plugin store, and a missing one is created', () => {
+  // knownHosts names an OpenSSH file the plugin only reads. A JSON store is the
+  // other file this setting can point at (the code already parses one), but a
+  // *missing* store path was read as an empty OpenSSH file: tofu refused every
+  // connection with 'Unknown host' and never created the file.
+  const home = freshHome()
+  try {
+    const store = path.join(home, 'dsh-ssh-safe', 'known_hosts.json')
+    const first = checkHostKey({
+      dshHome: home, knownHostsFile: store, host: 'h', port: 22, keyBlob: keyA, policy: 'tofu',
+    })
+    assert.equal(first.ok, true, 'tofu must record into its own store')
+    assert.equal(first.firstSeen, true)
+    assert.equal(statSync(store).isFile(), true, 'the store file must exist now')
+    const saved = JSON.parse(readFileSync(store, 'utf8'))
+    assert.equal(saved.hosts['h:22'].fingerprint, fingerprint(keyA))
+
+    const second = checkHostKey({
+      dshHome: home, knownHostsFile: store, host: 'h', port: 22, keyBlob: keyA, policy: 'strict',
+    })
+    assert.equal(second.ok, true, 'the recorded key verifies under strict')
+    assert.equal(second.firstSeen, false)
+
+    const changed = checkHostKey({
+      dshHome: home, knownHostsFile: store, host: 'h', port: 22, keyBlob: keyB, policy: 'tofu',
+    })
+    assert.equal(changed.ok, false)
+    assert.match(changed.reason, /HOST KEY CHANGED/)
+
+    // A missing OpenSSH path keeps its old meaning: read-only, tofu cannot pin it.
+    const sshFile = path.join(home, 'openssh_known_hosts')
+    const refused = checkHostKey({
+      dshHome: home, knownHostsFile: sshFile, host: 'h', port: 22, keyBlob: keyA, policy: 'tofu',
+    })
+    assert.equal(refused.ok, false)
+    assert.match(refused.reason, /does not write to/)
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})

@@ -1112,7 +1112,13 @@ function assertKnownArgs(args, known, toolName) {
       // trustHostKey is accepted for this connection only. Saying so beats letting
       // the next plain connect fail with the same 'Unknown host' the caller just
       // thought they had cleared.
-      const readOnlyTrust = m.knownHosts && entry.hostKeyFirstSeen === true
+      // A knownHosts path names an OpenSSH file the plugin only reads — unless it is the
+      // plugin's own JSON store (a path ending in .json), which it creates and writes.
+      // The note claimed 'accepted for this connection only' for that store too, right
+      // after recording the key in it.
+      const knownHostsPath = m.knownHosts ? expandHome(m.knownHosts) : ''
+      const readOnlyTrust = knownHostsPath !== '' && !/\.json$/i.test(knownHostsPath) &&
+        entry.hostKeyFirstSeen === true
         // The path is local config, not remote text: printable() escaped every
         // backslash, so a Windows path read as C:\\Users\\… (a different path).
         ? '\n[note] that key was accepted for this connection only: ' + expandHome(m.knownHosts) +

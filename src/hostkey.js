@@ -470,6 +470,10 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
   // OpenSSH file. Read it as one rather than answering with a JSON syntax error.
   if (knownHostsFile) {
     let text = null
+    // A path that does not exist yet is ambiguous: an OpenSSH file must be filled
+    // in by the user (the plugin never writes it), while the plugin's own store is
+    // created on the first recorded key. The name decides — the store is JSON.
+    let missing = false
     try {
       text = readFileSync(file, 'utf8')
     } catch (err) {
@@ -484,7 +488,9 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
         }
       }
       text = ''
+      missing = true
     }
+    const jsonStorePath = missing && /\.json$/i.test(file)
     // A file that is empty, or holds nothing but comments, is a perfectly valid
     // known_hosts with no entries yet ('touch ~/.ssh/known_hosts'). It used to fall
     // through to the 'not in a format this plugin can verify' branch and quote an
@@ -493,7 +499,7 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
       const trimmed = line.trim()
       return trimmed !== '' && !trimmed.startsWith('#')
     })
-    if (text !== null && (entryLines.length === 0 || looksLikeOpenSshKnownHosts(text))) {
+    if (!jsonStorePath && text !== null && (entryLines.length === 0 || looksLikeOpenSshKnownHosts(text))) {
       return checkOpenSshHostKey({
         text, file, host, port, keyBlob, policy, trustHostKey: trustHostKey === true, fp,
       })
@@ -505,7 +511,10 @@ export function checkHostKey({ dshHome, host, port, keyBlob, policy, trustHostKe
     // at one); readStore below explains whatever is wrong with it.
     let looksJson = false
     try { JSON.parse(stripBom(text)); looksJson = true } catch { looksJson = false }
-    if (text !== null && !looksJson) {
+    // A missing JSON store is created by the store code below; calling it 'not in a
+    // format this plugin can verify' about a file that does not exist was the
+    // second wrong answer on this path.
+    if (!jsonStorePath && text !== null && !looksJson) {
       const firstLine = String(text).split(/\r?\n/).find((line) => line.trim() && !line.trim().startsWith('#')) || ''
       return {
         ok: false,
