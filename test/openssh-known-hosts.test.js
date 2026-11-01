@@ -50,10 +50,21 @@ test('a matching entry verifies, including wildcards and bracketed ports', () =>
   assert.equal(verdict({ host: 'github.com', port: 22 }).ok, true)
   assert.equal(verdict({ host: 'build.internal', port: 22 }).ok, true)
   assert.equal(verdict({ host: 'example.com', port: 2222 }).ok, true)
-  // The bracketed entry covers only its port; the bare ones cover every port,
-  // which is what OpenSSH does.
+  // A bracketed entry covers only its port. A bare pattern is matched against the
+  // name OpenSSH looks up, which on a non-default port is '[host]:port' — so
+  // '*.internal' does NOT cover build.internal:2222, while a bare '*' does (it
+  // matches the bracketed string too). The old comment here said bare entries cover
+  // every port, and the code has not done that since the port rule was added.
   assert.equal(verdict({ host: 'example.com', port: 22 }).ok, false)
   assert.match(verdict({ host: 'example.com', port: 22 }).reason, /Unknown host example\.com:22/)
+  assert.equal(verdict({ host: 'build.internal', port: 2222 }).ok, false,
+    'a plain wildcard must not cover a non-default port')
+  // A bare '*' is the one plain pattern that does cover a bracketed name — it has
+  // no prefix to fail on. Written to its own file, or it would vouch for every
+  // refusal above.
+  writeFileSync(file, '* ssh-ed25519 ' + b64 + '\n')
+  assert.equal(verdict({ host: 'anywhere.example', port: 2222 }).ok, true,
+    "a bare '*' matches the bracketed name too")
 })
 
 test('hashed entries are matched the way OpenSSH matches them', () => {

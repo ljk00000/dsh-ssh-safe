@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.401 — 2026-11-01
+
+### Fixed — a test comment claimed the opposite of what the code does, and the case was untested
+
+`openssh-known-hosts.test.js` said "the bare ones cover every port, which is what OpenSSH does". Since the port rule
+was added (`hostkey.js`, `candidates = port === 22 ? [host] : ["[host]:port"]`), a plain pattern is matched against
+the name OpenSSH looks up — `[host]:port` on a non-default port — so it covers only what that name allows:
+
+```
+'*.internal'  against build.internal:2222  → refused   (the pattern has a prefix to fail on)
+'*'           against anywhere.example:2222 → accepted (it matches the bracketed name too)
+```
+
+Nothing pinned either row; the comment actively invited the wrong belief. Both are asserted now (each in its own
+file: a bare `*` in the shared file vouched for the refusals next to it — my first version of this test failed
+exactly that way).
+
+### Verified this round (no defect found)
+
+- The OpenSSH matching matrix behaves like OpenSSH: `[h]:2222` covers only 2222, `[h]:22` does not cover 2222,
+  plain `h` covers only 22, `*.example` covers only 22, `*` covers everything, an unrelated host covers nothing.
+- A hand-edited audit log renders without junk: unknown `kind`, unknown `outcome`, an object where a machine name
+  belongs, a bad timestamp, `null`, an array and a bare string each print something readable (`[unreadable record]`
+  for the last three). No `undefined`, `NaN` or `[object Object]` reached the output.
+- Write modes report exactly what happened: a new file with `755` gets 0755; rewriting it with `700` says "asked
+  for 0700 but the file ended up 0755 …"; `7777` says the same about the dropped setuid bit; `mode: 0` is refused as
+  "must be a string" (the setting takes `"755"`-style text).
+
+### Tests
+
+- New: the wildcard/port rows above. Suite 990 / 985 pass / 5 skipped / 0 fail, run twice concurrently; `tsc`
+  clean.
+
 ## 0.7.400 — 2026-11-01
 
 ### Fixed — the "no credentials" refusal promised something that did not happen, twice
