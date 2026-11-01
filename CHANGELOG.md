@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.362 — 2026-11-01
+
+### New — the per-call timeout is tested against the configured one
+The parameter promises that `timeoutMs` overrides `commandTimeoutMs`; the opposite (a cap a caller cannot lift)
+would make a long job impossible without editing the plugin config. Measured, with `commandTimeoutMs: 1000`:
+```
+ssh_exec { command: "sleep 2" }                     → [timed out after 1000ms …]   (1.0 s)
+ssh_exec { command: "sleep 2", timeoutMs: 6000 }    → [exit 0]                      (2.0 s)
+ssh_exec { command: "sleep 5", timeoutMs: 1e9 }     → [exit 0]                      (5.0 s)
+```
+
+### Verified this round (no defect found)
+
+- `createDirs: true` through a symlinked directory writes to the link's target (`/link/a.txt` → `/real/a.txt`, and
+  `/link/sub/b.txt` creates `/real/sub/b.txt`); a dangling link is reported as "…is a symbolic link to
+  /missing-dir, and that…", and a link to a file as "…already exists and is a file, not a directory".
+- Closing never claims a signal it did not send: the reply distinguishes `Closed:`, "Requested close but the peer
+  did not confirm:", and "Left open (command running):"; the SIGTERM wording exists only in the exec timeout note,
+  which ends with "A process that ignores SIGTERM can still be running".
+- The audit log cannot grow a line: `clampRecord()` redacts every string field and cuts it to 300 characters, with
+  a surrogate guard, and replaces non-primitives with `[object]`.
+
+### My own repeated mistake
+
+- For the second round running I set a timeout below the schema minimum (`commandTimeoutMs: 900`) and the plugin
+  refused to load. The rule is 1000 for every timeout and the error says so; I should check the minimum before
+  writing a probe, not after.
+
+### Tests
+
+- New: the precedence test above.
+  Suite 952 / 947 pass / 5 skipped / 0 fail, run twice concurrently; `tsc` clean.
+
 ## 0.7.361 — 2026-11-01
 
 ### New — `machineInventory: alias` is checked against every tool

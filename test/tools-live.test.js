@@ -4078,3 +4078,35 @@ test('a burst of connects leaves one client, and close with no machine closes bo
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('a per-call timeout above commandTimeoutMs wins, and omitting it uses the configured one', async () => {
+  // 'timeoutMs overrides commandTimeoutMs' is what the parameter promises; the
+  // opposite (a global cap that a caller cannot lift) would make long jobs
+  // impossible without editing the plugin config.
+  const own = await startServer()
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-timeout-override-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const tools = {}
+  try {
+    await apply({ tools: { register: (d) => { tools[d.name] = d } }, effect: () => {}, get: () => undefined }, {
+      defaultMachine: 't', hostKeyPolicy: 'tofu', allowPlaintextPassword: true, reconnectCooldownMs: 0,
+      connectTimeoutMs: 3000, commandTimeoutMs: 1000,
+      machines: { t: machineFor('t', own.port) },
+    })
+    const run = async (args) => String((await tools.ssh_exec.execute({ machine: 't', ...args }, {})).text)
+    // The configured 1000 ms applies when the caller says nothing.
+    const implicit = await run({ command: 'sleep 2' })
+    assert.match(implicit, /timed out after 1000ms/)
+    // A larger per-call value lifts it: 2 s of sleep against a 1 s default.
+    const explicit = await run({ command: 'sleep 2', timeoutMs: 6000 })
+    assert.doesNotMatch(explicit, /timed out/)
+    assert.match(explicit, /\[exit 0\]/)
+  } finally {
+    try { await tools.ssh_close.execute({ force: true }, {}) } catch {}
+    await own.close()
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
+})
